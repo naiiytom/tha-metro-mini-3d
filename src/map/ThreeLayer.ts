@@ -7,7 +7,7 @@ import * as THREE from "three";
 import type { NetworkData } from "../types";
 import type { LineMaterial } from "three/addons/lines/LineMaterial.js";
 import { MERC_PER_METER, ORIGIN_MERC } from "./coordinates";
-import { buildStationMarkers, buildTrackDeck, buildTrackLine } from "./trackGeometry";
+import { PRE_REVENUE_OPACITY, buildStationMarkers, buildTrackDeck, buildTrackLine } from "./trackGeometry";
 import type { VehicleManager } from "./VehicleManager";
 
 /**
@@ -174,18 +174,30 @@ export class NetworkLayer implements CustomLayerInterface {
    * depth interop with MapLibre's tiles (§3A.4 — that is the open-ended
    * problem this deliberately sidesteps). On: sub-surface goes fully opaque
    * and the surface network recedes.
+   *
+   * A pre-revenue material (`sweepDeck` tags it with `userData.preRevenue`)
+   * is capped at PRE_REVENUE_OPACITY in both modes rather than driven
+   * straight by `on`/`off` — otherwise underground-ON would set it fully
+   * opaque (`opacity = 1`), erasing the "this line isn't running trains
+   * yet" ghost look the deck was deliberately built with (finding 6b).
+   * Latent today (no registry line is preRevenue: true yet), but real the
+   * moment one is added.
    */
   private applyUndergroundMode(): void {
     const on = this.undergroundMode;
+    const cap = (opacity: number, m: THREE.Material) =>
+      m.userData?.preRevenue ? Math.min(opacity, PRE_REVENUE_OPACITY) : opacity;
     for (const m of this.subsurfaceMaterials) {
-      m.transparent = !on;
-      m.opacity = on ? 1 : 0.35;
+      const opacity = cap(on ? 1 : 0.35, m);
+      m.transparent = opacity < 1;
+      m.opacity = opacity;
       m.depthWrite = on;
       m.needsUpdate = true;
     }
     for (const m of this.surfaceMaterials) {
-      m.transparent = on;
-      m.opacity = on ? 0.3 : 1;
+      const opacity = cap(on ? 0.3 : 1, m);
+      m.transparent = opacity < 1;
+      m.opacity = opacity;
       m.depthWrite = !on;
       m.needsUpdate = true;
     }
@@ -245,6 +257,10 @@ export class NetworkLayer implements CustomLayerInterface {
     this.lineGroups = [];
     this.surfaceMaterials = [];
     this.subsurfaceMaterials = [];
+    // Cleared along with the material buckets it drives — a re-add starts
+    // onAdd()'s applyUndergroundMode() from a clean flag instead of seeding
+    // a freshly rebuilt scene from a stale prior value.
+    this.undergroundMode = false;
     this.sunLight = null;
     this.ambientLight = null;
     // The GL context belongs to MapLibre — dispose Three's wrapper only.

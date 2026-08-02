@@ -26,6 +26,15 @@ export const DECK_PROFILE: Record<Structure | "monorail", { widthM: number; dept
   monorail: { widthM: 5, depthM: 1.6 },
 };
 
+/**
+ * Opacity ceiling for an unopened (pre-revenue) line's deck — desaturated
+ * AND translucent so it reads as alignment, not an operating line. Also the
+ * cap `ThreeLayer.applyUndergroundMode` respects, so toggling underground
+ * view can never make a pre-revenue line's track read as fully opaque
+ * (finding 6b).
+ */
+export const PRE_REVENUE_OPACITY = 0.55;
+
 /** Monorail/APM guideways are beams, not viaducts, whatever their altitude. */
 function profileFor(line: LineGeometry, structure: Structure) {
   const beam = line.vehicleType === "monorail" || line.vehicleType === "apm";
@@ -254,8 +263,14 @@ function sweepDeck(
     color,
     side: THREE.DoubleSide,
     transparent: preRevenue,
-    opacity: preRevenue ? 0.55 : 1,
+    opacity: preRevenue ? PRE_REVENUE_OPACITY : 1,
   });
+  // ThreeLayer.applyUndergroundMode() re-weights this material's
+  // opacity/transparent every time the underground toggle flips; tagging it
+  // here is what lets that logic recognise a pre-revenue deck and cap its
+  // opacity at PRE_REVENUE_OPACITY instead of clobbering the ghost look with
+  // a flat "on"/"off" value (finding 6b).
+  material.userData.preRevenue = preRevenue;
   const mesh = new THREE.Mesh(geometry, material);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
