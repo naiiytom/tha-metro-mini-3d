@@ -262,6 +262,25 @@ fn run() -> Result<(), String> {
         }
     }
 
+    // route_id -> allow_large_snap_stop_ids, so the per-pattern resolver
+    // (below) can honour the same escape hatch the station-level snapping
+    // loop does when it validates a PATTERN-CHOSEN candidate's distance
+    // (task 5 follow-up finding 1b) — the resolver can select a candidate
+    // whose distance the station-level check, which only ever saw the
+    // globally-nearest candidate, never validated.
+    let allow_large_snap_by_route: HashMap<&str, HashSet<&str>> = track_file
+        .lines
+        .iter()
+        .filter_map(|l| {
+            if l.allow_large_snap_stop_ids.is_empty() {
+                return None;
+            }
+            l.gtfs_route_id.as_deref().map(|id| {
+                (id, l.allow_large_snap_stop_ids.iter().map(String::as_str).collect())
+            })
+        })
+        .collect();
+
     let all_stop_ids: HashSet<String> = stop_times
         .values()
         .flat_map(|rows| rows.iter().map(|r| r.stop_id.clone()))
@@ -499,7 +518,7 @@ fn run() -> Result<(), String> {
         candidate_maps.push(stop_candidates);
     }
 
-    link_interchanges(&mut routes, INTERCHANGE_RADIUS_M, &track_file.interchange_overrides);
+    link_interchanges(&mut routes, INTERCHANGE_RADIUS_M, &track_file.interchange_overrides)?;
 
     // ---- Services ----------------------------------------------------------
     let mut service_id_list: Vec<String> = service_ids.iter().cloned().collect();
@@ -534,6 +553,11 @@ fn run() -> Result<(), String> {
     )?;
     let mut patterns = Vec::new();
     let mut pattern_idx_by_trip: HashMap<String, u16> = HashMap::new();
+    // Total per-stop fallbacks (finding 1d): the resolver found no candidate
+    // consistent with the running arc and fell back to the plain-nearest
+    // position instead. Previously stderr-only, so a future regression here
+    // was invisible in committed data; now gateable via --report.
+    let mut pattern_arc_fallback_count: usize = 0;
     for trip in &trips {
         let route_idx = route_idx_by_gtfs_id[trip.route_id.as_str()];
         let rows = stop_times
@@ -563,7 +587,8 @@ fn run() -> Result<(), String> {
                     ))?,
             );
         }
-        let (resolved_arcs, used_fallback) = resolve_pattern_arcs(&candidate_lists);
+        let (resolved_arcs, resolved_dists, used_fallback) =
+            resolve_pattern_arcs_full(&candidate_lists);
 
         let mut stops = Vec::with_capacity(rows.len());
         let mut prev_arr = 0u32;
@@ -575,11 +600,46 @@ fn run() -> Result<(), String> {
             }
             prev_arr = arrival_s;
             if used_fallback[i] {
+                pattern_arc_fallback_count += 1;
                 eprintln!(
                     "warning: trip {} stop {} (station_idx {}): no snap candidate stayed \
                      consistent with this pattern's direction — used its plain nearest \
                      position instead of inventing one",
                     trip.trip_id, row.stop_id, station_idxs[i]
+                );
+            }
+            // Finding 1b: MAX_SNAP_M was checked against each stop's
+            // globally-nearest candidate in the station-snapping loop above,
+            // but the resolver can choose a DIFFERENT candidate for this
+            // specific pattern, arbitrarily farther away, that check never
+            // saw. Validate the actually-chosen candidate too, under the
+            // same rule (and the same allow_large_snap_stop_ids escape
+            // hatch + ceiling).
+            let dist = resolved_dists[i];
+            let large_snap_allowed = allow_large_snap_by_route
+                .get(trip.route_id.as_str())
+                .is_some_and(|s| s.contains(row.stop_id.as_str()));
+            if dist > MAX_SNAP_M && !large_snap_allowed {
+                return Err(format!(
+                    "trip {}: stop {} resolves to a pattern-specific candidate {dist:.1} m \
+                     from route {} track (limit {MAX_SNAP_M} m) — this differs from the \
+                     stop's globally-nearest snap, which passed the same check",
+                    trip.trip_id, row.stop_id, trip.route_id
+                ));
+            }
+            if large_snap_allowed && dist > ALLOW_LARGE_SNAP_CEILING_M {
+                return Err(format!(
+                    "trip {}: stop {} resolves to a pattern-specific candidate {dist:.1} m \
+                     from route {} track — past the {ALLOW_LARGE_SNAP_CEILING_M} m \
+                     allow_large_snap_stop_ids ceiling; this is too far to be the known \
+                     exception, check the id",
+                    trip.trip_id, row.stop_id, trip.route_id
+                ));
+            } else if large_snap_allowed && dist > MAX_SNAP_M {
+                eprintln!(
+                    "warning: trip {} stop {} resolves {dist:.1} m from route {} track — \
+                     allowed (allow_large_snap_stop_ids)",
+                    trip.trip_id, row.stop_id, trip.route_id
                 );
             }
             stops.push(PatternStop {
@@ -745,6 +805,12 @@ fn run() -> Result<(), String> {
         // elsewhere behind an already-large "normal" baseline.
         "max_snap_m": max_snap_m,
         "large_snap_exceptions": large_snap_exceptions,
+        // Finding 1d: count of per-stop pattern-arc resolutions that could
+        // not stay consistent with their pattern's running arc and fell
+        // back to a plain-nearest position (previously stderr-only warnings,
+        // invisible in committed data). Zero on a healthy network; a future
+        // self-approaching-alignment regression would show up here first.
+        "pattern_arc_fallbacks": pattern_arc_fallback_count,
         "per_route": per_route,
         // Highest simultaneous vehicle count over a sampled service day —
         // answers "is MAX_VEHICLES big enough" with data, not a guess
@@ -775,7 +841,20 @@ fn run() -> Result<(), String> {
 /// GTFS `parent_station` cannot do this job: interchanges here span operators
 /// (BTS/BEM/SRT) that publish independent feeds and never share a parent.
 /// Distance-clustering with a manual escape hatch is the pragmatic substitute.
-fn link_interchanges(routes: &mut [RouteDoc], radius_m: f64, overrides: &[InterchangeOverride]) {
+///
+/// Errors if any override matched zero station pairs (finding 2: this used
+/// to be silent — `overrides.iter().any(...)` just never matching on a
+/// typo'd line key or stop id, and the interchange it was meant to add
+/// silently never appeared). `assertRegistryValid()` only covers line keys,
+/// runs inside `fetch-network.mjs`, and the preprocessor is routinely run
+/// against a committed `network.json` without a re-fetch — the same reason
+/// `build_route_idx_by_gtfs_id` guards duplicate gtfs_route_ids here rather
+/// than trusting the registry validator alone.
+fn link_interchanges(
+    routes: &mut [RouteDoc],
+    radius_m: f64,
+    overrides: &[InterchangeOverride],
+) -> Result<(), String> {
     // (route_idx, station_idx, x, y, line_key, stop_id)
     let mut pts: Vec<(usize, usize, f32, f32, String, String)> = Vec::new();
     for (ri, route) in routes.iter().enumerate() {
@@ -787,6 +866,7 @@ fn link_interchanges(routes: &mut [RouteDoc], radius_m: f64, overrides: &[Interc
 
     let r2 = (radius_m * radius_m) as f32;
     let mut links: Vec<(usize, usize, usize, usize)> = Vec::new();
+    let mut override_matched = vec![false; overrides.len()];
     for i in 0..pts.len() {
         for j in (i + 1)..pts.len() {
             let (ri, si, xi, yi, li, idi) = (pts[i].0, pts[i].1, pts[i].2, pts[i].3, &pts[i].4, &pts[i].5);
@@ -795,14 +875,33 @@ fn link_interchanges(routes: &mut [RouteDoc], radius_m: f64, overrides: &[Interc
                 continue; // same line: adjacent stations are not an interchange
             }
             let near = (xi - xj).powi(2) + (yi - yj).powi(2) <= r2;
-            let forced = overrides.iter().any(|o| {
-                (o.a_line == *li && o.a_stop == *idi && o.b_line == *lj && o.b_stop == *idj)
-                    || (o.a_line == *lj && o.a_stop == *idj && o.b_line == *li && o.b_stop == *idi)
-            });
+            let mut forced = false;
+            for (oi, o) in overrides.iter().enumerate() {
+                let hit = (o.a_line == *li && o.a_stop == *idi && o.b_line == *lj && o.b_stop == *idj)
+                    || (o.a_line == *lj && o.a_stop == *idj && o.b_line == *li && o.b_stop == *idi);
+                if hit {
+                    override_matched[oi] = true;
+                    forced = true;
+                }
+            }
             if near || forced {
                 links.push((ri, si, rj, sj));
             }
         }
+    }
+
+    let unmatched: Vec<String> = overrides
+        .iter()
+        .zip(override_matched.iter())
+        .filter(|&(_, &matched)| !matched)
+        .map(|(o, _)| format!("{}/{} <-> {}/{}", o.a_line, o.a_stop, o.b_line, o.b_stop))
+        .collect();
+    if !unmatched.is_empty() {
+        return Err(format!(
+            "interchange_overrides matched zero station pairs (typo'd line key or stop id, \
+             or a route no longer carries that stop?): {}",
+            unmatched.join(", ")
+        ));
     }
 
     for (ri, si, rj, sj) in links {
@@ -813,6 +912,7 @@ fn link_interchanges(routes: &mut [RouteDoc], radius_m: f64, overrides: &[Interc
             .interchanges
             .push(InterchangeRef { route_idx: ri as u16, station_idx: si as u16 });
     }
+    Ok(())
 }
 
 const INTERCHANGE_RADIUS_M: f64 = 300.0;
@@ -888,24 +988,62 @@ fn runs_for_pattern(
 /// at the one ambiguous stop — not by the surrounding context that should
 /// settle it. Voting on trend, not cost, uses that context properly.
 ///
-/// Once direction is decided, a single constrained walk assigns each stop
-/// the nearest candidate consistent with the running arc so far. The walk
-/// always runs in "forward" order — for a reverse-direction pattern the stop
-/// list is reversed first and the result reversed back — so the walk's
-/// FIRST stop, which has no earlier constraint to check against, is always
-/// the run's true start, not (for a reverse pattern) its end; anchoring an
-/// ambiguous stop from `None` context would just take its raw nearest
-/// candidate regardless of direction, which is exactly the original bug.
+/// Once direction is decided, a dynamic-programming pass — not a greedy
+/// left-to-right walk — assigns each stop a candidate. `O(N*C^2)` with C the
+/// widest candidate list (<=2-3 at this scale, per `snap_candidates`), so
+/// this is free. The pass always runs in "forward" order — for a
+/// reverse-direction pattern the stop list is reversed first and the result
+/// reversed back.
 ///
-/// For an ordinary stop with one candidate this is a no-op: direction can
-/// only ever keep or drop that one candidate, and when kept, the result is
-/// identical to the old global-nearest behaviour.
+/// A prior greedy version anchored the walk's first stop (no earlier
+/// candidate to compare against) to its own plain-nearest pick, unconditionally,
+/// with no visibility into the rest of the pattern. That's fine when the
+/// first stop is unambiguous (the overwhelmingly common case), but wrong
+/// whenever the pattern's first stop IS the ambiguous one (Tha Phra is the
+/// Bang Wa/Lak Song branch terminus, so patterns beginning or ending there
+/// are exactly the shape at risk): picking blind can lock in a candidate
+/// that is locally nearest but forces every later stop into a fallback,
+/// cascading a single bad early guess through the rest of the pattern with
+/// no way to recover. The DP fixes this by construction — every stop's
+/// candidate is judged by its effect on the WHOLE pattern's total cost, so
+/// an ambiguous first stop is resolved using exactly the later-stop context
+/// that should settle it, not a name-only distance tiebreak.
 ///
-/// Returns (chosen arc per stop, whether that stop's choice was a fallback —
-/// no candidate fit the running direction, so the stop's plain nearest
-/// candidate overall was used instead, breaking monotonicity rather than
-/// inventing a position). The caller logs any fallback.
+/// A candidate that breaks monotonicity relative to its predecessor is still
+/// legal (never invents a position) but pays a large, fixed penalty in the
+/// DP's cost function — real per-stop snap distances are two to three orders
+/// of magnitude smaller, so the DP prefers ANY fully-monotonic assignment
+/// whenever one exists, and otherwise takes the assignment with the fewest,
+/// cheapest breaks. This exactly reproduces the greedy fallback's role (a
+/// real geometry/schedule problem, not invented) while being decided
+/// globally instead of by an irrevocable earlier choice.
+///
+/// For an ordinary stop with one candidate this is a no-op: every DP row has
+/// exactly one entry, so the result is identical to the old global-nearest
+/// behaviour.
+///
+/// Returns (chosen arc per stop, whether that stop's choice broke
+/// monotonicity relative to its predecessor — no assignment kept the whole
+/// pattern monotonic through this stop, so its plain nearest candidate
+/// [picked by the DP itself, not a separate fallback path] was used instead
+/// and the running arc reset from there). The caller logs any such break.
+// Only `resolve_pattern_arcs_full` is called from `run()` now (it needs the
+// resolved distances too, for finding 1b's validation) — this thin wrapper
+// exists purely so the pre-existing test suite below can keep asserting
+// against the simpler (arcs, fallback) shape unchanged.
+#[cfg(test)]
 fn resolve_pattern_arcs(candidate_lists: &[Vec<(f64, f64)>]) -> (Vec<f64>, Vec<bool>) {
+    let (arcs, _dists, fallback) = resolve_pattern_arcs_full(candidate_lists);
+    (arcs, fallback)
+}
+
+/// Same as `resolve_pattern_arcs`, but also returns each chosen candidate's
+/// snap distance — needed by the caller to validate the PATTERN-RESOLVED
+/// candidate against `MAX_SNAP_M`/`ALLOW_LARGE_SNAP_CEILING_M` (finding 1b):
+/// the station-snapping loop only ever validated each stop's
+/// globally-nearest candidate, not whichever candidate a specific pattern
+/// goes on to choose.
+fn resolve_pattern_arcs_full(candidate_lists: &[Vec<(f64, f64)>]) -> (Vec<f64>, Vec<f64>, Vec<bool>) {
     fn nearest(cands: &[(f64, f64)]) -> (f64, f64) {
         *cands
             .iter()
@@ -913,30 +1051,70 @@ fn resolve_pattern_arcs(candidate_lists: &[Vec<(f64, f64)>]) -> (Vec<f64>, Vec<b
             .expect("snap_candidates always returns >= 1 candidate")
     }
 
-    /// One constrained pass, always in the "forward" (arc non-decreasing)
-    /// sense — the caller reverses the input/output for the other direction.
-    fn walk_forward(lists: &[Vec<(f64, f64)>]) -> (Vec<f64>, Vec<bool>) {
-        let mut arcs = Vec::with_capacity(lists.len());
-        let mut fallback = Vec::with_capacity(lists.len());
-        let mut prev: Option<f64> = None;
-        for cands in lists {
-            let consistent = cands.iter().filter(|&&(a, _)| prev.is_none_or(|p| a >= p));
-            let (a, is_fallback) = match consistent.min_by(|x, y| x.1.total_cmp(&y.1)) {
-                Some(&(a, _)) => (a, false),
-                // No candidate keeps this pattern monotonic here — a real
-                // geometry/schedule problem. Fall back to the plain nearest
-                // rather than inventing a position; the caller logs this.
-                None => (nearest(cands).0, true),
-            };
-            arcs.push(a);
-            fallback.push(is_fallback);
-            prev = Some(a);
+    /// A monotonicity-breaking transition costs this much extra on top of
+    /// the real snap distance, so the DP only ever takes a break when no
+    /// fully-monotonic assignment exists. Real per-stop distances are bounded
+    /// well under ALLOW_LARGE_SNAP_CEILING_M (1000 m); even an implausibly
+    /// long ~50-stop pattern, every stop at that ceiling, sums to 50,000 m —
+    /// nowhere near this, in either direction (as a floor on avoiding one
+    /// break, or as a total across many).
+    const BREAK_PENALTY: f64 = 1.0e9;
+
+    /// One DP pass, always in the "forward" (arc non-decreasing) sense — the
+    /// caller reverses the input/output for the other direction. For each
+    /// stop, tries every (this stop's candidate) x (previous stop's
+    /// candidate) pair and keeps the cheapest, backtracking at the end for
+    /// the global optimum — unlike a greedy walk, an early stop's choice is
+    /// judged by its effect on every later stop, not locked in unconditionally.
+    fn walk_forward(lists: &[Vec<(f64, f64)>]) -> (Vec<f64>, Vec<f64>, Vec<bool>) {
+        let n = lists.len();
+        // dp[i][k] = (best total cost of a prefix ending at stop i with
+        // candidate k, whether THIS stop's transition broke monotonicity,
+        // backpointer to the chosen candidate index at stop i-1).
+        let mut dp: Vec<Vec<(f64, bool, Option<usize>)>> = Vec::with_capacity(n);
+        for (i, cands) in lists.iter().enumerate() {
+            let mut row = Vec::with_capacity(cands.len());
+            for &(arc, dist) in cands {
+                if i == 0 {
+                    row.push((dist, false, None));
+                    continue;
+                }
+                let mut best: Option<(f64, bool, usize)> = None;
+                for (k, &(prev_arc, _)) in lists[i - 1].iter().enumerate() {
+                    let (prev_cost, _, _) = dp[i - 1][k];
+                    let is_break = arc < prev_arc;
+                    let cost = prev_cost + dist + if is_break { BREAK_PENALTY } else { 0.0 };
+                    if best.is_none_or(|(b, _, _)| cost < b) {
+                        best = Some((cost, is_break, k));
+                    }
+                }
+                let (cost, is_break, k) =
+                    best.expect("lists[i - 1] is non-empty: snap_candidates always returns >= 1");
+                row.push((cost, is_break, Some(k)));
+            }
+            dp.push(row);
         }
-        (arcs, fallback)
+
+        let mut k = (0..dp[n - 1].len())
+            .min_by(|&a, &b| dp[n - 1][a].0.total_cmp(&dp[n - 1][b].0))
+            .expect("every pattern has >= 1 stop");
+        let mut arcs = vec![0.0; n];
+        let mut dists = vec![0.0; n];
+        let mut fallback = vec![false; n];
+        for i in (0..n).rev() {
+            let (_, is_break, back) = dp[i][k];
+            arcs[i] = lists[i][k].0;
+            dists[i] = lists[i][k].1;
+            fallback[i] = is_break;
+            if let Some(prev_k) = back {
+                k = prev_k;
+            }
+        }
+        (arcs, dists, fallback)
     }
 
     if candidate_lists.is_empty() {
-        return (Vec::new(), Vec::new());
+        return (Vec::new(), Vec::new(), Vec::new());
     }
 
     let global_nearest: Vec<f64> = candidate_lists.iter().map(|c| nearest(c).0).collect();
@@ -955,10 +1133,11 @@ fn resolve_pattern_arcs(candidate_lists: &[Vec<(f64, f64)>]) -> (Vec<f64>, Vec<b
     } else {
         let mut reversed: Vec<Vec<(f64, f64)>> = candidate_lists.to_vec();
         reversed.reverse();
-        let (mut arcs, mut fallback) = walk_forward(&reversed);
+        let (mut arcs, mut dists, mut fallback) = walk_forward(&reversed);
         arcs.reverse();
+        dists.reverse();
         fallback.reverse();
-        (arcs, fallback)
+        (arcs, dists, fallback)
     }
 }
 
@@ -1110,7 +1289,7 @@ mod tests {
             route_with_stations("a", &[("a1", 0.0), ("a2", 1000.0)]),
             route_with_stations("b", &[("b1", 1050.0)]),
         ];
-        link_interchanges(&mut routes, 300.0, &[]);
+        link_interchanges(&mut routes, 300.0, &[]).unwrap();
         assert_eq!(routes[0].stations[1].interchanges.len(), 1, "a2 <-> b1 is 50 m");
         assert_eq!(routes[0].stations[1].interchanges[0].route_idx, 1);
         assert!(routes[1].stations[0].interchanges.iter().any(|i| i.route_idx == 0),
@@ -1123,7 +1302,7 @@ mod tests {
         // Sukhumvit and Silom cross at Siam with stations metres apart; a
         // self-link would make the inspector advertise a transfer to itself.
         let mut routes = vec![route_with_stations("a", &[("a1", 0.0), ("a2", 20.0)])];
-        link_interchanges(&mut routes, 300.0, &[]);
+        link_interchanges(&mut routes, 300.0, &[]).unwrap();
         assert!(routes[0].stations.iter().all(|s| s.interchanges.is_empty()));
     }
 
@@ -1143,7 +1322,8 @@ mod tests {
                 b_line: "b".into(),
                 b_stop: "b1".into(),
             }],
-        );
+        )
+        .unwrap();
         assert_eq!(routes[0].stations[0].interchanges.len(), 1);
         assert_eq!(routes[1].stations[0].interchanges.len(), 1);
     }
@@ -1166,13 +1346,76 @@ mod tests {
                 b_line: "b".into(),
                 b_stop: "x".into(),
             }],
-        );
+        )
+        .unwrap();
         assert_eq!(routes[0].stations[0].interchanges.len(), 1);
         assert_eq!(routes[0].stations[0].interchanges[0].route_idx, 1);
         assert!(
             routes[2].stations[0].interchanges.is_empty(),
             "route 'c' shares the stop id but was not named in the override"
         );
+    }
+
+    #[test]
+    fn errors_when_an_override_matches_zero_pairs() {
+        // Finding 2: link_interchanges regressed from Result<(), String> to
+        // (), silently dropping validation — `overrides.iter().any(...)`
+        // just never matches on a typo'd line key or stop id, and the
+        // interchange it was meant to add silently never appears. This PR
+        // added two hand-derived overrides (Silom "10" <-> Blue "329", ARL
+        // "324" <-> Blue "345") read off a since-reverted debug print;
+        // nothing would have caught a transposed digit without this check.
+        let mut routes = vec![
+            route_with_stations("a", &[("a1", 0.0)]),
+            route_with_stations("b", &[("b1", 2000.0)]),
+        ];
+        let err = link_interchanges(
+            &mut routes,
+            100.0,
+            &[InterchangeOverride {
+                a_line: "a".into(),
+                a_stop: "typo-d-stop-id".into(),
+                b_line: "b".into(),
+                b_stop: "b1".into(),
+            }],
+        )
+        .unwrap_err();
+        assert!(err.contains("typo-d-stop-id"), "got: {err}");
+        assert!(
+            routes[1].stations[0].interchanges.is_empty(),
+            "an unmatched override must not silently link anything either"
+        );
+    }
+
+    #[test]
+    fn one_bad_override_among_several_is_still_caught() {
+        // A real, matching override elsewhere in the list must not mask an
+        // unrelated broken one — every override is checked independently.
+        let mut routes = vec![
+            route_with_stations("a", &[("a1", 0.0)]),
+            route_with_stations("b", &[("b1", 2000.0)]),
+            route_with_stations("c", &[("c1", 5000.0)]),
+        ];
+        let err = link_interchanges(
+            &mut routes,
+            100.0,
+            &[
+                InterchangeOverride {
+                    a_line: "a".into(),
+                    a_stop: "a1".into(),
+                    b_line: "b".into(),
+                    b_stop: "b1".into(),
+                },
+                InterchangeOverride {
+                    a_line: "a".into(),
+                    a_stop: "a1".into(),
+                    b_line: "c".into(),
+                    b_stop: "wrong-id".into(),
+                },
+            ],
+        )
+        .unwrap_err();
+        assert!(err.contains("wrong-id"), "got: {err}");
     }
 
     // --- resolve_pattern_arcs (task 5: MRT Blue self-approaching track) ----
@@ -1247,6 +1490,40 @@ mod tests {
         let (arcs, fallback) = resolve_pattern_arcs(&lists);
         assert_eq!(arcs, vec![100.0, 100.0, 200.0]);
         assert_eq!(fallback, vec![false, false, false], "single-candidate stops never fall back");
+    }
+
+    #[test]
+    fn resolve_pattern_arcs_resolves_an_ambiguous_first_stop_from_later_context() {
+        // Finding 1a: the prior greedy walk anchored the FIRST stop to its
+        // own plain-nearest candidate unconditionally (no "prev" to check
+        // against), with no visibility into the rest of the pattern. Tha
+        // Phra is the Bang Wa/Lak Song branch terminus, so a real pattern
+        // can begin (not just end) there — exactly the case the earlier
+        // "second pass" test doesn't cover, since a reverse-direction
+        // pattern gets internally reversed and Tha Phra lands last anyway.
+        //
+        // Tha Phra's nearer-by-raw-distance candidate (46,900, dist 3.0) is
+        // the WRONG one here: the very next real stop (15,000) sits between
+        // Tha Phra's two candidate arcs, so starting from 46,900 breaks
+        // monotonicity immediately (a forced fallback), while starting from
+        // the farther-but-correct candidate (7,400, dist 40.0) keeps the
+        // whole pattern clean. A greedy first pick can't see this; the DP,
+        // which judges stop 0 by its effect on the WHOLE pattern, must.
+        let lists = vec![
+            vec![(46_900.0, 3.0), (7_400.0, 40.0)], // Tha Phra: ambiguous, and FIRST
+            vec![(15_000.0, 2.0)],
+            vec![(30_000.0, 2.0)],
+            vec![(45_000.0, 2.0)],
+        ];
+        let (arcs, fallback) = resolve_pattern_arcs(&lists);
+        assert_eq!(
+            arcs,
+            vec![7_400.0, 15_000.0, 30_000.0, 45_000.0],
+            "must pick Tha Phra's farther-but-topologically-correct candidate (7,400), not its \
+             merely-nearest-by-distance one (46,900), because only 7,400 keeps stop 15,000 \
+             (which the greedy walk couldn't see coming) monotonic"
+        );
+        assert_eq!(fallback, vec![false; 4], "the correct resolution needs no fallback at all");
     }
 
     #[test]

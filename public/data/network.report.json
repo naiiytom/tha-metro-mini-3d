@@ -76,6 +76,7 @@
     }
   ],
   "max_snap_m": 109.47373318622579,
+  "pattern_arc_fallbacks": 0,
   "patterns": 58,
   "peak_concurrent": 246,
   "peak_concurrent_date": 20260722,
