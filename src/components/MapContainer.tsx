@@ -29,6 +29,17 @@ import type { NetworkData } from "../types";
 
 setWorkerUrl(maplibreWorkerUrl);
 
+// `skyPalette`'s day/golden blend saturates to fully daytime at any
+// elevation this far from the horizon (`day` clamps to 1 at +12°, `golden`
+// clamps to 0 this far from its +4° peak) — so calling it here reuses the
+// exact daytime output (DAY_SUN/DAY_AMBIENT, intensities 2.2/1.6) without
+// widening `skyPalette`'s own signature or duplicating its constants. Used
+// when the night-theme opt-out is off so the Three.js scene's *palette*
+// (never its sun *direction* — see updateSun) stays daytime regardless of
+// simulated clock time.
+const DAY_ELEVATION_DEG = 90;
+const dayPalette = () => skyPalette(DAY_ELEVATION_DEG);
+
 export function MapContainer() {
   const containerRef = useRef<HTMLDivElement>(null);
   const setMapReady = useAppStore((s) => s.setMapReady);
@@ -251,6 +262,14 @@ export function MapContainer() {
           map.triggerRepaint();
         }
         if (state.nightThemeEnabled !== prev.nightThemeEnabled) {
+          // Apply the scene-lighting side immediately rather than waiting up
+          // to 500 ms for the next updateSun tick — same immediacy
+          // restoreBasemapTheme() already gives the basemap side below.
+          const client = activeSimClient.current;
+          if (client) {
+            const dir = sunDirection(client.getSimNow());
+            layer.setSun(dir, state.nightThemeEnabled ? skyPalette(dir.elevationDeg) : dayPalette());
+          }
           if (state.nightThemeEnabled) {
             lastNightBucket = -1; // force the next updateSun tick to recompute and apply
           } else {
@@ -314,11 +333,17 @@ export function MapContainer() {
         const client = activeSimClient.current;
         if (!client) return;
         const dir = sunDirection(client.getSimNow());
-        layer.setSun(dir, skyPalette(dir.elevationDeg));
-        // Gated by the opt-out (finding 7) — Three.js scene lighting above
-        // is unconditional (SRS §F3.3), only the separately-added MapLibre
-        // basemap colour theme (Task 10b) can be turned off.
-        if (useAppStore.getState().nightThemeEnabled) applyBasemapTheme(dir.elevationDeg);
+        const nightThemeEnabled = useAppStore.getState().nightThemeEnabled;
+        // The opt-out (finding 7) means "no night appearance anywhere," not
+        // "basemap only" — it originally gated only applyBasemapTheme below,
+        // leaving the Three.js scene clock-lit while the basemap reverted to
+        // day, i.e. a bright day map over a dark night-lit track/train scene
+        // (user report: "when night disable the track color does not return
+        // to normal"). The sun *direction* (`dir`, and therefore the light's
+        // position/shadow direction — what verify:mvp6 check 6 reads) stays
+        // clock-driven either way; only the *palette* freezes to daytime.
+        layer.setSun(dir, nightThemeEnabled ? skyPalette(dir.elevationDeg) : dayPalette());
+        if (nightThemeEnabled) applyBasemapTheme(dir.elevationDeg);
       };
 
       // MapLibre only repaints on demand — keep frames coming while the
