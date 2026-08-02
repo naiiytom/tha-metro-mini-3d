@@ -43,7 +43,13 @@ describe("splitByStructure", () => {
     expect(runs[0]).toHaveLength(3);
   });
 
-  it("splits where the structure changes", () => {
+  it("splits where the structure changes, sharing the boundary vertex (finding 4a)", () => {
+    // Both sides have 2+ points of their own — the "ordinary transition"
+    // case finding 4a identified as completely unstitched: run 0 must
+    // still end where run 1 begins, or the deck has a real, un-rendered
+    // gap between the last elevated sample and the first underground one.
+    // (Was: a clean partition with no shared vertex — that was the bug,
+    // not a spec to preserve; this test is explicitly authorised to change.)
     const runs = splitByStructure([
       p(0, "elevated"),
       p(1, "elevated"),
@@ -51,17 +57,22 @@ describe("splitByStructure", () => {
       p(3, "underground"),
     ]);
     expect(runs).toHaveLength(2);
-    expect(runs[0][runs[0].length - 1][3]).toBe("elevated");
+    expect(runs[0].at(-1)).toEqual(runs[1][0]);
+    expect(runs[0].at(-1)?.[3]).toBe("underground"); // the shared vertex is native to run 1
     expect(runs[1][0][3]).toBe("underground");
   });
 
-  it("overlaps runs by one point so the deck has no visible gap", () => {
-    // Without the shared boundary vertex, a portal leaves a hole between the
-    // last elevated sample and the first underground one.
+  it("covers a 2-point elevated->underground track with one clean run, not a self-duplicate", () => {
+    // The smallest possible portal: exactly one point per side, so there is
+    // no genuinely spare point anywhere (finding 4b's "irreducible" shape).
+    // The old algorithm padded this into TWO runs, one of which was a
+    // zero-length self-duplicate ([e,e]) — a wasted mesh. The fix drops
+    // the degenerate run instead of emitting it: one clean 2-point run
+    // covers the whole span with no gap.
     const runs = splitByStructure([p(0, "elevated"), p(1, "underground")]);
-    expect(runs[0]).toHaveLength(2);
-    expect(runs[1]).toHaveLength(2);
-    expect(runs[0][1][0]).toBe(runs[1][0][0]);
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toEqual([p(0, "elevated"), p(1, "underground")]);
+    expect(runs[0][0]).not.toEqual(runs[0][1]);
   });
 
   it("drops a one-point run rather than emitting a degenerate curve", () => {
@@ -103,21 +114,14 @@ describe("splitByStructure — boundary vertex at the very start/end (regression
     expect(runs[0].at(-1)?.[0]).toBe(1);
   });
 
-  it("does not read a sibling run's already-borrowed point (regression for review finding 2)", () => {
-    // A left-to-right padding pass pads the elevated run first (forward-
-    // borrowing the underground run's point), then the underground run's
-    // own backward-borrow reads that ALREADY-MUTATED elevated run instead
-    // of its true original last point — producing self-duplicate [u1, u1]
-    // rather than the genuine two-point [e0, u1] overlap. This is the
-    // pathological 2-point case (see "overlaps runs by one point" above),
-    // where no solution can avoid self-duplication entirely — but which run
-    // ends up degenerate is not arbitrary: it must be the run that has
-    // nothing on its own OTHER side to borrow from instead (here, run 0,
-    // the very first run in the whole track). The run that legitimately
-    // represents the boundary vertex — run 1 here — must come out clean.
-    const runs = splitByStructure([p(0, "elevated"), p(1, "underground")]);
-    expect(runs[1][0]).not.toEqual(runs[1][1]);
-  });
+  // The former regression test here ("does not read a sibling run's
+  // already-borrowed point") pinned the OLD algorithm's behaviour for the
+  // pathological 2-point case: two runs, one a self-duplicate [u1, u1],
+  // the other clean [e0, u1]. Finding 4b changed that behaviour on
+  // purpose — the degenerate run is now dropped rather than emitted, so
+  // there is only one (clean) run left, not two to compare against each
+  // other. See "covers a 2-point elevated->underground track with one
+  // clean run, not a self-duplicate" above, which now owns this coverage.
 });
 
 describe("buildTrackDeck structure labelling (regression)", () => {
@@ -184,20 +188,25 @@ describe("splitByStructure — a long run followed by a chain of singletons (reg
     expect(runs).toHaveLength(4);
     expect(runs[0]).toEqual([p(0, "elevated"), p(1, "elevated")]);
     expect(runs[1]).toEqual([p(1, "elevated"), p(2, "underground")]);
-    expect(runs[2]).toEqual([p(2, "underground"), p(3, "atGrade")]);
+    // Finding 4a: run 2 (the last singleton in the chain) now ALSO picks
+    // up run 3's own first point, because run 3 has 2+ points of its own
+    // and never pads leftward on its own — without this, run 2 -> run 3
+    // was exactly the "ordinary transition" gap the finding described.
+    expect(runs[2]).toEqual([p(2, "underground"), p(3, "atGrade"), p(4, "elevated")]);
     expect(runs[3]).toEqual([p(4, "elevated"), p(5, "elevated")]);
     expect(runs[1][0]).not.toEqual(runs[1][1]);
     expect(runs[2][0]).not.toEqual(runs[2][1]);
     // The chain borrows in from the long run on its LEFT (index 0 wins
     // when a gap has a long neighbour on both sides — an arbitrary but
-    // consistent choice): run 0 -> run 1 -> run 2 connect edge to edge.
-    // Run 3 (the long run on the right) needed no padding at all, so it
-    // stays untouched and does NOT share a vertex with run 2 — same as
-    // any other clean split (see "splits where the structure changes"
-    // above), because both sides already had enough points of their own.
+    // consistent choice): run 0 -> run 1 -> run 2 -> run 3 all connect
+    // edge to edge now. (Was: run 2 -> run 3 deliberately did NOT share a
+    // vertex, reasoned as "both sides already had enough points of their
+    // own" — but having enough points for CatmullRomCurve3 is a different
+    // question from deck continuity, and that gap was exactly finding 4a's
+    // bug. This assertion is explicitly authorised to flip.)
     expect(runs[0].at(-1)).toEqual(runs[1][0]);
     expect(runs[1].at(-1)).toEqual(runs[2][0]);
-    expect(runs[2].at(-1)).not.toEqual(runs[3][0]);
+    expect(runs[2].at(-1)).toEqual(runs[3][0]);
   });
 
   it("labels every run in a threaded chain with its own true structure", () => {
@@ -216,24 +225,32 @@ describe("splitByStructure — a long run followed by a chain of singletons (reg
     expect(group.children[2].userData.structure).toBe("atGrade");
   });
 
-  it("pins the genuinely-irreducible all-singleton case: the middle run alone self-duplicates", () => {
+  it("drops the genuinely-irreducible all-singleton case's middle run instead of self-duplicating it (finding 4b)", () => {
     // e | u | a — every run a single point, no long run anywhere to borrow
-    // a spare point from. Proven irreducible (see splitByStructure's doc
-    // comment): something must duplicate. Pinned so a future refactor that
-    // changes *which* run ends up degenerate doesn't slip by unnoticed —
-    // the outer two runs (which legitimately connect the track's own first
-    // and last points to the middle) must stay clean.
+    // a spare point from. Proven irreducible (see computeStructureRuns'
+    // doc comment): something must give. The old algorithm duplicated the
+    // middle ("underground") run into a zero-length, zero-area mesh
+    // ([u1, u1]) rather than actually losing anything — a wasted draw call
+    // that rasterizes nothing. Finding 4b: drop that run instead of
+    // emitting it. Unreachable in real OSM data (a structure tag changing
+    // at literally every point, start to finish), so low severity — but
+    // pinned so a future refactor that changes which run gets dropped
+    // doesn't slip by unnoticed. The outer two runs (which legitimately
+    // connect the track's own first and last points to the middle) must
+    // stay clean, and together they still cover the whole track with no
+    // gap — the middle point is already their shared boundary vertex.
     const runs = splitByStructure([p(0, "elevated"), p(1, "underground"), p(2, "atGrade")]);
-    expect(runs).toHaveLength(3);
+    expect(runs).toHaveLength(2);
     expect(runs[0]).toEqual([p(0, "elevated"), p(1, "underground")]);
-    expect(runs[1][0]).toEqual(runs[1][1]); // the forced self-duplicate
-    expect(runs[2]).toEqual([p(1, "underground"), p(2, "atGrade")]);
+    expect(runs[1]).toEqual([p(1, "underground"), p(2, "atGrade")]);
+    expect(runs[0][0]).not.toEqual(runs[0][1]);
+    expect(runs[1][0]).not.toEqual(runs[1][1]);
+    expect(runs[0].at(-1)).toEqual(runs[1][0]); // still no gap between the two survivors
 
     const group = buildTrackDeck(line([p(0, "elevated"), p(1, "underground"), p(2, "atGrade")]));
-    expect(group.children).toHaveLength(3);
+    expect(group.children).toHaveLength(2);
     expect(group.children[0].userData.structure).toBe("elevated");
-    expect(group.children[1].userData.structure).toBe("underground");
-    expect(group.children[2].userData.structure).toBe("atGrade");
+    expect(group.children[1].userData.structure).toBe("atGrade");
   });
 });
 

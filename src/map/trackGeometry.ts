@@ -47,11 +47,12 @@ function toLocalVec3(points: TrackPoint[]): THREE.Vector3[] {
  * Split a track polyline into maximal same-structure groups, with NO
  * padding — every point in every group is genuinely native to it (never a
  * point borrowed from a neighbour). This is the authoritative source of
- * "what structure does the i-th run actually represent": `splitByStructure`
- * pads these groups into runs of 2+ points for rendering, but a padded run
- * can gain its extra point from either end (see below), so `run[0]` is not
- * reliably native there — `groupByStructure`'s output, one group per run in
- * the same order, is what `buildTrackDeck` reads structure from instead.
+ * "what structure does the i-th run actually represent": `computeStructureRuns`
+ * pads/stitches these groups into runs of 2+ points for rendering, but a
+ * padded run can gain extra points from either end (see below), so a run's
+ * own points are not reliably native — `computeStructureRuns` pairs each
+ * surviving run with its true structure explicitly instead of relying on
+ * positional index alignment with this function's output.
  */
 function groupByStructure(track: TrackPoint[]): TrackPoint[][] {
   const groups: TrackPoint[][] = [];
@@ -65,42 +66,66 @@ function groupByStructure(track: TrackPoint[]): TrackPoint[][] {
   return groups;
 }
 
+interface StructureRun {
+  points: TrackPoint[];
+  structure: Structure;
+}
+
 /**
  * Cut a track polyline into maximal same-structure runs, padding any run
  * that collapses to a single point up to the 2-point minimum
- * CatmullRomCurve3 needs — and so its portal shares a real vertex with a
- * neighbour instead of leaving a gap.
+ * CatmullRomCurve3 needs, AND — regardless of either side's point count —
+ * making every consecutive pair of runs share a genuine boundary vertex, so
+ * a portal never leaves a gap between the last sample of one structure and
+ * the first sample of the next (finding 4a: an *ordinary* transition, where
+ * both sides already have 2+ points of their own, previously shared nothing
+ * at all — only the single-point-padding cases below were ever stitched
+ * together).
  *
- * Padding always prefers a *genuinely spare* point: a neighbour that still
- * has an unborrowed point of its own (i.e. a group of 2+ points, which
- * never itself needs padding). A single-point group borrows from the
- * nearest such neighbour, chaining the loan across however many
- * consecutive single-point groups sit in between — e.g. for
- * `[e,e,e,u,a]` (a 3-point elevated group, then two lone underground/
- * at-grade points), the underground run borrows `e`'s spare point
- * (`[e,u]`), and the at-grade run then borrows the underground run's own
- * point rather than reaching past it (`[u,a]`) — nothing is duplicated.
- * A borrow rule keyed on *position* (e.g. "only the last run ever borrows
- * backward") gets this wrong: it can't see that an earlier, non-adjacent
- * group has spare capacity, and ends up duplicating a point that a
- * same-pass neighbour already borrowed instead.
+ * Two passes:
  *
- * The one shape with no spare point anywhere is a track that is one
- * unbroken chain of single-point groups start to finish (every point's
- * structure differs from both neighbours'). There, nothing is truly
- * spare — with N single points and N runs each needing 2, and path order
- * fixed, at least one run is provably forced to reuse a point twice. That
- * remaining run is resolved by chaining forward from the track's very
- * first point (the one point nothing else competes for); the trailing
- * run's own padding then necessarily reads a point some earlier run in
- * the chain already borrowed to pad itself.
+ * 1. Padding: any run that collapses to a single point borrows a point from
+ *    a neighbour so it has 2+ points to sweep a curve through. Padding
+ *    always prefers a *genuinely spare* point: a neighbour that still has
+ *    an unborrowed point of its own (i.e. a group of 2+ points, which never
+ *    itself needs padding). A single-point group borrows from the nearest
+ *    such neighbour, chaining the loan across however many consecutive
+ *    single-point groups sit in between — e.g. for `[e,e,e,u,a]` (a
+ *    3-point elevated group, then two lone underground/at-grade points),
+ *    the underground run borrows `e`'s spare point (`[e,u]`), and the
+ *    at-grade run then borrows the underground run's own point rather than
+ *    reaching past it (`[u,a]`) — nothing is duplicated. A borrow rule
+ *    keyed on *position* (e.g. "only the last run ever borrows backward")
+ *    gets this wrong: it can't see that an earlier, non-adjacent group has
+ *    spare capacity, and ends up duplicating a point that a same-pass
+ *    neighbour already borrowed instead.
  *
- * Because a padded run's extra point can land at either end depending on
- * which side the donor was found, callers that need a run's true
- * structure must not infer it from the run's own points (see
- * `groupByStructure`, which `buildTrackDeck` uses instead).
+ *    The one shape with no spare point anywhere is a track that is one
+ *    unbroken chain of single-point groups start to finish (every point's
+ *    structure differs from both neighbours'). There, nothing is truly
+ *    spare — with N single points and N runs each needing 2, and path
+ *    order fixed, at least one run is provably forced to either duplicate a
+ *    point or stay short. Rather than emit a duplicated, zero-length curve
+ *    (a wasted mesh — the [b,b] this used to produce), the one run this
+ *    happens to (always the second-to-last in the chain) is left at its
+ *    own single point and dropped by the final filter below. This shape —
+ *    a track whose structure tag changes at *every single point*, start to
+ *    finish — does not occur in real OSM data (finding 4b).
+ *
+ * 2. Boundary sharing: for every consecutive pair of *original* groups
+ *    where the second one has 2+ points of its own (so pass 1 above had no
+ *    reason to touch it), append that group's own first point onto the
+ *    first run — unless it's already there (a group whose padding in pass
+ *    1 already reached across to grab it, e.g. a leading single-point
+ *    group borrowing rightward). Only the second group's point count
+ *    matters here: whenever the second group needs padding, pass 1 already
+ *    grows *its* run backward to include the first group's point, which is
+ *    the same shared vertex from the other side.
+ *
+ * The final filter drops any run that never reached 2 points — solely the
+ * pass-1 chain-of-singletons case above.
  */
-export function splitByStructure(track: TrackPoint[]): TrackPoint[][] {
+function computeStructureRuns(track: TrackPoint[]): StructureRun[] {
   if (track.length < 2) return [];
 
   const groups = groupByStructure(track);
@@ -134,10 +159,13 @@ export function splitByStructure(track: TrackPoint[]): TrackPoint[][] {
       }
     } else {
       // No spare point on either side — the whole track is this one
-      // chain. Chain forward from the track's first point; the last run's
-      // own padding then reads whatever the run before it already
-      // settled on, which is the one genuinely unavoidable duplication.
+      // chain. Chain forward from the track's first point; the run at
+      // j - 2 has nothing genuinely spare to append (its only "donor"
+      // would be the point it just lent to j - 1, i.e. itself) and is
+      // left unpadded rather than self-duplicated — the filter below
+      // drops it.
       for (let k = j - 1; k >= i; k--) {
+        if (k === j - 2) continue;
         if (k + 1 < j) runs[k] = [...runs[k], runs[k + 1][0]];
         else runs[k] = [runs[k - 1][runs[k - 1].length - 1], ...runs[k]];
       }
@@ -145,7 +173,23 @@ export function splitByStructure(track: TrackPoint[]): TrackPoint[][] {
     i = j;
   }
 
-  return runs;
+  // Pass 2: share the boundary vertex for ordinary transitions (finding
+  // 4a) — pairs pass 1 had no reason to touch because neither run needed
+  // padding, or because the run touched in pass 1 was the *other* side.
+  for (let k = 0; k < groups.length - 1; k++) {
+    const next = groups[k + 1];
+    if (next.length < 2) continue; // pass 1 already grew runs[k+1] leftward into this boundary
+    if (runs[k].at(-1) === next[0]) continue; // pass 1 already grew runs[k] rightward into it
+    runs[k] = [...runs[k], next[0]];
+  }
+
+  return groups
+    .map((g, idx) => ({ points: runs[idx], structure: g[0][3] }))
+    .filter((r) => r.points.length >= 2);
+}
+
+export function splitByStructure(track: TrackPoint[]): TrackPoint[][] {
+  return computeStructureRuns(track).map((r) => r.points);
 }
 
 /**
@@ -238,15 +282,14 @@ export function buildTrackDeck(line: LineGeometry): THREE.Group {
     deckColor.getHSL(hsl);
     deckColor.setHSL(hsl.h, hsl.s * 0.25, Math.min(hsl.l * 1.25 + 0.15, 0.85));
   }
-  const runs = splitByStructure(line.track);
   // A run's own points can include one borrowed from a neighbour (see
-  // splitByStructure), so its true structure isn't reliably readable off
-  // the run itself — groupByStructure's unpadded groups are, one per run,
-  // in the same order.
-  const structures = groupByStructure(line.track).map((g) => g[0][3]);
-  for (const [i, run] of runs.entries()) {
-    const structure = structures[i];
-    const mesh = sweepDeck(run, profileFor(line, structure), deckColor, line.preRevenue);
+  // computeStructureRuns), so its true structure isn't reliably readable
+  // off the run's own points — each StructureRun carries its structure
+  // alongside its points instead, so a dropped degenerate run (finding 4b)
+  // can never desync a run from the wrong label.
+  const runs = computeStructureRuns(line.track);
+  for (const [i, { points, structure }] of runs.entries()) {
+    const mesh = sweepDeck(points, profileFor(line, structure), deckColor, line.preRevenue);
     mesh.name = `track-${line.key}-${structure}-${i}`;
     mesh.userData.structure = structure;
     group.add(mesh);
