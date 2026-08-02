@@ -19,6 +19,34 @@ export const STRUCTURE_ALTITUDE_M = {
 
 export const VEHICLE_TYPES = ["heavy", "monorail", "apm", "commuter"];
 
+/**
+ * Classify one OSM way as underground / elevated / at-grade from its
+ * tunnel/bridge/layer tags.
+ *
+ * Duplicated from src/map/structure.ts because this file runs in plain node
+ * (the fetcher imports it directly) and cannot import a .ts module. Keep the
+ * two copies in sync — lines.config.test.mjs asserts they agree on the same
+ * cases structure.test.ts checks for the TS copy.
+ *
+ * `tunnel=building_passage` is a deliberate exception: OSM uses it for track
+ * running through/under a building, not a physically bored tunnel. Verified
+ * against real Bangkok data — both SRT Dark Red and Light Red are tagged
+ * tunnel=building_passage + layer=1 (positive) + covered=yes at Bang Sue
+ * Grand Station, and the SRT Red lines have no underground track anywhere.
+ * Falls through to bridge/layer/fallback, same as tunnel=no.
+ */
+export function structureOfWay(tags, fallback = "elevated") {
+  const tunnel = tags.tunnel;
+  if (tunnel && tunnel !== "no" && tunnel !== "building_passage") return "underground";
+  const bridge = tags.bridge;
+  if (bridge && bridge !== "no") return "elevated";
+  if (tunnel === "no" || bridge === "no") return "elevated";
+  const layer = Number.parseInt(tags.layer ?? "", 10);
+  if (Number.isFinite(layer) && layer < 0) return "underground";
+  if (Number.isFinite(layer) && layer > 0) return "elevated";
+  return fallback;
+}
+
 export const LINES = [
   {
     key: "sukhumvit",
@@ -28,6 +56,7 @@ export const LINES = [
     structure: "elevated",
     vehicleType: "heavy",
     gtfsRouteId: "1",
+    preRevenue: false,
     osm: { relationId: 444651, match: /sukhumvit/i },
   },
   {
@@ -38,6 +67,7 @@ export const LINES = [
     structure: "elevated",
     vehicleType: "heavy",
     gtfsRouteId: "2",
+    preRevenue: false,
     osm: { relationId: 2067854, match: /silom/i },
   },
   {
@@ -50,6 +80,7 @@ export const LINES = [
     structure: "elevated",
     vehicleType: "heavy",
     gtfsRouteId: "4",
+    preRevenue: false,
     osm: { relationId: 6988563, match: /purple/i },
   },
   {
@@ -61,6 +92,7 @@ export const LINES = [
     structure: "elevated",
     vehicleType: "commuter",
     gtfsRouteId: "5",
+    preRevenue: false,
     osm: { relationId: 2148241, match: /airport rail link/i },
   },
   {
@@ -72,6 +104,7 @@ export const LINES = [
     structure: "elevated",
     vehicleType: "monorail",
     gtfsRouteId: "2436",
+    preRevenue: false,
     osm: { relationId: 16740886, match: /pink/i },
     // The Namtang feed bundles the Muang Thong Thani spur's 4 shuttle trip
     // patterns (stop_ids 16936 "Impact Muang Thong Thani" / 16937 "Lake
@@ -109,6 +142,7 @@ export const LINES = [
     structure: "elevated",
     vehicleType: "monorail",
     gtfsRouteId: "2224",
+    preRevenue: false,
     osm: { relationId: 15806897, match: /yellow/i },
   },
   {
@@ -120,6 +154,7 @@ export const LINES = [
     structure: "elevated",
     vehicleType: "apm",
     gtfsRouteId: "2025",
+    preRevenue: false,
     osm: { relationId: 11681439, match: /gold/i },
   },
   {
@@ -128,9 +163,18 @@ export const LINES = [
     nameTh: "สายสีแดงเข้ม",
     // Feed route_color (e10506) differs from the conventional #B71C1C swatch.
     color: "#E10506",
-    structure: "elevated",
+    // Default (untagged-way fallback) is atGrade, not elevated: SRT commuter
+    // rail is fundamentally ground-level track with elevated viaduct sections
+    // through the city core near Bang Sue Grand Station, the opposite mix of
+    // every other (fully-elevated) line in this registry. Verified against
+    // real OSM way tags (2026-08-01): of 23 track ways, 17 carry an explicit
+    // bridge/positive-layer tag (elevated) and the other 6 carry neither
+    // (4 bare, 2 embankment=yes) — embankment is raised earthwork, not a
+    // viaduct, so it reads as atGrade same as an untagged way.
+    structure: "atGrade",
     vehicleType: "commuter",
     gtfsRouteId: "2026",
+    preRevenue: false,
     osm: { relationId: 13058384, match: /dark red|red line.*rangsit/i },
   },
   {
@@ -139,28 +183,72 @@ export const LINES = [
     nameTh: "สายสีแดงอ่อน",
     // Feed route_color (fd5353) differs from the conventional #EF5350 swatch.
     color: "#FD5353",
-    structure: "elevated",
+    // Same reasoning as red-dark above: 10 of 19 ways carry an explicit
+    // bridge/positive-layer tag, the other 9 (7 bare, 2 embankment=yes) fall
+    // through to this atGrade default.
+    structure: "atGrade",
     vehicleType: "commuter",
     gtfsRouteId: "2027",
+    preRevenue: false,
     osm: { relationId: 13178788, match: /light red|red line.*taling chan/i },
+  },
+  {
+    key: "blue",
+    name: "MRT Blue Line",
+    nameTh: "สายสีน้ำเงิน",
+    // Feed route_color (1964B7) from tools/inspect-gtfs.mjs.
+    color: "#1964B7",
+    // DEFAULT only: MRT Blue's real alignment is mixed. Per-point structure
+    // comes from each OSM way's tunnel/bridge/layer tags (Task 2). Elevated
+    // is the safer fallback for an untagged way — a mis-defaulted underground
+    // segment would sink through the ground plane invisibly, while a
+    // mis-defaulted elevated one is obvious on screen.
+    structure: "elevated",
+    vehicleType: "heavy",
+    gtfsRouteId: "3",
+    preRevenue: false,
+    // Discovery (npm run data:fetch -- blue) returned 2 candidates, both
+    // directional variants of the full alignment (no short-turn variant
+    // appeared): 444659 "MRT Blue Line (Tha Phra -> Lak Song)" and 7725025
+    // "MRT Blue Line (Lak Song -> Tha Phra)". Picked 444659 (either
+    // direction's track is fine, per fetch-network.mjs's own comment) —
+    // confirmed it covers the full loop-plus-branch alignment: the committed
+    // network.json (full `npm run data:fetch` run) has 494 track points with
+    // BOTH elevated:234 and underground:260, not a partial/short-turn subset.
+    // (The single-line `-- blue` fetch used to pick this id logged 495/261 —
+    // a one-point delta from a way-join dedup step that only fires when all
+    // ten lines are fetched together; not a discrepancy worth chasing.)
+    osm: { relationId: 444659, match: /blue/i },
   },
 ];
 
 /**
  * Interchanges the 300 m radius cannot see — long paid/unpaid walkways.
- * Entries are GTFS stop_id pairs; fill these in against real data once the
- * full network is in the cache (Task 11), not from memory.
+ * Entries are line-qualified: a bare stop-id pair would link every route
+ * that happens to reuse that id (Namtang reuses ids across operators).
  */
 export const INTERCHANGE_OVERRIDES = [
-  // MRT Purple <-> MRT Pink, Nonthaburi Civic Center: the Namtang feed uses
-  // the SAME gtfs_stop_id (359) for both lines' schedules, but the two
-  // platforms are physically ~555 m apart (Purple's PP11 vs Pink's PK01,
-  // confirmed against OSM node tags — see the allowLargeSnapStopIds note on
-  // the `pink` line entry above) — well outside the 300 m auto-link radius,
-  // so it needs a manual pair. Both sides use the same stop_id on purpose;
-  // link_interchanges() only ever finds Purple's copy and Pink's copy of it
-  // (no other route uses "359"), so this can't create a spurious link.
-  ["359", "359"],
+  // MRT Purple <-> MRT Pink, Nonthaburi Civic Center. The Namtang feed uses
+  // the SAME gtfs_stop_id (359) on both lines' schedules, but the platforms
+  // are ~555 m apart (Purple's PP11 vs Pink's PK01, confirmed against OSM
+  // node tags — see the allowLargeSnapStopIds note on the `pink` entry).
+  { aLine: "purple", aStop: "359", bLine: "pink", bStop: "359" },
+  // BTS Silom <-> MRT Blue, Sala Daeng / Si Lom. A real, heavily-used
+  // interchange (shared paid-area walkway) that the 300 m auto-link radius
+  // does not reach: measured 319.3 m between the two stations' actual
+  // snapped-onto-track positions (a temporary debug print in
+  // link_interchanges, task 5, since reverted — not a bug, just outside the
+  // radius). GTFS stop ids: Silom's Sala Daeng is "10", Blue's Si Lom is
+  // "329" (per inspect-gtfs.mjs / preprocessor snap-warning stop names).
+  { aLine: "silom", aStop: "10", bLine: "blue", bStop: "329" },
+  // Airport Rail Link <-> MRT Blue, Phetchaburi / Makkasan. Also real and
+  // heavily used. Measured 304.8 m between the two stations' snapped-onto-
+  // track positions (same temporary debug print as above) — just outside
+  // the 300 m radius, not a link_interchanges bug (both stops individually
+  // snap within 40 m of their own line's GTFS coordinates, so the shortfall
+  // is genuine geometry, not a snap artifact). GTFS stop ids: ARL's Makkasan
+  // is "324", Blue's Phetchaburi is "345".
+  { aLine: "arl", aStop: "324", bLine: "blue", bStop: "345" },
 ];
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
@@ -185,11 +273,27 @@ export function assertRegistryValid(lines = LINES) {
       throw new Error(`${l.key}: unknown vehicleType '${l.vehicleType}'`);
     }
     if (!HEX.test(l.color)) throw new Error(`${l.key}: color must be #RRGGBB`);
+    if (typeof l.preRevenue !== "boolean") {
+      throw new Error(`${l.key}: preRevenue must be a boolean`);
+    }
+    if (l.preRevenue && l.gtfsRouteId !== null) {
+      // A line with a live GTFS route id would be simulated — trains running
+      // on track that does not exist yet.
+      throw new Error(`${l.key}: a preRevenue line must have gtfsRouteId: null`);
+    }
     for (const field of ["excludeGtfsStopIds", "allowLargeSnapStopIds"]) {
       const v = l[field];
       if (v === undefined) continue;
       if (!Array.isArray(v) || !v.every((id) => typeof id === "string" && id.length > 0)) {
         throw new Error(`${l.key}: ${field} must be an array of non-empty strings`);
+      }
+    }
+  }
+
+  for (const o of INTERCHANGE_OVERRIDES) {
+    for (const side of ["a", "b"]) {
+      if (!keys.has(o[`${side}Line`])) {
+        throw new Error(`interchange override names unknown line '${o[`${side}Line`]}'`);
       }
     }
   }

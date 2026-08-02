@@ -56,6 +56,8 @@ export class VehicleManager {
       const mesh = new THREE.InstancedMesh(geometry, material, MAX_VEHICLES);
       mesh.name = `vehicles-route-${routeIdx}`;
       mesh.count = 0;
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
       // The custom-layer projection matrix defeats Three's frustum test.
       mesh.frustumCulled = false;
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);

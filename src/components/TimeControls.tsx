@@ -42,7 +42,7 @@ export function TimeControls() {
   if (engineStatus === "off") return null;
 
   return (
-    <div className="pointer-events-auto rounded-xl bg-white/85 px-4 py-3 shadow-lg backdrop-blur">
+    <div className="pointer-events-auto rounded-xl border border-white/40 bg-white/70 px-4 py-3 shadow-xl shadow-slate-900/10 backdrop-blur-md ring-1 ring-slate-900/5">
       {engineStatus === "error" ? (
         <p className="max-w-xs text-xs text-red-600">
           Engine error: {engineError ?? "unknown"}
@@ -53,7 +53,7 @@ export function TimeControls() {
             <span className="font-mono text-lg font-semibold tabular-nums text-slate-900">
               {engineStatus === "ready" ? clockText : "--:--:--"}
             </span>
-            <span className="text-xs text-slate-500">
+            <span className="text-xs text-slate-600">
               Bangkok{engineStatus === "loading" ? " · starting engine…" : ""}
             </span>
             {engineStatus === "ready" && (
@@ -88,7 +88,7 @@ export function TimeControls() {
             </button>
           </div>
           {validation && (
-            <p className="text-[10px] text-slate-500">
+            <p className="text-[10px] text-slate-600">
               feed {validation.feedVersion} · {validation.routes} routes ·{" "}
               {validation.stations} stations · {validation.patterns} patterns ·{" "}
               {validation.runs} runs · {validation.services} services

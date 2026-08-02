@@ -2,7 +2,7 @@
 
 > Interactive, web-based 3D visualization of Bangkok's rail transit network — trains moving on schedule along authentic geography, elevations, and timetables.
 
-**Status:** 🚧 Early development — **MVP 1–5 delivered**: BTS Green Line 3D track, GTFS→binary data pipeline, scheduled trains moving with time-warp, click-to-inspect with a follow camera and time scrubber, and multi-line breadth (MRT Purple, Airport Rail Link, MRT Pink, MRT Yellow, BTS Gold, SRT Dark/Light Red — 9 lines simulated, 155 stations, 4,481 runs); see the [roadmap](#roadmap). **Repo:** [`tha-metro-mini-3d`](https://github.com/naiiytom/tha-metro-mini-3d)
+**Status:** 🚧 Early development — **MVP 1–6 delivered**: BTS Green Line 3D track, GTFS→binary data pipeline, scheduled trains moving with time-warp, click-to-inspect with a follow camera and time scrubber, multi-line breadth, and underground + polish (MRT Blue Line with real underground/elevated structure, an opacity-based underground view mode, day/night lighting, an optional shadow toggle, and a glassmorphism UI pass) — **10 lines simulated, 193 stations, 8,193 runs**. MRT Orange and MRT Purple's southern extension remain out of scope (deferred by human ruling — see [Coverage](#coverage)); see the [roadmap](#roadmap). **Repo:** [`tha-metro-mini-3d`](https://github.com/naiiytom/tha-metro-mini-3d)
 
 ---
 
@@ -34,7 +34,9 @@ Orbiting moves both axes in one motion, so a diagonal drag tilts and turns toget
 
 ## Coverage
 
-Operational lines receive full simulation (track + trains); pre-revenue lines are rendered as track only. **As of MVP 5 (2026-07-31), nine lines are simulated**: BTS Sukhumvit & Silom, MRT Purple, Airport Rail Link, MRT Pink, MRT Yellow, BTS Gold, and SRT Dark/Light Red — 155 stations, 34 trip patterns, 4,481 expanded runs, ~213 KB gzip. MRT Blue and Orange remain MVP 6.
+Operational lines receive full simulation (track + trains). **As of MVP 6 (2026-08-02), ten lines are simulated**: BTS Sukhumvit & Silom, MRT Purple, Airport Rail Link, MRT Pink, MRT Yellow, BTS Gold, SRT Dark/Light Red, and (new in MVP 6) **MRT Blue** — 193 stations, 58 trip patterns, 8,193 expanded runs. MRT Blue is the first line in the registry with genuinely mixed structure: 234 elevated + 260 underground track points, not one nominal altitude.
+
+**MRT Orange and MRT Purple's southern extension ("Purple Phase 2") are not in the registry at all.** The plan for this MVP included adding both as track-only, pre-revenue entries (the mechanism exists and is unit-tested — dashed centerline, desaturated deck, a `LineSelector` badge — see [CLAUDE.md](./CLAUDE.md)'s MVP 6 implementation notes), but that task was **deferred by human ruling** and not built this cycle. There are currently zero track-only or pre-revenue entries in the live registry.
 
 | Line | Type | Operator | Structure | v1.0 |
 |------|------|----------|-----------|------|
@@ -44,14 +46,16 @@ Operational lines receive full simulation (track + trains); pre-revenue lines ar
 | MRT Pink | Monorail | NBM | Elevated | Full |
 | MRT Yellow | Monorail | EBM | Elevated | Full |
 | BTS Gold | APM (monorail-class) | BMA/KT (BTSC) | Elevated | Full |
-| SRT Dark Red | Commuter Rail | SRTET | Elevated (nominal — see note) | Full |
-| SRT Light Red | Commuter Rail | SRTET | Elevated (nominal — see note) | Full |
-| MRT Blue | Heavy Rail | BEM | Underground / Elevated | MVP 6 (not yet added) |
-| MRT Orange | Heavy Rail | — | Underground / Elevated | **Track only (pre-revenue)** |
+| SRT Dark Red | Commuter Rail | SRTET | Elevated / At-grade (per-segment, MVP 6) | Full |
+| SRT Light Red | Commuter Rail | SRTET | Elevated / At-grade (per-segment, MVP 6) | Full |
+| MRT Blue | Heavy Rail | BEM | Underground / Elevated (per-segment) | **Full (new, MVP 6)** |
+| MRT Orange | Heavy Rail | — | Underground / Elevated | **Not in registry — deferred (Task 6)** |
 
-> Line status re-verified 2026-07-31 (see [`docs/SRS.md` §2](./docs/SRS.md#2-system-scope--transit-coverage)): MRT Orange is still pre-revenue (Eastern Section now projected late 2027, Western Section 2030) and stays MVP 6 track-only. The Pink Line's Muang Thong Thani spur has been in full paid revenue service since 2025-06-17 but is **not yet in this registry** — the Namtang feed bundles its 4 shuttle trip patterns into the same GTFS route id as the main Pink Line, and its own OSM relation pair wasn't fetched for this task, so it's excluded from simulation for now (main Pink Line is unaffected). The Purple Line's Tao Poon–Rat Burana southern extension remains under construction, not open.
+> Line status re-verified 2026-07-31 (see [`docs/SRS.md` §2](./docs/SRS.md#2-system-scope--transit-coverage)): MRT Orange is still pre-revenue (Eastern Section now projected late 2027, Western Section 2030). The Pink Line's Muang Thong Thani spur has been in full paid revenue service since 2025-06-17 but is **not yet in this registry** — the Namtang feed bundles its 4 shuttle trip patterns into the same GTFS route id as the main Pink Line, and its own OSM relation pair wasn't fetched for this task, so it's excluded from simulation for now (main Pink Line is unaffected). The Purple Line's Tao Poon–Rat Burana southern extension remains under construction, not open, **and is additionally not in the registry** pending the deferred track-only mechanism.
 >
-> **"Elevated (nominal — see note)" for SRT Red:** the real Dark/Light Red lines run a mix of at-grade and elevated track. MVP 5 models each as a single nominal elevated altitude — every one of the 9 registered lines currently uses `structure: "elevated"` in `tools/lines.config.mjs`, including SRT Red. The `atGrade` structure type (`STRUCTURE_ALTITUDE_M`/`DECK_PROFILE`) exists and works, it's just not exercised by any currently-registered line; real per-segment (at-grade vs. elevated) structure for SRT Red is deferred to MVP 6's underground work.
+> **"Elevated / At-grade (per-segment, MVP 6)" for SRT Red:** MVP 5 modeled each Dark/Light Red line as a single nominal elevated altitude; MVP 6's per-point structure classification (OSM way tags: `bridge`/`tunnel`/`layer`/`embankment`) now correctly splits both lines into real at-grade and elevated segments — 2,350 elevated / 262 underground / 48 at-grade track points network-wide, all 48 at-grade points on SRT Red.
+>
+> **Per-segment structure for MRT Blue was the hard part of this MVP.** Blue's alignment passes near itself at Tha Phra (a loop joined to a branch), which broke the original global-nearest stop-snapping — see [CLAUDE.md](./CLAUDE.md)'s MVP 6 implementation notes for the fix (per-pattern monotonic snapping in the preprocessor).
 
 ### Track geometry provenance (OSM relations)
 
@@ -68,6 +72,7 @@ Every line's 3D track polyline comes from a **pinned** OpenStreetMap route relat
 | BTS Gold | [11681439](https://www.openstreetmap.org/relation/11681439) | `2025` |
 | SRT Dark Red | [13058384](https://www.openstreetmap.org/relation/13058384) | `2026` |
 | SRT Light Red | [13178788](https://www.openstreetmap.org/relation/13178788) | `2027` |
+| MRT Blue | [444659](https://www.openstreetmap.org/relation/444659) | `3` |
 
 Source of truth for this table: `tools/lines.config.mjs`'s `LINES` registry — update there first, this table is descriptive.
 
@@ -119,7 +124,7 @@ Other scripts:
 |---------|--------------|
 | `npm run build` | Type-check (`tsc -b`) + production build to `dist/` |
 | `npm run typecheck` | Type-check only |
-| `npm test` | Vitest unit tests for the pure helpers (time formatting, bearing math) |
+| `npm test` | Vitest unit tests for pure helpers (`src/**/*.test.ts`, `tools/*.test.mjs`, e.g. time formatting, bearing math, track gradient limiting, day/night lighting); browser-level checks live in `tools/verify-*.mjs` |
 | `npm run preview` | Serve the production build locally |
 | `npm run data:fetch [lineKey ...]` | Regenerate `src/data/network.json` — every registry line's track geometry + stations from OpenStreetMap (Overpass); pass one or more `tools/lines.config.mjs` keys to fetch a subset |
 | `node tools/inspect-gtfs.mjs <gtfs-dir>` | Read-only: print every route in an extracted GTFS feed (id, agency, names, colour, trip count, frequency-based or not) — the fastest way to check a feed before adding a `tools/lines.config.mjs` entry |
@@ -127,15 +132,17 @@ Other scripts:
 | `npm run verify:camera` | Camera gesture assertions (pan/zoom/pitch/bearing) against a running dev server |
 | `npm run verify:mvp4` | MVP 4 acceptance: selection, follow-camera, inspector, station board, scrubbing |
 | `npm run verify:mvp5` | MVP 5 acceptance: every registry line renders in order, trains run on 3+ lines at once, hiding a line preserves its simulation and blocks its clicks, interchange chips render, monorail vs. heavy-rail rendered geometry differs |
+| `npm run verify:mvp6` | MVP 6 acceptance: the 10-line registry renders in order, MRT Blue's data and its *rendered* deck are both genuinely mixed underground/elevated, underground mode fades the basemap into the SRS F3.2 opacity band, the sun and the basemap colour both track the simulated clock |
 | `npm run verify:kinematics` | Data-level motion assertions against a running dev server |
 | `npm run verify:closeup` | Camera-on-a-train screenshot against a running dev server |
-| `npm run build && npm run preview` (one shell), then `npm run verify:perf` (another) | NF1 performance acceptance against a **production** build: tick-count sanity, sim tick time, truncation, frame rate, and peak-concurrency scale — see [Coverage](#coverage) for the current, honestly-disclosed 4/5 result |
+| `npm run check:bundle` | NF2 bundle-budget gate against a **production** build (`npm run build` first) — sums gzip size of every `dist/` asset plus `network.tmb`, fails loudly on a missing/incomplete build rather than risking a spurious pass |
+| `npm run build && npm run preview` (one shell), then `npm run verify:perf` (another) | NF1 performance acceptance against a **production** build: tick-count sanity, sim tick time, truncation, frame rate, and peak-concurrency scale — see [Coverage](#coverage) and [Roadmap](#roadmap) for the current, honestly-disclosed 4/5 result |
 
 Rust toolchain required for these (see [CONTRIBUTING](./docs/CONTRIBUTING.md)):
 
 | Command | What it does |
 |---------|--------------|
-| `npm run rust:test` | `cargo test` across the `rust-engine/` workspace (36 tests) |
+| `npm run rust:test` | `cargo test` across the `rust-engine/` workspace (48 tests as of MVP 6; was 36 through MVP 5) |
 | `npm run wasm:build` | Rebuild the Wasm engine into `src/sim/pkg/` (committed output) |
 | `npm run data:preprocess -- --gtfs <gtfs-dir>` | Regenerate `public/data/network.tmb` for the whole registry from an extracted GTFS feed (committed output) — route identity comes entirely from `network.json`'s line order |
 
@@ -150,7 +157,7 @@ Delivered as vertical, shippable slices — track geometry first, then motion, t
 | **3** ✅ | Green Line trains moving — Wasm interpolation engine + Web Worker. **Delivered:** 93 KB Wasm engine (dwell/transit/smoothstep/tangent-yaw) evaluated at 10 Hz in a worker, transferable-buffer ping-pong, render-side interpolation, InstancedMesh 4-car trains (2 draw calls), 1×/5×/10×/60× time-warp with Bangkok clock. |
 | **4** ✅ | Interaction & UI — follow-cam, inspector, time scrubber, timetable drawer. **Delivered:** click-to-select trains and stations (screen-space picking), third-person follow camera, train inspector with next-stop ETA and the full call list, live station board, and a scrubber over the service day; schedule lookups added to the Rust engine and crossed over a promise-based worker query channel. |
 | **5** ✅ | Multi-line breadth — Purple, ARL, Pink, Yellow, Gold, Red. **Delivered:** the line registry (`tools/lines.config.mjs`) grew from 2 to 9 entries with pinned OSM relation ids and GTFS route ids verified against the real Namtang feed; 155 stations, 34 patterns, 4,481 runs, ~213 KB gzip cache. Surfaced and fixed real data-pipeline gaps along the way: an OSM-node-id type mismatch, the Pink Line's Muang Thong Thani spur trips sharing a GTFS route id with the main line, a GTFS/OSM coordinate mismatch at the Pink Line's own terminus, and OSM stop-position nodes without name tags silently blanking station names. Line selector, cross-route interchange metadata, and monorail/APM vehicle models shipped alongside; `npm run verify:mvp5` (6/6) and `npm run verify:mvp4` (14/14, unchanged) both green. **NF1 performance is 4 of 5 sub-checks, disclosed not hidden:** the sim ticks a meaningful sample count, sim tick (p95 ≈ 0.2–0.3 ms), no truncation, and frame rate (~100 FPS) all pass; the ≥300-concurrent-vehicle scale target is not yet reached — this real 9-line network's measured peak is 171–172 vehicles, well under `MAX_VEHICLES` (1024) but under the 300 target too. That's real GTFS schedule density for these lines, not a bug, and the assertion is left failing on purpose rather than weakened. |
-| 6 | Underground + polish — MRT Blue, Orange (track only), transparency mode, day/night lighting. |
+| **6** ✅ | Underground + polish — MRT Blue, underground view mode, day/night, bundle/browser hardening. **Delivered, with one task deferred:** MRT Blue joined the registry (10 lines, 193 stations, 8,193 runs) with real per-segment underground/elevated structure from OSM tags — 234 elevated / 260 underground track points, not a nominal altitude — after fixing a genuine topology bug where Blue's alignment passing near itself at Tha Phra broke the original stop-snapping (fixed with per-pattern monotonic snapping in the preprocessor, see [CLAUDE.md](./CLAUDE.md)). An underground view mode fades the basemap into the SRS F3.2 0.1–0.4 opacity band and re-weights the surface/sub-surface track — **opacity-based, not depth-correct**; there is no real depth-buffer interop between MapLibre's tiles and the Three.js layer, disclosed plainly rather than glossed. Day/night lighting drives the Three.js scene from a real solar-position calculation, plus a separately-added basemap colour theme so the whole map (not just the 3D layer) reads as night. A shadow-quality toggle (default off) roughly doubles the renderer's own per-frame render-call cost when enabled (measured on software rendering — see CLAUDE.md for the caveat and numbers). A glassmorphism UI pass unifies all five overlay panels. **NF2:** `npm run check:bundle` reports **0.96 MB gzip / 5.00 MB budget (19% used)**. **NF3:** Chrome, Firefox, and Edge were driven programmatically against their real installed binaries (9/9 checks each); **Safari is untested** (unavailable on this machine). **NF1 is still 4 of 5, not fixed by this MVP:** peak concurrency rose to **246** (weekday) with Blue added, still short of the ≥300 target — and this is *not* explained by the deferred Task 6, since Orange/Purple Phase 2 would have been track-only and contributed zero vehicles either way. **MRT Orange and MRT Purple Phase 2 (Task 6 of the plan) were deferred by human ruling** — neither is in the registry; see [Coverage](#coverage). |
 
 ## Data & licensing
 

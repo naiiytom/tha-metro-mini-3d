@@ -121,6 +121,77 @@ pub fn snap_to_polyline(poly: &[P3], arc: &[f64], p: [f64; 2]) -> (f64, f64) {
     (best_arc, best_d2.sqrt())
 }
 
+/// All local minima of distance from `p` to the polyline (2D, x/y), each as
+/// (arc_m, distance_m), in ascending arc order.
+///
+/// An ordinary stop, whose true position is close to the track at only one
+/// place, yields exactly one candidate — identical to what `snap_to_polyline`
+/// (global minimum only) would return, so a route that never approaches
+/// itself sees no change in behaviour from switching to this function.
+///
+/// A route whose alignment passes near the same real-world point twice (a
+/// loop joined to a branch, e.g. MRT Blue at Tha Phra) yields one candidate
+/// per pass — the caller (main.rs's per-pattern monotonic snap) picks among
+/// them; task 5's bug was treating the single global-nearest pass as the
+/// only possible answer for every pattern, even ones whose neighboring stops
+/// make the OTHER pass the correct one.
+///
+/// Implementation: walks the same per-segment (arc, distance) sequence
+/// `snap_to_polyline` computes, but instead of tracking only the smallest
+/// distance seen, finds every maximal non-increasing-then-rising run (a
+/// "basin") and records its bottom. The segment sequence is already in arc
+/// order, so basins are found in one linear pass.
+pub fn snap_candidates(poly: &[P3], arc: &[f64], p: [f64; 2]) -> Vec<(f64, f64)> {
+    if poly.len() < 2 {
+        return Vec::new();
+    }
+    let n = poly.len() - 1;
+    let mut seg_arc = Vec::with_capacity(n);
+    let mut seg_d = Vec::with_capacity(n);
+    for i in 0..n {
+        let ax = poly[i][0];
+        let ay = poly[i][1];
+        let bx = poly[i + 1][0];
+        let by = poly[i + 1][1];
+        let abx = bx - ax;
+        let aby = by - ay;
+        let len2 = abx * abx + aby * aby;
+        let t = if len2 > 0.0 {
+            (((p[0] - ax) * abx + (p[1] - ay) * aby) / len2).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let qx = ax + abx * t;
+        let qy = ay + aby * t;
+        let dx = p[0] - qx;
+        let dy = p[1] - qy;
+        seg_d.push((dx * dx + dy * dy).sqrt());
+        seg_arc.push(arc[i] + (arc[i + 1] - arc[i]) * t);
+    }
+
+    let mut candidates = Vec::new();
+    let mut i = 0;
+    while i < n {
+        let is_basin_start = i == 0 || seg_d[i] <= seg_d[i - 1];
+        if !is_basin_start {
+            i += 1;
+            continue;
+        }
+        // Walk forward through the non-increasing run, tracking its bottom.
+        let mut j = i;
+        let mut best = i;
+        while j + 1 < n && seg_d[j + 1] <= seg_d[j] {
+            j += 1;
+            if seg_d[j] < seg_d[best] {
+                best = j;
+            }
+        }
+        candidates.push((seg_arc[best], seg_d[best]));
+        i = j + 1; // resume scanning past this basin
+    }
+    candidates
+}
+
 pub fn cumulative_arc(poly: &[P3]) -> Vec<f64> {
     let mut arc = vec![0.0f64; poly.len()];
     for i in 1..poly.len() {
@@ -158,5 +229,49 @@ mod tests {
         let (a, d) = snap_to_polyline(&poly, &arc, [104.0, 60.0]);
         assert!((a - 160.0).abs() < 1e-9);
         assert!((d - 4.0).abs() < 1e-9);
+    }
+
+    // --- snap_candidates (task 5 fix: Blue Line self-approaching track) -----
+
+    #[test]
+    fn snap_candidates_single_dip_matches_the_old_global_min() {
+        // An ordinary, non-self-approaching polyline: one dip, one candidate.
+        let poly = vec![[0.0, 0.0, 0.0], [100.0, 0.0, 0.0], [100.0, 100.0, 0.0]];
+        let arc = cumulative_arc(&poly);
+        let cands = snap_candidates(&poly, &arc, [30.0, 4.0]);
+        assert_eq!(cands.len(), 1, "a single-dip point must yield exactly one candidate");
+        let (old_a, old_d) = snap_to_polyline(&poly, &arc, [30.0, 4.0]);
+        assert!((cands[0].0 - old_a).abs() < 1e-6);
+        assert!((cands[0].1 - old_d).abs() < 1e-6);
+    }
+
+    #[test]
+    fn snap_candidates_finds_both_passes_of_a_self_approaching_track() {
+        // A track that goes east, loops far north and comes back to pass
+        // close by its own start again (the Blue Line loop-plus-branch
+        // shape near Tha Phra, minimized): two distinct arc positions are
+        // both close to the query point.
+        let poly = vec![
+            [0.0, 0.0, 0.0],
+            [1000.0, 0.0, 0.0],
+            [1000.0, 1000.0, 0.0],
+            [0.0, 1000.0, 0.0],
+            [0.0, 10.0, 0.0], // back down near the start...
+            [5.0, 0.0, 0.0],  // ...passing within 5 m of (0,0) a second time
+        ];
+        let arc = cumulative_arc(&poly);
+        let cands = snap_candidates(&poly, &arc, [0.0, 0.0]);
+        assert!(
+            cands.len() >= 2,
+            "a track passing near itself twice must yield >= 2 candidates, got {}",
+            cands.len()
+        );
+        // One candidate near arc 0 (the start), one near the end of the polyline.
+        let total = *arc.last().unwrap();
+        assert!(cands.iter().any(|&(a, d)| a < 50.0 && d < 1.0), "expected a near-start candidate");
+        assert!(
+            cands.iter().any(|&(a, d)| a > total - 50.0 && d < 10.0),
+            "expected a near-end candidate"
+        );
     }
 }

@@ -4,3 +4,4 @@ rust-engine/target/
 *.tsbuildinfo
 *.local
 .DS_Store
+.superpowers/

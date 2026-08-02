@@ -1,5 +1,6 @@
 import { useAppStore } from "../stores/useAppStore";
 import type { LineGeometry } from "../types";
+import { ViewControls } from "./ViewControls";
 
 /** One toggleable row — its own component so it can call the store's
  * `isRouteVisible` selector directly (the canonical, tested "is this route
@@ -24,11 +25,15 @@ function LineRow({ line, routeIdx }: { line: LineGeometry; routeIdx: number }) {
           style={{ background: line.color, opacity: visible ? 1 : 0.3 }}
         />
         <span className="truncate">{line.name}</span>
-        {line.gtfsRouteId === null && (
-          <span className="ml-auto shrink-0 text-[9px] uppercase text-slate-400">
+        {line.preRevenue ? (
+          <span className="ml-auto shrink-0 rounded bg-amber-100 px-1 text-[9px] uppercase text-amber-700">
+            pre-revenue
+          </span>
+        ) : line.gtfsRouteId === null ? (
+          <span className="ml-auto shrink-0 text-[9px] uppercase text-slate-500">
             track only
           </span>
-        )}
+        ) : null}
       </button>
     </li>
   );
@@ -47,9 +52,9 @@ export function LineSelector() {
   const mapReady = useAppStore((s) => s.mapReady);
 
   return (
-    <div className="pointer-events-auto absolute left-4 top-4 max-h-[calc(100dvh-2rem)] w-60 overflow-y-auto rounded-xl bg-white/85 px-4 py-3 shadow-lg backdrop-blur">
+    <div className="pointer-events-auto absolute left-4 top-4 max-h-[calc(100dvh-2rem)] w-60 overflow-y-auto rounded-xl border border-white/40 bg-white/70 px-4 py-3 shadow-xl shadow-slate-900/10 backdrop-blur-md ring-1 ring-slate-900/5">
       <h1 className="text-sm font-semibold text-slate-900">Greater Bangkok Metro Mini 3D</h1>
-      <p className="mb-2 text-xs text-slate-500">
+      <p className="mb-2 text-xs text-slate-600">
         {mapReady ? "Click a train or station to inspect it." : "Loading map…"}
       </p>
       {routes.length > 0 && (
@@ -59,6 +64,7 @@ export function LineSelector() {
           ))}
         </ul>
       )}
+      <ViewControls />
     </div>
   );
 }

@@ -72,19 +72,19 @@ export function StationBoard() {
   const info = stationByKey.get(stationKey(selectedStation.routeIdx, selectedStation.stationIdx));
 
   return (
-    <div className="pointer-events-auto absolute right-4 top-4 flex max-h-[calc(100dvh-2rem)] w-72 flex-col overflow-hidden rounded-xl bg-white/90 shadow-lg backdrop-blur">
+    <div className="pointer-events-auto absolute right-4 top-4 flex max-h-[calc(100dvh-2rem)] w-72 flex-col overflow-hidden rounded-xl border border-white/40 bg-white/70 shadow-xl shadow-slate-900/10 backdrop-blur-md ring-1 ring-slate-900/5">
       <div className="flex items-start gap-2 border-b border-slate-200 px-4 py-3">
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold text-slate-900">
             {board ? `${board.code ? `${board.code} · ` : ""}${board.name_en}` : "Station"}
           </p>
-          <p className="truncate text-xs text-slate-500">{board?.name_th ?? ""}</p>
+          <p className="truncate text-xs text-slate-600">{board?.name_th ?? ""}</p>
         </div>
         <button
           type="button"
           onClick={() => selectStation(null)}
           aria-label="Close station board"
-          className="rounded-md px-1.5 py-0.5 text-sm leading-none text-slate-400 hover:bg-slate-200 hover:text-slate-700"
+          className="rounded-md px-1.5 py-0.5 text-sm leading-none text-slate-500 hover:bg-slate-200 hover:text-slate-700"
         >
           ×
         </button>
@@ -92,7 +92,7 @@ export function StationBoard() {
 
       {info && info.interchanges.length > 0 && (
         <div className="flex flex-wrap items-center gap-1 px-4 pb-2">
-          <span className="text-[10px] uppercase tracking-wide text-slate-400">Interchange</span>
+          <span className="text-[10px] uppercase tracking-wide text-slate-500">Interchange</span>
           {info.interchanges.map((ix) => (
             <span
               key={`${ix.route_idx}-${ix.station_idx}`}
@@ -106,13 +106,13 @@ export function StationBoard() {
       )}
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
-        <p className="px-2 pb-1 text-[10px] uppercase tracking-wide text-slate-400">
+        <p className="px-2 pb-1 text-[10px] uppercase tracking-wide text-slate-500">
           Next departures
         </p>
         {!board ? (
-          <p className="px-2 py-2 text-xs text-slate-500">Loading…</p>
+          <p className="px-2 py-2 text-xs text-slate-600">Loading…</p>
         ) : board.entries.length === 0 ? (
-          <p className="px-2 py-2 text-xs text-slate-500">
+          <p className="px-2 py-2 text-xs text-slate-600">
             No further services scheduled today.
           </p>
         ) : (
@@ -126,7 +126,7 @@ export function StationBoard() {
                 >
                   <span className="min-w-0 flex-1 truncate">
                     <span className="font-medium text-slate-900">{e.destination}</span>
-                    <span className="ml-1 text-slate-400">
+                    <span className="ml-1 text-slate-500">
                       {formatServiceSec(e.departure_sec)}
                     </span>
                   </span>

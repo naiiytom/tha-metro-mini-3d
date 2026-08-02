@@ -28,3 +28,16 @@ describe("line visibility", () => {
     expect(first).not.toBe(useAppStore.getState().hiddenRoutes); // new array, no mutation
   });
 });
+
+describe("underground mode", () => {
+  beforeEach(() => useAppStore.setState({ undergroundMode: false }));
+
+  it("is off by default", () => {
+    expect(useAppStore.getState().undergroundMode).toBe(false);
+  });
+
+  it("toggles", () => {
+    useAppStore.getState().setUndergroundMode(true);
+    expect(useAppStore.getState().undergroundMode).toBe(true);
+  });
+});

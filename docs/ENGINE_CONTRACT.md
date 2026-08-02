@@ -1,4 +1,4 @@
-# Engine Contract — MVP 2 (data pipeline), MVP 3 (simulation), MVP 4 (queries), MVP 5 (multi-line breadth)
+# Engine Contract — MVP 2 (data pipeline), MVP 3 (simulation), MVP 4 (queries), MVP 5 (multi-line breadth), MVP 6 (underground + polish)
 
 Authoritative interface spec between the Rust side (preprocessor CLI, sim core,
 Wasm bindings) and the TypeScript side (worker, loader, rendering). Both sides
@@ -65,7 +65,7 @@ pub const TMB_MAGIC: u32 = 0x544D_4231; // "TMB1"
 #[derive(Serialize, Deserialize)]
 pub struct CacheDoc {
     pub magic: u32,              // TMB_MAGIC
-    pub version: u16,            // 2 (bumped in MVP 5 Task 4: RouteDoc gained line_key + simulated)
+    pub version: u16,            // 3 (bumped in MVP 6 Task 1: InterchangeRef.route_idx widened u8 -> u16)
     pub feed_version: String,    // "20260729"
     pub generated_unix: i64,
     pub origin_lng: f64,         // MUST equal frontend ORIGIN_LNG_LAT
@@ -115,7 +115,8 @@ pub struct StationDoc {
 
 #[derive(Serialize, Deserialize)]
 pub struct InterchangeRef {
-    pub route_idx: u8,
+    pub route_idx: u16,          // u16 as of MVP 6 Task 1 (was u8; unchecked
+                                  // narrowing would silently wrap past 256 routes)
     pub station_idx: u16,
 }
 
@@ -163,7 +164,7 @@ cargo run -p preprocessor --release -- \
   --out public/data/network.tmb [--report <path.json>]
 ```
 
-### 2.1 `network.json` input shape (MVP 5)
+### 2.1 `network.json` input shape (MVP 5, track vertex widened to 4 elements + `preRevenue` added in MVP 6)
 
 Deserialized by the preprocessor as (`rust-engine/preprocessor/src/main.rs`,
 `#[serde(rename_all = "camelCase")]` — field names below are the JSON keys):
@@ -171,10 +172,19 @@ Deserialized by the preprocessor as (`rust-engine/preprocessor/src/main.rs`,
 ```rust
 struct TrackFile {
     lines: Vec<LineGeometry>,
-    /// GTFS stop_id pairs for interchange walkways the 300 m auto-link
-    /// radius cannot reach — see "Interchange linking" below. Optional,
-    /// defaults to empty.
-    interchange_overrides: Vec<[String; 2]>,
+    /// Interchange walkways the 300 m auto-link radius cannot reach — see
+    /// "Interchange linking" below. Line-qualified as of MVP 6 Task 1 (was a
+    /// bare [String; 2] stop_id pair): a bare pair is only safe while that id
+    /// resolves to exactly two stations network-wide, and the Namtang feed
+    /// reuses stop ids across operators. Optional, defaults to empty.
+    interchange_overrides: Vec<InterchangeOverride>,
+}
+
+struct InterchangeOverride {
+    a_line: String, // registry line key, e.g. "purple"
+    a_stop: String, // gtfs_stop_id on that line
+    b_line: String,
+    b_stop: String,
 }
 
 struct LineGeometry {
@@ -183,7 +193,17 @@ struct LineGeometry {
     name: String,                   // fallback display name for a track-only line
     color: String,                  // "#RRGGBB" — wins over GTFS routes.txt route_color
     gtfs_route_id: Option<String>,  // None = track geometry only, never simulated
-    track: Vec<[f64; 3]>,           // [lon, lat, altitude_m] polyline, pre-resample
+    /// [lon, lat, altitude_m, structure] polyline, pre-resample. The 4th
+    /// element (MVP 6 Task 2) is a string tag — "elevated" | "atGrade" |
+    /// "underground" — produced by structureOfWay() from OSM way tags
+    /// (bridge/tunnel/layer/embankment/covered), one call per source way.
+    /// The preprocessor's own TrackVertex tuple-struct only reads the first
+    /// 3 elements (altitude) via #[serde(default)] on the 4th; the structure
+    /// tag itself is a rendering-only concern (src/map/structure.ts,
+    /// src/map/trackGeometry.ts's per-run deck splitting) that this contract
+    /// documents for completeness of the JSON shape, not because the
+    /// preprocessor consumes it.
+    track: Vec<[f64; 4]>,
     stations: Vec<NetworkStation>,
     /// GTFS stop_ids to drop from this line's simulation entirely (and any
     /// trip serving one, taking its whole pattern with it) — e.g. the Pink
@@ -197,7 +217,22 @@ struct LineGeometry {
     /// erroring). Optional, defaults to empty.
     allow_large_snap_stop_ids: Vec<String>,
 }
+```
 
+The real `network.json` produced by `tools/fetch-network.mjs` also carries a
+`preRevenue: boolean` key on every line entry (MVP 6 Task 2/4) — but it is
+**not** a field of the Rust `LineGeometry` struct above. It's a rendering-only
+flag (`src/types/index.ts`'s `LineGeometry.preRevenue`, consumed by
+`src/map/trackGeometry.ts` for the dashed/desaturated ghost-track treatment
+and `LineSelector.tsx` for the badge) with no bearing on simulation; the
+preprocessor's `serde` deserialization simply ignores it as an unrecognized
+JSON key (no `#[serde(deny_unknown_fields)]` anywhere in this struct). As of
+MVP 6 every registry line has `preRevenue: false` — the mechanism is built
+and unit-tested but has no real user yet, since MRT Orange and MRT Purple's
+southern extension (its intended first consumers) were deferred (MVP 6
+Task 6, human ruling).
+
+```rust
 struct NetworkStation {
     id: String,                 // gtfs_stop_id (or a synthetic id for track-only)
     name: String,
@@ -221,11 +256,14 @@ implemented against it.
   `None` -> the line is track geometry only (`RouteDoc.simulated = false`, no
   patterns/runs for it, its own station list from `network.json` is used
   directly instead of GTFS stop_times). At least one line must have a
-  `gtfsRouteId`, or the CLI fails loudly. **As of MVP 5, no line in the
-  registry actually uses `gtfs_route_id: None`** — all 9 registered lines are
-  simulated; the mechanism exists and is tested (`sim-core` query tests) but
-  its first real user (MRT Orange) isn't in the registry yet, deferred to
-  MVP 6.
+  `gtfsRouteId`, or the CLI fails loudly. **As of MVP 6, no line in the
+  registry actually uses `gtfs_route_id: None`** — all 10 registered lines
+  (Sukhumvit, Silom, Purple, ARL, Pink, Yellow, Gold, SRT Dark/Light Red,
+  and MRT Blue, new this MVP) are simulated; the mechanism exists and is
+  tested (`sim-core` query tests) but its intended first real users, MRT
+  Orange and MRT Purple's southern extension, still aren't in the registry —
+  the MVP 6 plan's Task 6, which would have added them, was deferred by
+  human ruling, not merely not-yet-scheduled.
 - Builds each route's track from its `network.json` line's `track` polyline:
   Catmull-Rom (centripetal) resample at ~10 m, offset z=+15 (elevated
   structure; other structure types carry their own z in the source geometry).
@@ -261,9 +299,12 @@ implemented against it.
   within `INTERCHANGE_RADIUS_M = 300.0` meters of each other gets a symmetric
   `InterchangeRef` on both `StationDoc.interchanges` (§2, never
   self-referential — same route never links to itself). `interchange_overrides`
-  (§2.1, GTFS stop_id pairs) adds links the radius can't reach — e.g. two
-  platforms of the same interchange 555 m apart that happen to share one
-  GTFS `stop_id` on both sides.
+  (§2.1, line-qualified `{a_line, a_stop, b_line, b_stop}` as of MVP 6 Task 1)
+  adds links the radius can't reach — e.g. two platforms of the same
+  interchange 555 m apart that happen to share one GTFS `stop_id` on both
+  sides. Line-qualifying prevents a stop id shared by three or more routes
+  (the Namtang feed does this) from silently widening one intended pair into
+  every pairwise combination.
 - Writes `--report` JSON: `{stations, patterns, runs, services, bytes,
   gzip_bytes, per_route: [...], peak_concurrent, peak_concurrent_time,
   peak_concurrent_date, peak_concurrent_weekday, peak_concurrent_weekend}` —
@@ -281,10 +322,16 @@ implemented against it.
   was 100 concurrent vehicles (weekday, 07:46), well under both MAX_VEHICLES
   and the SRS NF1 300-concurrent target; the 1024 ceiling was sized as
   headroom for the full ~9-line network Task 11 adds, not off that number.
-  **With the full 9-line network (Task 11), the real measured peak is
+  **With the 9-line network (MVP 5, Task 11), the real measured peak was
   171–172 concurrent vehicles** (weekday 07:52, per `network.report.json`'s
   `peak_concurrent`/`peak_concurrent_weekday`) — comfortably under 1024, but
-  under the SRS NF1 300-concurrent target too. `npm run verify:perf` leaves
+  under the SRS NF1 300-concurrent target too. **With MRT Blue added (MVP 6,
+  10 lines), the weekday peak rose to 246** (`peak_concurrent_weekday.peak`;
+  `peak_concurrent_weekend.peak` = 212) — still under 1024, still under the
+  300-concurrent target. This is real GTFS density, not a defect: MVP 6's one
+  deferred task (MRT Orange + MRT Purple Phase 2 as track-only lines) would
+  have contributed exactly zero vehicles to this count either way, so it does
+  not explain the shortfall. `npm run verify:perf` leaves
   that one sub-check (of 5) failing on purpose (see ENGINE_CONTRACT §8 / CLAUDE.md)
   rather than weakening it or fabricating load to pass it; it is real GTFS
   schedule density for these lines, not a defect in the engine, buffer sizing,
@@ -347,7 +394,7 @@ Vehicle record layout (stride 8 × f32) — **identical constants in
 | 3    | `yaw`     | radians, CCW from +x (east), from track tangent, **direction of travel** |
 | 4    | `state`   | 0 = dwelling at a station, 1 = in transit |
 | 5    | `run_idx` | index into CacheDoc.runs (exact f32 up to 2^24 — fine) |
-| 6    | `route_idx` | index into `CacheDoc.routes` == `network.json` line order == `tools/lines.config.mjs` `LINES` order (the registry-index invariant, §2.1 — NOT a hardcoded pair; as of MVP 5 there are 9 routes, [0]=Sukhumvit … [8]=SRT Light Red) |
+| 6    | `route_idx` | index into `CacheDoc.routes` == `network.json` line order == `tools/lines.config.mjs` `LINES` order (the registry-index invariant, §2.1 — NOT a hardcoded pair; as of MVP 6 there are 10 routes, [0]=Sukhumvit … [8]=SRT Light Red, [9]=MRT Blue, new this MVP) |
 | 7    | `progress`| 0..1 smoothed progress of current inter-station leg (0 while dwelling) |
 
 Motion math (F2.1/F2.2): for time `t` within a run, find the bracketing
@@ -615,3 +662,21 @@ together.
   The assertion is left as a hard, currently-failing gate rather than
   weakened or gamed with synthetic load — see CLAUDE.md's "MVP 5's one
   disclosed gap."
+- MVP 6: the registry grows to 10 lines (193 stations, 8,193 runs) with MRT
+  Blue added, genuinely mixed underground/elevated (234 elevated / 260
+  underground track points; 494 total, one point off the keyed 495 due to a
+  way-join dedup step that only fires with all 10 lines fetched together) —
+  asserted by `npm run verify:mvp6` (6/6): the registry renders in order;
+  Blue's *data* is mixed (structure tags present in `network.json`); Blue's
+  *rendered* deck (not just its config) is split into separate per-structure
+  Three.js meshes; underground mode fades the basemap into the SRS F3.2
+  0.1–0.4 band; the sun tracks the sim clock; the basemap's own colour also
+  gets darker at midnight than at noon. `npm run verify:mvp5` (6/6) and
+  `npm run verify:mvp4` (14/14) both still pass unchanged. **NF1 is still
+  4/5, and the peak-concurrency shortfall is unrelated to MVP 6's one
+  deferred task:** the network's real measured peak rose to 246 (weekday;
+  see §2's peak-concurrent scan above) with Blue added, but MRT Orange and
+  MRT Purple Phase 2 (Task 6, deferred by human ruling) would have been
+  track-only and contributed zero vehicles to this count regardless of
+  whether they'd been built. The assertion is left failing on purpose, same
+  discipline as MVP 5 — see CLAUDE.md's "MVP 6's NF1 result."

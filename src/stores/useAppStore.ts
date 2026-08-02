@@ -65,6 +65,26 @@ interface AppState {
   hiddenRoutes: number[];
   toggleRoute: (routeIdx: number) => void;
   isRouteVisible: (routeIdx: number) => boolean;
+
+  // ---- MVP 6 view modes (F3.2 / §3A.5) ----
+
+  /** Underground transparency: dim the basemap and the surface network so
+   *  sub-surface track is the subject (SRS §F3.2). */
+  undergroundMode: boolean;
+  setUndergroundMode: (on: boolean) => void;
+
+  /** Shadow quality toggle — off by default for the 30-FPS mobile target. */
+  shadowsEnabled: boolean;
+  setShadowsEnabled: (on: boolean) => void;
+
+  /** Basemap day/night colour theming (Task 10b) opt-out. On by default;
+   *  the escape hatch exists because it is the mechanism behind a previously
+   *  reported night-legibility defect, and a user hitting a variant on
+   *  different hardware otherwise has no way out short of scrubbing to noon
+   *  (finding 7). Forward-compatible with the tri-state Auto/Light/Dark
+   *  scoped for MVP 7 — "off" becomes "Light" later. */
+  nightThemeEnabled: boolean;
+  setNightThemeEnabled: (on: boolean) => void;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -119,4 +139,13 @@ export const useAppStore = create<AppState>((set, get) => ({
         : [...s.hiddenRoutes, routeIdx],
     })),
   isRouteVisible: (routeIdx) => !get().hiddenRoutes.includes(routeIdx),
+
+  undergroundMode: false,
+  setUndergroundMode: (on) => set({ undergroundMode: on }),
+
+  shadowsEnabled: false,
+  setShadowsEnabled: (on) => set({ shadowsEnabled: on }),
+
+  nightThemeEnabled: true,
+  setNightThemeEnabled: (on) => set({ nightThemeEnabled: on }),
 }));

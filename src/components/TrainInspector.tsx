@@ -73,7 +73,7 @@ export function TrainInspector() {
   const color = detail ? `#${detail.color_rgb.toString(16).padStart(6, "0")}` : "#94a3b8";
 
   return (
-    <div className="pointer-events-auto absolute right-4 top-4 flex max-h-[calc(100dvh-2rem)] w-72 flex-col overflow-hidden rounded-xl bg-white/90 shadow-lg backdrop-blur">
+    <div className="pointer-events-auto absolute right-4 top-4 flex max-h-[calc(100dvh-2rem)] w-72 flex-col overflow-hidden rounded-xl border border-white/40 bg-white/70 shadow-xl shadow-slate-900/10 backdrop-blur-md ring-1 ring-slate-900/5">
       <div className="flex items-start gap-2 border-b border-slate-200 px-4 py-3">
         <span
           className="mt-1 inline-block h-3 w-3 shrink-0 rounded-full"
@@ -83,7 +83,7 @@ export function TrainInspector() {
           <p className="truncate text-sm font-semibold text-slate-900">
             {detail ? detail.headsign : "Train"}
           </p>
-          <p className="truncate text-xs text-slate-500">
+          <p className="truncate text-xs text-slate-600">
             {detail ? `${detail.route_name} · run ${detail.run_idx}` : `run ${selectedRunIdx}`}
           </p>
         </div>
@@ -91,18 +91,18 @@ export function TrainInspector() {
           type="button"
           onClick={() => selectRun(null)}
           aria-label="Close inspector"
-          className="rounded-md px-1.5 py-0.5 text-sm leading-none text-slate-400 hover:bg-slate-200 hover:text-slate-700"
+          className="rounded-md px-1.5 py-0.5 text-sm leading-none text-slate-500 hover:bg-slate-200 hover:text-slate-700"
         >
           ×
         </button>
       </div>
 
       {ended ? (
-        <p className="px-4 py-3 text-xs text-slate-500">
+        <p className="px-4 py-3 text-xs text-slate-600">
           This run has finished its journey. Pick another train.
         </p>
       ) : !detail ? (
-        <p className="px-4 py-3 text-xs text-slate-500">Loading…</p>
+        <p className="px-4 py-3 text-xs text-slate-600">Loading…</p>
       ) : (
         <>
           <div className="space-y-2 px-4 py-3">
@@ -130,7 +130,7 @@ export function TrainInspector() {
                   </span>
                 </p>
               ) : (
-                <p className="mt-1 text-xs text-slate-500">Terminus — end of run.</p>
+                <p className="mt-1 text-xs text-slate-600">Terminus — end of run.</p>
               )}
             </div>
             <button
@@ -147,7 +147,7 @@ export function TrainInspector() {
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto border-t border-slate-200 px-4 py-2">
-            <p className="pb-1 text-[10px] uppercase tracking-wide text-slate-400">Schedule</p>
+            <p className="pb-1 text-[10px] uppercase tracking-wide text-slate-500">Schedule</p>
             <ol className="space-y-0.5">
               {detail.stops.map((stop, i) => {
                 const isNext = detail.next_stop_ordinal === i;

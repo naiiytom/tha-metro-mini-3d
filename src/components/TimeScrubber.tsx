@@ -60,9 +60,9 @@ export function TimeScrubber() {
   };
 
   return (
-    <div className="pointer-events-auto w-[min(32rem,calc(100vw-2rem))] rounded-xl bg-white/85 px-4 py-2.5 shadow-lg backdrop-blur">
+    <div className="pointer-events-auto w-[min(32rem,calc(100vw-2rem))] rounded-xl border border-white/40 bg-white/70 px-4 py-2.5 shadow-xl shadow-slate-900/10 backdrop-blur-md ring-1 ring-slate-900/5">
       <div className="flex items-center gap-3">
-        <span className="shrink-0 text-[10px] uppercase tracking-wide text-slate-400">
+        <span className="shrink-0 text-[10px] uppercase tracking-wide text-slate-500">
           Scrub
         </span>
         <input
