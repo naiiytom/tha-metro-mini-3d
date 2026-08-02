@@ -10,6 +10,8 @@ export function ViewControls() {
   const setUndergroundMode = useAppStore((s) => s.setUndergroundMode);
   const shadowsEnabled = useAppStore((s) => s.shadowsEnabled);
   const setShadowsEnabled = useAppStore((s) => s.setShadowsEnabled);
+  const nightThemeEnabled = useAppStore((s) => s.nightThemeEnabled);
+  const setNightThemeEnabled = useAppStore((s) => s.setNightThemeEnabled);
 
   const row = (label: string, hint: string, on: boolean, set: (v: boolean) => void) => (
     <button
@@ -45,6 +47,12 @@ export function ViewControls() {
         setUndergroundMode,
       )}
       {row("Shadows", "Higher fidelity, lower frame rate", shadowsEnabled, setShadowsEnabled)}
+      {row(
+        "Night theme",
+        "Darken the basemap after dusk; turn off if a variant reads poorly on your display",
+        nightThemeEnabled,
+        setNightThemeEnabled,
+      )}
     </div>
   );
 }

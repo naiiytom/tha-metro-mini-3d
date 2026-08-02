@@ -344,38 +344,33 @@ export function poleTransform(altitudeM: number): { scaleZ: number; centerZ: num
   return { scaleZ, centerZ: altitudeM / 2 };
 }
 
+interface MarkerStation {
+  position: [number, number, number];
+  color: THREE.Color;
+}
+
 /**
- * Station markers as two InstancedMeshes (discs at deck level + support
- * poles to the ground) per line — `ThreeLayer.ts` calls this once per
- * registered line, so at today's 9-line network that's ~18 draw calls
- * total, not a handful (SRS §3A.5 instancing pattern; still O(lines), not
- * O(stations)).
+ * One disc-instances + pole-instances pair for a single set of stations that
+ * all share the same structure band (see `buildStationMarkers` below for why
+ * the split exists).
  */
-export function buildStationMarkers(lines: LineGeometry[]): THREE.Object3D {
-  const group = new THREE.Group();
-  group.name = "stations";
-
-  const stations = lines.flatMap((line) =>
-    line.stations.map((s) => ({ ...s, color: new THREE.Color(line.color) })),
-  );
-  if (stations.length === 0) return group;
-
+function buildMarkerPair(items: MarkerStation[]): { discs: THREE.InstancedMesh; poles: THREE.InstancedMesh } {
   const discGeo = new THREE.CylinderGeometry(16, 16, 2.5, 24);
   discGeo.rotateX(Math.PI / 2); // cylinder axis Y -> Z (our up)
   const discMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
-  const discs = new THREE.InstancedMesh(discGeo, discMat, stations.length);
+  const discs = new THREE.InstancedMesh(discGeo, discMat, items.length);
 
   const poleGeo = new THREE.CylinderGeometry(1.1, 1.1, 1, 10);
   poleGeo.rotateX(Math.PI / 2);
   const poleMat = new THREE.MeshLambertMaterial({ color: 0x9ca3af });
-  const poles = new THREE.InstancedMesh(poleGeo, poleMat, stations.length);
+  const poles = new THREE.InstancedMesh(poleGeo, poleMat, items.length);
 
   const m = new THREE.Matrix4();
-  for (let i = 0; i < stations.length; i++) {
-    const [x, y, z] = lngLatAltToLocal(stations[i].position);
+  for (let i = 0; i < items.length; i++) {
+    const [x, y, z] = lngLatAltToLocal(items[i].position);
     m.makeTranslation(x, y, z + 1.5);
     discs.setMatrixAt(i, m);
-    discs.setColorAt(i, stations[i].color);
+    discs.setColorAt(i, items[i].color);
     // unit-height pole scaled to reach from ground to the platform, whichever
     // side of ground level that is (see poleTransform for the underground case)
     const { scaleZ, centerZ } = poleTransform(z);
@@ -390,12 +385,49 @@ export function buildStationMarkers(lines: LineGeometry[]): THREE.Object3D {
   discs.receiveShadow = true;
   poles.castShadow = true;
   poles.receiveShadow = true;
+  return { discs, poles };
+}
 
-  // Tagged so Task 6's underground-transparency mode knows which station
-  // groups contain a sub-surface platform (dim/hide) vs. which line owns them.
-  discs.userData.hasSubsurface = stations.some((s) => s.position[2] < 0);
+/**
+ * Station markers as InstancedMeshes (discs at deck level + support poles to
+ * the ground) per line — `ThreeLayer.ts` calls this once per registered
+ * line, so at today's 10-line network that's still O(lines), not
+ * O(stations), just with up to 2 structure bands per line instead of 1
+ * (SRS §3A.5 instancing pattern).
+ *
+ * A line with stations on both sides of ground level (MRT Blue: 38 stations,
+ * some elevated, some underground) gets TWO disc/pole pairs, not one — one
+ * tagged `userData.structure = "underground"`, the other left untagged (the
+ * same convention `buildTrackDeck`'s run meshes already use). A single merged
+ * mesh sharing one material can only be uniformly opaque or uniformly
+ * translucent; splitting by band is what lets `ThreeLayer`'s
+ * `indexMaterialsByBand` classify each half correctly instead of the whole
+ * line's markers going subsurface (permanently dimmed in normal view, finding
+ * 6a) the moment the line has ANY underground stations at all.
+ */
+export function buildStationMarkers(lines: LineGeometry[]): THREE.Object3D {
+  const group = new THREE.Group();
+  group.name = "stations";
+
+  const stations = lines.flatMap((line) =>
+    line.stations.map((s) => ({ ...s, color: new THREE.Color(line.color) })),
+  );
+  if (stations.length === 0) return group;
+
+  const underground = stations.filter((s) => s.position[2] < 0);
+  const surface = stations.filter((s) => s.position[2] >= 0);
+
+  if (surface.length > 0) {
+    const { discs, poles } = buildMarkerPair(surface);
+    group.add(discs, poles);
+  }
+  if (underground.length > 0) {
+    const { discs, poles } = buildMarkerPair(underground);
+    discs.userData.structure = "underground";
+    poles.userData.structure = "underground";
+    group.add(discs, poles);
+  }
   group.userData.lineKey = lines[0]?.key ?? "";
 
-  group.add(discs, poles);
   return group;
 }

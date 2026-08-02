@@ -104,7 +104,7 @@ export class NetworkLayer implements CustomLayerInterface {
     }
     if (this.vehicles) scene.add(...this.vehicles.meshes);
     this.scene = scene;
-    this.indexMaterialsByBand(scene);
+    this.indexMaterialsByBand();
     this.applyUndergroundMode();
   }
 
@@ -134,28 +134,35 @@ export class NetworkLayer implements CustomLayerInterface {
   }
 
   /**
-   * Walk the scene once and sort every track material into the surface or
-   * sub-surface bucket, using the `userData.structure` tag buildTrackDeck
-   * stamps on each run's mesh. Station markers and centerlines follow their
-   * line's dominant band — a line with any underground run counts as
-   * sub-surface for the purposes of the mode, because that is what the user
-   * is asking to see.
+   * Walk the scene once and sort every track/station material into the
+   * surface or sub-surface bucket, using the `userData.structure` tag
+   * `buildTrackDeck` stamps on each run's mesh and `buildStationMarkers`
+   * stamps on its underground-band disc/pole pair. Anything without that tag
+   * — an above-ground run/station-band mesh, or the line's Line2 centerline
+   * — is surface.
+   *
+   * The centerline deliberately stays surface-classified always, even for a
+   * line that is entirely or mostly underground: it is a constant-pixel-width
+   * low-zoom navigational aid drawn once for the whole route, not per
+   * structure band, so there is no correct way to dim "half" of it — and
+   * dimming all of it would defeat the reason it exists (finding 6a).
+   *
+   * Previously this classified ANY untagged mesh in a line's group as
+   * sub-surface whenever the line had any underground run at all — which
+   * caught not just the centerline but BOTH station-marker InstancedMeshes
+   * (discs + poles), permanently dimming every station on a mixed line like
+   * MRT Blue, including the ones on its elevated half. Station markers are
+   * now split per structure band at build time (see `buildStationMarkers`),
+   * so they carry their own accurate tag and no longer need — or get —
+   * special-cased fallback logic here.
    */
-  private indexMaterialsByBand(_scene: THREE.Scene): void {
+  private indexMaterialsByBand(): void {
     for (const group of this.lineGroups) {
-      const structures = new Set<string>();
-      group.traverse((obj) => {
-        const s = obj.userData?.structure;
-        if (typeof s === "string") structures.add(s);
-      });
-      const hasSubsurface = structures.has("underground");
       group.traverse((obj) => {
         if (!(obj instanceof THREE.Mesh) && !(obj instanceof THREE.InstancedMesh)) return;
         const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
         const band =
-          obj.userData?.structure === "underground" || (hasSubsurface && !obj.userData?.structure)
-            ? this.subsurfaceMaterials
-            : this.surfaceMaterials;
+          obj.userData?.structure === "underground" ? this.subsurfaceMaterials : this.surfaceMaterials;
         band.push(...mats);
       });
     }

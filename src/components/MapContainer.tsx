@@ -118,6 +118,19 @@ export function MapContainer() {
       };
       applyUnderground(useAppStore.getState().undergroundMode);
       layer.setShadowsEnabled(useAppStore.getState().shadowsEnabled);
+      // Seed line visibility from any hiddenRoutes already in the store at
+      // mount — the subscription below only reacts to CHANGES, so without
+      // this a remount with pre-existing hidden routes (a React StrictMode
+      // double-invoke, or future persistence) would render every line
+      // visible until the next toggle (finding 6c).
+      {
+        const initialHidden = useAppStore.getState().hiddenRoutes;
+        for (let i = 0; i < net.lines.length; i++) {
+          const visible = !initialHidden.includes(i);
+          layer.setLineVisible(i, visible);
+          vehicleManager.setRouteVisible(i, visible);
+        }
+      }
 
       // Basemap day/night theming (Task 10b, human-added scope beyond
       // SRS F3.3): `skyPalette` already re-lights the Three.js layer from
@@ -137,7 +150,17 @@ export function MapContainer() {
         | "line-color"
         | "text-color"
         | "text-halo-color";
-      const themeable: { id: string; prop: ColorProp; role: ThemeRole; original: string }[] = [];
+      // `lastApplied` tracks the most recent value actually written to this
+      // layer (starts at `original`, i.e. nothing written yet) so a tick
+      // whose blended colour hasn't actually changed since the last write
+      // can skip the setPaintProperty call entirely — near full day/night
+      // the blend saturates for many layers well before `t` itself stops
+      // moving, and Liberty has 100+ themeable layers, so at up to 2 Hz
+      // (more at high time-warp, where the bucket can change nearly every
+      // tick) that redundant-write elimination cuts most of the property
+      // writes (perf note on finding 7).
+      const themeable: { id: string; prop: ColorProp; role: ThemeRole; original: string; lastApplied: string }[] =
+        [];
       let skippedExpressionLayers = 0;
       const captureThemeable = (id: string, prop: ColorProp, role: ThemeRole) => {
         const raw = map.getPaintProperty(id, prop);
@@ -149,7 +172,7 @@ export function MapContainer() {
           skippedExpressionLayers++;
           return;
         }
-        themeable.push({ id, prop, role, original: raw });
+        themeable.push({ id, prop, role, original: raw, lastApplied: raw });
       };
       for (const l of map.getStyle().layers) {
         if (l.type === "background") captureThemeable(l.id, "background-color", "background");
@@ -186,13 +209,28 @@ export function MapContainer() {
         // generic hardcoded reference that should never reach the map —
         // see basemapTheme.ts's NIGHT_THEME doc comment.)
         for (const entry of themeable) {
-          map.setPaintProperty(
-            entry.id,
-            entry.prop,
-            mixColor(entry.original, NIGHT_THEME[entry.role], t),
-          );
+          const next = mixColor(entry.original, NIGHT_THEME[entry.role], t);
+          if (next === entry.lastApplied) continue; // saturated already — skip the redundant write
+          entry.lastApplied = next;
+          map.setPaintProperty(entry.id, entry.prop, next);
         }
       };
+
+      // Finding 7: an escape hatch for the basemap night theme — it is the
+      // mechanism behind a previously reported night-legibility defect, and
+      // without this a user hitting a variant on some display combination
+      // has no way out short of scrubbing the clock to noon. Restores every
+      // themed layer to its captured original colour and resets the bucket
+      // so re-enabling recomputes from a clean slate rather than skipping a
+      // write because `lastApplied` still holds a stale blended value.
+      const restoreBasemapTheme = () => {
+        for (const entry of themeable) {
+          map.setPaintProperty(entry.id, entry.prop, entry.original);
+          entry.lastApplied = entry.original;
+        }
+        lastNightBucket = -1;
+      };
+      if (!useAppStore.getState().nightThemeEnabled) restoreBasemapTheme();
 
       // Visibility is UI state, so it drives the scene through a subscription
       // rather than the per-frame path.
@@ -210,6 +248,14 @@ export function MapContainer() {
         }
         if (state.shadowsEnabled !== prev.shadowsEnabled) {
           layer.setShadowsEnabled(state.shadowsEnabled);
+          map.triggerRepaint();
+        }
+        if (state.nightThemeEnabled !== prev.nightThemeEnabled) {
+          if (state.nightThemeEnabled) {
+            lastNightBucket = -1; // force the next updateSun tick to recompute and apply
+          } else {
+            restoreBasemapTheme();
+          }
           map.triggerRepaint();
         }
       });
@@ -269,7 +315,10 @@ export function MapContainer() {
         if (!client) return;
         const dir = sunDirection(client.getSimNow());
         layer.setSun(dir, skyPalette(dir.elevationDeg));
-        applyBasemapTheme(dir.elevationDeg);
+        // Gated by the opt-out (finding 7) — Three.js scene lighting above
+        // is unconditional (SRS §F3.3), only the separately-added MapLibre
+        // basemap colour theme (Task 10b) can be turned off.
+        if (useAppStore.getState().nightThemeEnabled) applyBasemapTheme(dir.elevationDeg);
       };
 
       // MapLibre only repaints on demand — keep frames coming while the
