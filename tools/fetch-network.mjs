@@ -143,6 +143,18 @@ async function fetchBranch(relationId, branchKey, defaultStructure) {
     // all 155 station names in MVP 5 before it was caught).
     tagsByWay = new Map(wayData.elements.map((e) => [String(e.id), e.tags ?? {}]));
   }
+  // stitchWays falls back to `defaultStructure` via `?? {}` for any way this
+  // follow-up query didn't return tags for — silently, since a way with
+  // genuinely no bridge/tunnel/layer/embankment/covered tags looks the same
+  // as one Overpass just dropped. A size mismatch here means the response
+  // was truncated or partial, which would otherwise misclassify structure
+  // for real track without any signal (review finding, PR #8).
+  if (tagsByWay.size !== trackWays.length) {
+    console.warn(
+      `  warning: ${branchKey}: got tags for ${tagsByWay.size}/${trackWays.length} track ways — ` +
+        `Overpass may have returned a truncated response; missing ways fall back to '${defaultStructure}'`,
+    );
+  }
 
   const path = dedupe(stitchWays(trackWays, tagsByWay, defaultStructure));
 

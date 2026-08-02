@@ -1,7 +1,18 @@
 #!/usr/bin/env node
 /**
- * NF2 gate: total initial payload (JS/CSS/wasm + the binary timetable) must
- * stay ≤ 5 MB compressed. Run after `npm run build`.
+ * NF2 gate: total gzip size of the whole `dist/` build output (every file
+ * under it, however deep — plus the binary timetable) must stay ≤ 5 MB.
+ * Run after `npm run build`.
+ *
+ * This is NOT (necessarily) "what a first-time visitor's browser actually
+ * downloads before interaction" — it would also include sourcemaps or
+ * lazily-loaded chunks if either existed in the build (today's build has
+ * neither: no `build.sourcemap`, no code-splitting, so the two happen to be
+ * the same number right now). Summing the whole tree is deliberately
+ * conservative — it can never produce a false PASS by excluding something
+ * that ships — but call it what it measures rather than "initial payload",
+ * which implies a narrower, load-time-specific claim this script doesn't
+ * actually verify (review finding, PR #8).
  */
 import { gzipSync } from "node:zlib";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";

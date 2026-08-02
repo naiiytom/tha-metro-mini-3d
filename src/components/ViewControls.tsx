@@ -46,7 +46,17 @@ export function ViewControls() {
         undergroundMode,
         setUndergroundMode,
       )}
-      {row("Shadows", "Higher fidelity, lower frame rate", shadowsEnabled, setShadowsEnabled)}
+      {row(
+        "Shadows",
+        // The shadow frustum is a fixed ~4 km box around Siam (see
+        // ThreeLayer.ts) — real, and the cost/benefit is measured there —
+        // but it's core-only, not network-wide, and this toggle reads as a
+        // global setting. Say so, rather than let a Rangsit/Lak Song user
+        // discover it by watching shadows silently vanish (finding 6d).
+        "Higher fidelity, lower frame rate — only near central Bangkok; no effect further out",
+        shadowsEnabled,
+        setShadowsEnabled,
+      )}
       {row(
         "Night theme",
         "Darken the basemap after dusk; turn off if a variant reads poorly on your display",
