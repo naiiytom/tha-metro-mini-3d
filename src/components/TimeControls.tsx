@@ -42,7 +42,7 @@ export function TimeControls() {
   if (engineStatus === "off") return null;
 
   return (
-    <div className="pointer-events-auto rounded-xl border border-white/40 bg-white/70 px-4 py-3 shadow-xl shadow-slate-900/10 backdrop-blur-md ring-1 ring-slate-900/5">
+    <div className="pointer-events-auto w-full rounded-xl border border-white/40 bg-white/70 px-4 py-3 shadow-xl shadow-slate-900/10 backdrop-blur-md ring-1 ring-slate-900/5 md:w-auto">
       {engineStatus === "error" ? (
         <p className="max-w-xs text-xs text-red-600">
           Engine error: {engineError ?? "unknown"}
@@ -69,7 +69,7 @@ export function TimeControls() {
                 type="button"
                 disabled={engineStatus !== "ready"}
                 onClick={() => activeSimClient.current?.setWarp(w)}
-                className={`rounded-md px-2 py-1 text-xs font-medium transition-colors disabled:opacity-40 ${
+                className={`rounded-md px-3.5 py-2.5 text-sm font-medium transition-colors disabled:opacity-40 md:px-2 md:py-1 md:text-xs ${
                   w === warp
                     ? "bg-slate-900 text-white"
                     : "bg-slate-200/70 text-slate-700 hover:bg-slate-300"
@@ -82,7 +82,7 @@ export function TimeControls() {
               type="button"
               disabled={engineStatus !== "ready"}
               onClick={() => activeSimClient.current?.resetToNow()}
-              className="ml-2 rounded-md bg-slate-200/70 px-2 py-1 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-300 disabled:opacity-40"
+              className="ml-2 rounded-md bg-slate-200/70 px-3.5 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-300 disabled:opacity-40 md:px-2 md:py-1 md:text-xs"
             >
               Now
             </button>

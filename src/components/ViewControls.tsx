@@ -19,19 +19,19 @@ export function ViewControls() {
       aria-pressed={on}
       onClick={() => set(!on)}
       title={hint}
-      className={`flex w-full items-center justify-between rounded-md px-1.5 py-1 text-left text-xs transition-colors hover:bg-slate-200/60 ${
+      className={`flex w-full items-center justify-between rounded-md px-3 py-2.5 text-left text-sm transition-colors hover:bg-slate-200/60 md:px-1.5 md:py-1 md:text-xs ${
         on ? "text-slate-800" : "text-slate-400"
       }`}
     >
       <span>{label}</span>
       <span
-        className={`ml-2 h-3 w-6 shrink-0 rounded-full transition-colors ${
+        className={`ml-2 h-5 w-9 shrink-0 rounded-full transition-colors md:h-3 md:w-6 ${
           on ? "bg-emerald-500" : "bg-slate-300"
         }`}
       >
         <span
-          className={`block h-3 w-3 rounded-full bg-white shadow transition-transform ${
-            on ? "translate-x-3" : ""
+          className={`block h-5 w-5 rounded-full bg-white shadow transition-transform md:h-3 md:w-3 ${
+            on ? "translate-x-4 md:translate-x-3" : ""
           }`}
         />
       </span>

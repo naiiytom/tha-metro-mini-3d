@@ -61,6 +61,15 @@ export function MapContainer() {
       // works once." A few extra px absorbs normal click jitter without
       // affecting genuine drag gestures.
       clickTolerance: 6,
+      // Uncapped devicePixelRatio (commonly 2-3 on phones) multiplies the
+      // shared MapLibre/Three canvas's fragment cost up to ~9x at dpr=3 vs
+      // dpr=1 — this is Three's own drawing buffer too, since it renders
+      // into MapLibre's canvas (§3A "MapLibre↔Three bridge"). 2 is the
+      // standard mobile-safe ceiling and is visually indistinguishable from
+      // uncapped on desktop retina displays at normal viewing distance.
+      // ThreeLayer.ts needs no matching change: its render() already reads
+      // back the actual drawing-buffer size every frame.
+      pixelRatio: Math.min(window.devicePixelRatio || 1, 2),
       // v5+ moved GL context flags out of MapOptions into this bag.
       canvasContextAttributes: { antialias: true },
       attributionControl: {

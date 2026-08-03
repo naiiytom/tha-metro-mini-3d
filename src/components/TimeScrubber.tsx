@@ -60,7 +60,7 @@ export function TimeScrubber() {
   };
 
   return (
-    <div className="pointer-events-auto w-[min(32rem,calc(100vw-2rem))] rounded-xl border border-white/40 bg-white/70 px-4 py-2.5 shadow-xl shadow-slate-900/10 backdrop-blur-md ring-1 ring-slate-900/5">
+    <div className="pointer-events-auto w-full rounded-xl border border-white/40 bg-white/70 px-4 py-2.5 shadow-xl shadow-slate-900/10 backdrop-blur-md ring-1 ring-slate-900/5 md:w-[min(32rem,calc(100vw-2rem))]">
       <div className="flex items-center gap-3">
         <span className="shrink-0 text-[10px] uppercase tracking-wide text-slate-500">
           Scrub
@@ -80,7 +80,7 @@ export function TimeScrubber() {
             setSec(next);
             scrubTo(next);
           }}
-          className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-slate-300 accent-slate-900"
+          className="h-2.5 w-full cursor-pointer appearance-none rounded-full bg-slate-300 accent-slate-900 md:h-1.5"
         />
         <span className="w-12 shrink-0 text-right font-mono text-xs tabular-nums text-slate-700">
           {formatServiceSec(sec)}

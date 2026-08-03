@@ -1,3 +1,5 @@
+import { useState } from "react";
+import { useIsMobile } from "../hooks/useIsMobile";
 import { useAppStore } from "../stores/useAppStore";
 import type { LineGeometry } from "../types";
 import { ViewControls } from "./ViewControls";
@@ -16,7 +18,7 @@ function LineRow({ line, routeIdx }: { line: LineGeometry; routeIdx: number }) {
         type="button"
         aria-pressed={visible}
         onClick={() => toggleRoute(routeIdx)}
-        className={`flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-xs transition-colors hover:bg-slate-200/60 ${
+        className={`flex w-full items-center gap-2 rounded-md px-3 py-2.5 text-left text-sm transition-colors hover:bg-slate-200/60 md:px-1.5 md:py-1 md:text-xs ${
           visible ? "text-slate-800" : "text-slate-400"
         }`}
       >
@@ -46,25 +48,64 @@ function LineRow({ line, routeIdx }: { line: LineGeometry; routeIdx: number }) {
  * Hiding a line hides its track, stations and trains but does NOT stop the
  * engine evaluating it: the sim is a pure function of time, and skipping runs
  * would make the vehicle count and the station boards disagree with the clock.
+ *
+ * Below `md:` this card is collapsible (default collapsed) so it doesn't
+ * dominate a phone screen, and its header carries the "hide UI" toggle —
+ * deliberately kept here rather than as a separate floating button, since
+ * this corner is the only one on the map MapLibre's own `NavigationControl`
+ * (top-right) doesn't already occupy.
  */
 export function LineSelector() {
   const routes = useAppStore((s) => s.routes);
   const mapReady = useAppStore((s) => s.mapReady);
+  const uiHidden = useAppStore((s) => s.uiHidden);
+  const setUiHidden = useAppStore((s) => s.setUiHidden);
+  const isMobile = useIsMobile();
+  const [expanded, setExpanded] = useState(!isMobile);
+
+  const bodyVisible = !isMobile || (expanded && !uiHidden);
 
   return (
-    <div className="pointer-events-auto absolute left-4 top-4 max-h-[calc(100dvh-2rem)] w-60 overflow-y-auto rounded-xl border border-white/40 bg-white/70 px-4 py-3 shadow-xl shadow-slate-900/10 backdrop-blur-md ring-1 ring-slate-900/5">
-      <h1 className="text-sm font-semibold text-slate-900">Greater Bangkok Metro Mini 3D</h1>
-      <p className="mb-2 text-xs text-slate-600">
-        {mapReady ? "Click a train or station to inspect it." : "Loading map…"}
-      </p>
-      {routes.length > 0 && (
-        <ul className="space-y-0.5">
-          {routes.map((line, routeIdx) => (
-            <LineRow key={line.key} line={line} routeIdx={routeIdx} />
-          ))}
-        </ul>
+    <div className="pointer-events-auto absolute left-4 top-4 max-h-[calc(100dvh-2rem)] w-[min(15rem,calc(100vw-6rem))] overflow-y-auto rounded-xl border border-white/40 bg-white/70 px-4 py-3 shadow-xl shadow-slate-900/10 backdrop-blur-md ring-1 ring-slate-900/5 md:w-60">
+      <div className="flex items-start gap-1">
+        <div className="min-w-0 flex-1">
+          <h1 className="text-sm font-semibold text-slate-900">Greater Bangkok Metro Mini 3D</h1>
+          <p className="text-xs text-slate-600">
+            {mapReady ? "Click a train or station to inspect it." : "Loading map…"}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setUiHidden(!uiHidden)}
+          aria-pressed={uiHidden}
+          aria-label={uiHidden ? "Show map controls" : "Hide map controls"}
+          title={uiHidden ? "Show map controls" : "Hide map controls"}
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-base leading-none text-slate-600 hover:bg-slate-200/60 md:hidden"
+        >
+          {uiHidden ? "☰" : "✕"}
+        </button>
+        <button
+          type="button"
+          onClick={() => setExpanded((e) => !e)}
+          aria-expanded={bodyVisible}
+          aria-label={expanded ? "Collapse line list" : "Expand line list"}
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-slate-500 hover:bg-slate-200/60 md:hidden"
+        >
+          {expanded ? "▲" : "▼"}
+        </button>
+      </div>
+      {bodyVisible && (
+        <>
+          {routes.length > 0 && (
+            <ul className="mt-2 space-y-0.5">
+              {routes.map((line, routeIdx) => (
+                <LineRow key={line.key} line={line} routeIdx={routeIdx} />
+              ))}
+            </ul>
+          )}
+          <ViewControls />
+        </>
       )}
-      <ViewControls />
     </div>
   );
 }

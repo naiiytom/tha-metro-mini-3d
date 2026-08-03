@@ -85,6 +85,12 @@ interface AppState {
    *  scoped for MVP 7 — "off" becomes "Light" later. */
   nightThemeEnabled: boolean;
   setNightThemeEnabled: (on: boolean) => void;
+
+  /** Mobile-only "hide UI" toggle: collapses every overlay panel to leave an
+   *  unobstructed map. No effect at the `md:` desktop layout, which has no
+   *  panel-overlap problem to escape. */
+  uiHidden: boolean;
+  setUiHidden: (hidden: boolean) => void;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -148,4 +154,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   nightThemeEnabled: true,
   setNightThemeEnabled: (on) => set({ nightThemeEnabled: on }),
+
+  uiHidden: false,
+  setUiHidden: (hidden) => set({ uiHidden: hidden }),
 }));
