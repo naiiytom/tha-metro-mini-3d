@@ -20,9 +20,11 @@ import {
   parseColor,
   type BasemapTheme,
 } from "../map/basemapTheme";
+import { TrainTooltip } from "../map/trainTooltip";
 import { VehicleManager } from "../map/VehicleManager";
 import { localToLngLat, ORIGIN_LNG_LAT } from "../map/coordinates";
 import { SimClient, activeSimClient } from "../sim/SimClient";
+import { formatCountdown } from "../sim/time";
 import { useAppStore } from "../stores/useAppStore";
 import network from "../data/network.json";
 import type { NetworkData } from "../types";
@@ -82,6 +84,8 @@ export function MapContainer() {
 
     let sim: SimClient | null = null;
     let unsubscribeVisibility: (() => void) | null = null;
+    let unsubscribeTooltipSelection: (() => void) | null = null;
+    let tooltipTimer: ReturnType<typeof setInterval> | null = null;
     let rafId = 0;
     // style.load fires asynchronously; if effect cleanup runs first (a React
     // StrictMode double-invoke, or a fast unmount before tiles finish
@@ -90,6 +94,9 @@ export function MapContainer() {
     // them down. Guarded at the end of the style.load handler.
     let disposed = false;
     const follow = new FollowCamera();
+    // On-map label tracking whichever train is selected — see its own doc
+    // comment for why this exists as a class rather than a React component.
+    const trainTooltip = new TrainTooltip(containerRef.current!);
     // Latest interpolated poses, kept for click hit-testing. Owned by the
     // render path — never copied into React state (§3A.7).
     let lastVehicles: Float32Array<ArrayBufferLike> = new Float32Array(0);
@@ -327,9 +334,47 @@ export function MapContainer() {
         // the camera in the rAF loop — jumpTo() inside render() re-enters
         // MapLibre's render path.
         follow.capture(vehicles, count, following ? selectedRunIdx : null);
+        // Unlike follow.capture above, this is NOT gated on `following` — the
+        // tooltip tracks whichever train is selected regardless of camera lock.
+        trainTooltip.capture(vehicles, count, selectedRunIdx);
         lastVehicles = vehicles;
         lastCount = count;
       };
+
+      // Tooltip content (headsign/next-stop) is UI-rate, not per-frame, so a
+      // plain 1 Hz poll is fine — the same query and cadence TrainInspector.tsx
+      // already runs when its own panel is open. Deliberately duplicated
+      // rather than shared: a small, independent poll matches the existing
+      // TrainInspector/StationBoard precedent and avoids new cross-component
+      // cache plumbing for one short string.
+      const refreshTooltipContent = async () => {
+        const selectedRunIdx = useAppStore.getState().selectedRunIdx;
+        const client = activeSimClient.current;
+        if (selectedRunIdx === null || !client) return;
+        trainTooltip.setContent("#94a3b8", `Train ${selectedRunIdx}`);
+        try {
+          const detail = await client.getRunDetail(selectedRunIdx, client.getSimNow());
+          // Bail on a stale response after the user re-selected mid-flight —
+          // same guard TrainInspector.tsx's own poll uses.
+          if (useAppStore.getState().selectedRunIdx !== selectedRunIdx) return;
+          if (!detail) {
+            trainTooltip.setContent("#94a3b8", "Trip ended");
+            return;
+          }
+          const color = `#${detail.color_rgb.toString(16).padStart(6, "0")}`;
+          const next =
+            detail.next_station !== null && detail.next_arrival_in_s !== null
+              ? ` · ${detail.next_station} in ${formatCountdown(detail.next_arrival_in_s)}`
+              : "";
+          trainTooltip.setContent(color, `${detail.headsign}${next}`);
+        } catch {
+          // Worker torn down mid-flight; the next poll or selection re-queries.
+        }
+      };
+      tooltipTimer = setInterval(() => void refreshTooltipContent(), 1000);
+      unsubscribeTooltipSelection = useAppStore.subscribe((state, prev) => {
+        if (state.selectedRunIdx !== prev.selectedRunIdx) void refreshTooltipContent();
+      });
 
       // Day/night follows the SIM clock, not wall time (F3.3) — scrubbing to
       // 22:00 must actually look like 22:00. Updated at ~2 Hz: at 60× warp
@@ -361,6 +406,7 @@ export function MapContainer() {
         if (useAppStore.getState().engineStatus === "ready") {
           updateSun(performance.now());
           follow.apply(map);
+          trainTooltip.apply(map);
           map.triggerRepaint();
         }
         rafId = requestAnimationFrame(loop);
@@ -372,6 +418,8 @@ export function MapContainer() {
         // instead of leaking a running rAF loop, worker and subscription.
         cancelAnimationFrame(rafId);
         unsubscribeVisibility?.();
+        if (tooltipTimer !== null) clearInterval(tooltipTimer);
+        unsubscribeTooltipSelection?.();
         sim?.dispose();
         if (activeSimClient.current === sim) activeSimClient.current = null;
       }
@@ -454,6 +502,9 @@ export function MapContainer() {
       removeCameraControls();
       unsubscribeFollow();
       unsubscribeVisibility?.();
+      if (tooltipTimer !== null) clearInterval(tooltipTimer);
+      unsubscribeTooltipSelection?.();
+      trainTooltip.dispose();
       map.off("click", onMapClick);
       map.off("dragstart", onDragStart);
       window.removeEventListener("keydown", onKeyDown);
