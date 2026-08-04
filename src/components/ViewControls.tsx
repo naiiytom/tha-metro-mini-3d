@@ -1,3 +1,4 @@
+import { BASEMAP_STYLES } from "../map/basemapStyles";
 import { THEME_MODES } from "../map/themeMode";
 import { useAppStore } from "../stores/useAppStore";
 
@@ -13,6 +14,8 @@ export function ViewControls() {
   const setShadowsEnabled = useAppStore((s) => s.setShadowsEnabled);
   const themeMode = useAppStore((s) => s.themeMode);
   const setThemeMode = useAppStore((s) => s.setThemeMode);
+  const basemapStyle = useAppStore((s) => s.basemapStyle);
+  const setBasemapStyle = useAppStore((s) => s.setBasemapStyle);
 
   const row = (label: string, hint: string, on: boolean, set: (v: boolean) => void) => (
     <button
@@ -87,6 +90,28 @@ export function ViewControls() {
               }`}
             >
               {mode}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="mt-1 px-3 py-2 md:px-1.5 md:py-1">
+        <div className="mb-1 text-sm text-slate-500 md:text-xs">Basemap</div>
+        <div role="radiogroup" aria-label="Basemap" className="flex gap-1 rounded-md bg-slate-200/60 p-0.5">
+          {BASEMAP_STYLES.map((s) => (
+            <button
+              key={s.key}
+              type="button"
+              role="radio"
+              aria-checked={basemapStyle === s.key}
+              data-basemap-style={s.key}
+              onClick={() => setBasemapStyle(s.key)}
+              className={`flex-1 rounded px-2 py-1.5 text-sm transition-colors md:py-0.5 md:text-xs ${
+                basemapStyle === s.key
+                  ? "bg-white text-slate-800 shadow-sm"
+                  : "text-slate-500 hover:text-slate-700"
+              }`}
+            >
+              {s.label}
             </button>
           ))}
         </div>

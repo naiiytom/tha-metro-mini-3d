@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { BasemapStyleKey } from "../map/basemapStyles";
 import type { ThemeMode } from "../map/themeMode";
 import type { StationInfo, ValidationSummary } from "../sim/protocol";
 import type { ClockParams } from "../sim/SimClient";
@@ -91,6 +92,13 @@ interface AppState {
    *  panel-overlap problem to escape. */
   uiHidden: boolean;
   setUiHidden: (hidden: boolean) => void;
+
+  /** Which key-free vector basemap is loaded (roadmap item 21). Changing it
+   *  calls map.setStyle(), which destroys and rebuilds the Three custom
+   *  layer — see src/map/styleBinding.ts for what is re-created and what is
+   *  deliberately not. */
+  basemapStyle: BasemapStyleKey;
+  setBasemapStyle: (key: BasemapStyleKey) => void;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -157,4 +165,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   uiHidden: false,
   setUiHidden: (hidden) => set({ uiHidden: hidden }),
+
+  basemapStyle: "liberty",
+  setBasemapStyle: (key) => set({ basemapStyle: key }),
 }));

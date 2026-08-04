@@ -9,11 +9,12 @@ import "maplibre-gl/dist/maplibre-gl.css";
 // `?worker&url` suffix bundles the worker together with its shared chunk.
 import maplibreWorkerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 import { NetworkLayer } from "../map/ThreeLayer";
+import { styleUrl } from "../map/basemapStyles";
 import { installCameraControls } from "../map/cameraControls";
 import { FollowCamera } from "../map/followCamera";
 import { pickAt } from "../map/selection";
 import { skyPalette, sunDirection } from "../map/sun";
-import { bindStyle } from "../map/styleBinding";
+import { bindStyle, type StyleBinding } from "../map/styleBinding";
 import { TrainTooltip } from "../map/trainTooltip";
 import { effectiveElevationDeg } from "../map/themeMode";
 import { VehicleManager } from "../map/VehicleManager";
@@ -73,15 +74,14 @@ export function MapContainer() {
     const removeCameraControls = installCameraControls(map);
 
     let sim: SimClient | null = null;
-    let unsubscribeVisibility: (() => void) | null = null;
     let unsubscribeTooltipSelection: (() => void) | null = null;
     let tooltipTimer: ReturnType<typeof setInterval> | null = null;
     let rafId = 0;
     // style.load fires asynchronously; if effect cleanup runs first (a React
     // StrictMode double-invoke, or a fast unmount before tiles finish
-    // loading), sim/unsubscribeVisibility/rafId below are created after
-    // cleanup already ran with them still null, so nothing would ever tear
-    // them down. Guarded at the end of the style.load handler.
+    // loading), sim/rafId below are created after cleanup already ran with
+    // them still null, so nothing would ever tear them down. Guarded at the
+    // end of the style.load handler.
     let disposed = false;
     const follow = new FollowCamera();
     // On-map label tracking whichever train is selected — see its own doc
@@ -91,18 +91,109 @@ export function MapContainer() {
     // render path — never copied into React state (§3A.7).
     let lastVehicles: Float32Array<ArrayBufferLike> = new Float32Array(0);
     let lastCount = 0;
+    const net = network as unknown as NetworkData;
+
+    // Everything below is RE-CREATED on every style.load (map.setStyle()
+    // destroys every custom layer). SimClient/FollowCamera/TrainTooltip and
+    // the rAF loop are per-MAP, not per-style — see styleBinding.ts's own
+    // doc comment for why re-creating SimClient on a style swap would leak a
+    // second worker holding a second copy of the timetable cache.
+    let layer: NetworkLayer | null = null;
+    let vehicleManager: VehicleManager | null = null;
+    let binding: StyleBinding | null = null;
+    // True after the first style.load. A style SWAP must rebuild the Three
+    // layer and re-capture the paint snapshots, but must NOT create a second
+    // SimClient — that would spawn a second worker holding a second copy of
+    // the timetable cache, and the rAF loop/click handlers/tooltip are all
+    // per-map, not per-style.
+    let simInitialised = false;
+
+    // Per-frame path: interpolate + pose instances inside the layer's
+    // render(), entirely outside React. Declared once, re-attached to each
+    // new NetworkLayer instance on every style swap (see style.load below).
+    const beforeRender = () => {
+      const client = activeSimClient.current;
+      if (!client) return;
+      const { vehicles, count } = client.getInterpolated(performance.now());
+      const { selectedRunIdx, following } = useAppStore.getState();
+      vehicleManager?.update(vehicles, count, selectedRunIdx);
+      // Read the follow target here (the buffer is already in hand) but move
+      // the camera in the rAF loop — jumpTo() inside render() re-enters
+      // MapLibre's render path.
+      follow.capture(vehicles, count, following ? selectedRunIdx : null);
+      // Unlike follow.capture above, this is NOT gated on `following` — the
+      // tooltip tracks whichever train is selected regardless of camera lock.
+      trainTooltip.capture(vehicles, count, selectedRunIdx);
+      lastVehicles = vehicles;
+      lastCount = count;
+    };
+
+    // Visibility/underground/shadows/theme/basemap are all UI state, so they
+    // drive the scene through a subscription rather than the per-frame path.
+    // Registered ONCE per map mount — NOT inside style.load, or a style swap
+    // would register a second copy of this on every swap.
+    const unsubscribeVisibility = useAppStore.subscribe((state, prev) => {
+      if (state.hiddenRoutes !== prev.hiddenRoutes) {
+        for (let i = 0; i < net.lines.length; i++) {
+          const visible = !state.hiddenRoutes.includes(i);
+          layer?.setLineVisible(i, visible);
+          vehicleManager?.setRouteVisible(i, visible);
+        }
+        map.triggerRepaint();
+      }
+      if (state.undergroundMode !== prev.undergroundMode) {
+        binding?.applyUnderground(state.undergroundMode);
+      }
+      if (state.shadowsEnabled !== prev.shadowsEnabled) {
+        layer?.setShadowsEnabled(state.shadowsEnabled);
+        map.triggerRepaint();
+      }
+      if (state.themeMode !== prev.themeMode) {
+        const client = activeSimClient.current;
+        if (client && layer) {
+          const dir = sunDirection(client.getSimNow());
+          const eff = effectiveElevationDeg(state.themeMode, dir.elevationDeg);
+          layer.setSun(dir, skyPalette(eff));
+        }
+        // Force the next tick to recompute: `lastApplied` still holds the
+        // previous mode's blended values, so without this the redundant-
+        // write skip would keep them.
+        binding?.resetThemeCache();
+        map.triggerRepaint();
+      }
+      if (state.basemapStyle !== prev.basemapStyle) {
+        // setStyle's default diffing (`options.diff !== false`) can never see
+        // our custom layer: Style.serialize() explicitly excludes `type:
+        // "custom"` layers (CustomStyleLayer.serialize() even throws if
+        // called), so the diff between old and new style JSON never emits a
+        // removeLayer for it — the OLD NetworkLayer instance survives the
+        // swap untouched, and the style.load handler below's map.addLayer()
+        // then throws "Layer ... already exists on this map." (verified live
+        // against a real dev server while implementing this). `{diff:
+        // false}` avoids that collision but is worse: it tears the whole
+        // Style object down without ever calling removeLayer() per layer, so
+        // NetworkLayer.onRemove() — which disposes Three.js geometry,
+        // materials and the WebGLRenderer wrapper — never fires, leaking
+        // real GPU resources on every swap. Removing the layer ourselves
+        // first runs the genuine removeLayer path (same one an unmount
+        // already exercises), so disposal is real either way.
+        if (layer && map.getLayer(layer.id)) {
+          map.removeLayer(layer.id);
+        }
+        map.setStyle(styleUrl(state.basemapStyle));
+      }
+    });
 
     map.on("style.load", () => {
       const store = useAppStore.getState();
-      const net = network as unknown as NetworkData;
-      const vehicleManager = new VehicleManager(
+      vehicleManager = new VehicleManager(
         net.lines.map((l) => ({ color: l.color, vehicleType: l.vehicleType })),
       );
-      const layer = new NetworkLayer(net, vehicleManager);
+      layer = new NetworkLayer(net, vehicleManager);
       map.addLayer(layer);
       setMapReady(true);
       store.setRoutes(net.lines);
-      const binding = bindStyle(map, layer);
+      binding = bindStyle(map, layer);
       if (import.meta.env.DEV) {
         console.info(
           `[styleBinding] ${binding.themeableCount} layer paint properties themeable, ` +
@@ -112,10 +203,10 @@ export function MapContainer() {
       binding.applyUnderground(useAppStore.getState().undergroundMode);
       layer.setShadowsEnabled(useAppStore.getState().shadowsEnabled);
       // Seed line visibility from any hiddenRoutes already in the store at
-      // mount — the subscription below only reacts to CHANGES, so without
-      // this a remount with pre-existing hidden routes (a React StrictMode
-      // double-invoke, or future persistence) would render every line
-      // visible until the next toggle (finding 6c).
+      // mount — the subscription above only reacts to CHANGES, so without
+      // this a remount (or a style swap) with pre-existing hidden routes (a
+      // React StrictMode double-invoke, or future persistence) would render
+      // every line visible until the next toggle (finding 6c).
       {
         const initialHidden = useAppStore.getState().hiddenRoutes;
         for (let i = 0; i < net.lines.length; i++) {
@@ -124,39 +215,18 @@ export function MapContainer() {
           vehicleManager.setRouteVisible(i, visible);
         }
       }
+      // Re-attach the per-frame hook to the NEW layer instance.
+      layer.beforeRender = beforeRender;
 
-      // Visibility is UI state, so it drives the scene through a subscription
-      // rather than the per-frame path.
-      unsubscribeVisibility = useAppStore.subscribe((state, prev) => {
-        if (state.hiddenRoutes !== prev.hiddenRoutes) {
-          for (let i = 0; i < net.lines.length; i++) {
-            const visible = !state.hiddenRoutes.includes(i);
-            layer.setLineVisible(i, visible);
-            vehicleManager.setRouteVisible(i, visible);
-          }
-          map.triggerRepaint();
-        }
-        if (state.undergroundMode !== prev.undergroundMode) {
-          binding.applyUnderground(state.undergroundMode);
-        }
-        if (state.shadowsEnabled !== prev.shadowsEnabled) {
-          layer.setShadowsEnabled(state.shadowsEnabled);
-          map.triggerRepaint();
-        }
-        if (state.themeMode !== prev.themeMode) {
-          const client = activeSimClient.current;
-          if (client) {
-            const dir = sunDirection(client.getSimNow());
-            const eff = effectiveElevationDeg(state.themeMode, dir.elevationDeg);
-            layer.setSun(dir, skyPalette(eff));
-          }
-          // Force the next tick to recompute: `lastApplied` still holds the
-          // previous mode's blended values, so without this the redundant-
-          // write skip would keep them.
-          binding.resetThemeCache();
-          map.triggerRepaint();
-        }
-      });
+      if (simInitialised) {
+        // Style swap: the Three layer and paint snapshots are rebuilt above;
+        // everything else (SimClient, tooltip, follow, rAF, handlers,
+        // subscriptions) survived and still points at the right objects
+        // through the hoisted layer/vehicleManager/binding variables.
+        map.triggerRepaint();
+        return;
+      }
+      simInitialised = true;
 
       store.setEngineStatus("loading");
       let lastCountUpdate = 0;
@@ -184,25 +254,6 @@ export function MapContainer() {
         },
       });
       activeSimClient.current = sim;
-
-      // Per-frame path: interpolate + pose instances inside the layer's
-      // render(), entirely outside React.
-      layer.beforeRender = () => {
-        const client = activeSimClient.current;
-        if (!client) return;
-        const { vehicles, count } = client.getInterpolated(performance.now());
-        const { selectedRunIdx, following } = useAppStore.getState();
-        vehicleManager.update(vehicles, count, selectedRunIdx);
-        // Read the follow target here (the buffer is already in hand) but move
-        // the camera in the rAF loop — jumpTo() inside render() re-enters
-        // MapLibre's render path.
-        follow.capture(vehicles, count, following ? selectedRunIdx : null);
-        // Unlike follow.capture above, this is NOT gated on `following` — the
-        // tooltip tracks whichever train is selected regardless of camera lock.
-        trainTooltip.capture(vehicles, count, selectedRunIdx);
-        lastVehicles = vehicles;
-        lastCount = count;
-      };
 
       // Tooltip content (headsign/next-stop) is UI-rate, not per-frame, so a
       // plain 1 Hz poll is fine — the same query and cadence TrainInspector.tsx
@@ -263,8 +314,8 @@ export function MapContainer() {
         // light position); only the palette and the basemap blend use the
         // mode-effective elevation.
         const eff = effectiveElevationDeg(mode, dir.elevationDeg);
-        layer.setSun(dir, skyPalette(eff));
-        binding.applyThemeElevation(eff);
+        layer?.setSun(dir, skyPalette(eff));
+        binding?.applyThemeElevation(eff);
       };
 
       // MapLibre only repaints on demand — keep frames coming while the
@@ -283,8 +334,10 @@ export function MapContainer() {
       if (disposed) {
         // Cleanup already ran before this fired — tear down what it missed
         // instead of leaking a running rAF loop, worker and subscription.
+        // (unsubscribeVisibility is registered synchronously above, outside
+        // style.load, so effect cleanup already unsubscribed it — nothing to
+        // do for it here.)
         cancelAnimationFrame(rafId);
-        unsubscribeVisibility?.();
         if (tooltipTimer !== null) clearInterval(tooltipTimer);
         unsubscribeTooltipSelection?.();
         sim?.dispose();
@@ -368,7 +421,7 @@ export function MapContainer() {
       cancelAnimationFrame(rafId);
       removeCameraControls();
       unsubscribeFollow();
-      unsubscribeVisibility?.();
+      unsubscribeVisibility();
       if (tooltipTimer !== null) clearInterval(tooltipTimer);
       unsubscribeTooltipSelection?.();
       trainTooltip.dispose();
