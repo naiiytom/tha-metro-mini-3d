@@ -9,6 +9,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 // `?worker&url` suffix bundles the worker together with its shared chunk.
 import maplibreWorkerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 import { NetworkLayer } from "../map/ThreeLayer";
+import { decideAutoUnderground, initialAutoState } from "../map/autoUnderground";
 import { styleUrl } from "../map/basemapStyles";
 import { installCameraControls } from "../map/cameraControls";
 import { FollowCamera } from "../map/followCamera";
@@ -20,6 +21,7 @@ import { effectiveElevationDeg } from "../map/themeMode";
 import { VehicleManager } from "../map/VehicleManager";
 import { localToLngLat, ORIGIN_LNG_LAT } from "../map/coordinates";
 import { SimClient, activeSimClient } from "../sim/SimClient";
+import { LANE_RUN_IDX, LANE_Z, VEHICLE_STRIDE } from "../sim/protocol";
 import { formatCountdown } from "../sim/time";
 import { useAppStore } from "../stores/useAppStore";
 import network from "../data/network.json";
@@ -91,6 +93,11 @@ export function MapContainer() {
     // render path — never copied into React state (§3A.7).
     let lastVehicles: Float32Array<ArrayBufferLike> = new Float32Array(0);
     let lastCount = 0;
+    // Followed train's altitude, captured on the frame path (below) and acted
+    // on in the rAF loop — see decideAutoUnderground's own doc comment for
+    // why this decides on altitude rather than the track's structure tag.
+    let followedAltitudeM: number | null = null;
+    let autoUnderground = initialAutoState();
     const net = network as unknown as NetworkData;
 
     // Everything below is RE-CREATED on every style.load (map.setStyle()
@@ -124,6 +131,19 @@ export function MapContainer() {
       // Unlike follow.capture above, this is NOT gated on `following` — the
       // tooltip tracks whichever train is selected regardless of camera lock.
       trainTooltip.capture(vehicles, count, selectedRunIdx);
+      // Followed train's altitude, for the auto-underground decision made in
+      // the rAF loop below. Reading it here is free (the buffer is in hand);
+      // acting on it here is not — setUndergroundMode goes through Zustand,
+      // which must never be written from the render path (§3A.7).
+      followedAltitudeM = null;
+      if (following && selectedRunIdx !== null) {
+        for (let i = 0; i < count; i++) {
+          if (vehicles[i * VEHICLE_STRIDE + LANE_RUN_IDX] === selectedRunIdx) {
+            followedAltitudeM = vehicles[i * VEHICLE_STRIDE + LANE_Z];
+            break;
+          }
+        }
+      }
       lastVehicles = vehicles;
       lastCount = count;
     };
@@ -324,6 +344,16 @@ export function MapContainer() {
         if (useAppStore.getState().engineStatus === "ready") {
           updateSun(performance.now());
           follow.apply(map);
+          {
+            const s = useAppStore.getState();
+            const d = decideAutoUnderground(autoUnderground, {
+              following: s.following,
+              altitudeM: followedAltitudeM,
+              undergroundMode: s.undergroundMode,
+            });
+            autoUnderground = d.next;
+            if (d.setUndergroundTo !== null) s.setUndergroundMode(d.setUndergroundTo);
+          }
           trainTooltip.apply(map, useAppStore.getState().uiHidden);
           map.triggerRepaint();
         }
