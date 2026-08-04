@@ -72,7 +72,7 @@ export function StationBoard() {
   const info = stationByKey.get(stationKey(selectedStation.routeIdx, selectedStation.stationIdx));
 
   return (
-    <div className="pointer-events-auto absolute right-4 top-4 flex max-h-[calc(100dvh-2rem)] w-72 flex-col overflow-hidden rounded-xl border border-white/40 bg-white/70 shadow-xl shadow-slate-900/10 backdrop-blur-md ring-1 ring-slate-900/5">
+    <div className="pointer-events-auto flex max-h-[50dvh] w-full flex-col overflow-hidden rounded-t-2xl border border-white/40 bg-white/70 shadow-xl shadow-slate-900/10 backdrop-blur-md ring-1 ring-slate-900/5 md:absolute md:right-4 md:top-4 md:max-h-[calc(100dvh-2rem)] md:w-72 md:rounded-xl">
       <div className="flex items-start gap-2 border-b border-slate-200 px-4 py-3">
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold text-slate-900">
@@ -84,7 +84,7 @@ export function StationBoard() {
           type="button"
           onClick={() => selectStation(null)}
           aria-label="Close station board"
-          className="rounded-md px-1.5 py-0.5 text-sm leading-none text-slate-500 hover:bg-slate-200 hover:text-slate-700"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-sm leading-none text-slate-500 hover:bg-slate-200 hover:text-slate-700 md:h-auto md:w-auto md:px-1.5 md:py-0.5"
         >
           ×
         </button>
@@ -122,7 +122,7 @@ export function StationBoard() {
                 <button
                   type="button"
                   onClick={() => selectRun(e.run_idx)}
-                  className="flex w-full items-baseline justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs text-slate-700 transition-colors hover:bg-slate-200"
+                  className="flex w-full items-baseline justify-between gap-2 rounded-md px-3 py-2.5 text-left text-sm text-slate-700 transition-colors hover:bg-slate-200 md:px-2 md:py-1.5 md:text-xs"
                 >
                   <span className="min-w-0 flex-1 truncate">
                     <span className="font-medium text-slate-900">{e.destination}</span>

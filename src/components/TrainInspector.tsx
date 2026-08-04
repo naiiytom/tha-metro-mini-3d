@@ -73,7 +73,10 @@ export function TrainInspector() {
   const color = detail ? `#${detail.color_rgb.toString(16).padStart(6, "0")}` : "#94a3b8";
 
   return (
-    <div className="pointer-events-auto absolute right-4 top-4 flex max-h-[calc(100dvh-2rem)] w-72 flex-col overflow-hidden rounded-xl border border-white/40 bg-white/70 shadow-xl shadow-slate-900/10 backdrop-blur-md ring-1 ring-slate-900/5">
+    <div
+      data-testid="train-inspector"
+      className="pointer-events-auto flex max-h-[50dvh] w-full flex-col overflow-hidden rounded-t-2xl border border-white/40 bg-white/70 shadow-xl shadow-slate-900/10 backdrop-blur-md ring-1 ring-slate-900/5 md:absolute md:right-4 md:top-4 md:max-h-[calc(100dvh-2rem)] md:w-72 md:rounded-xl"
+    >
       <div className="flex items-start gap-2 border-b border-slate-200 px-4 py-3">
         <span
           className="mt-1 inline-block h-3 w-3 shrink-0 rounded-full"
@@ -91,7 +94,7 @@ export function TrainInspector() {
           type="button"
           onClick={() => selectRun(null)}
           aria-label="Close inspector"
-          className="rounded-md px-1.5 py-0.5 text-sm leading-none text-slate-500 hover:bg-slate-200 hover:text-slate-700"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-sm leading-none text-slate-500 hover:bg-slate-200 hover:text-slate-700 md:h-auto md:w-auto md:px-1.5 md:py-0.5"
         >
           ×
         </button>
@@ -136,7 +139,7 @@ export function TrainInspector() {
             <button
               type="button"
               onClick={() => setFollowing(!following)}
-              className={`w-full rounded-md px-2 py-1.5 text-xs font-medium transition-colors ${
+              className={`w-full rounded-md px-4 py-3 text-sm font-medium transition-colors md:px-2 md:py-1.5 md:text-xs ${
                 following
                   ? "bg-slate-900 text-white hover:bg-slate-700"
                   : "bg-slate-200/80 text-slate-700 hover:bg-slate-300"
