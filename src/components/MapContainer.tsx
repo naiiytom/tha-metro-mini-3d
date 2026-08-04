@@ -13,13 +13,7 @@ import { installCameraControls } from "../map/cameraControls";
 import { FollowCamera } from "../map/followCamera";
 import { pickAt } from "../map/selection";
 import { skyPalette, sunDirection } from "../map/sun";
-import {
-  NIGHT_THEME,
-  mixColor,
-  nightFactor,
-  parseColor,
-  type BasemapTheme,
-} from "../map/basemapTheme";
+import { bindStyle } from "../map/styleBinding";
 import { TrainTooltip } from "../map/trainTooltip";
 import { effectiveElevationDeg } from "../map/themeMode";
 import { VehicleManager } from "../map/VehicleManager";
@@ -108,38 +102,14 @@ export function MapContainer() {
       map.addLayer(layer);
       setMapReady(true);
       store.setRoutes(net.lines);
-      // MapLibre side of the underground mode. Layer IDs are discovered from
-      // the loaded style rather than hardcoded: this is OpenFreeMap's Liberty
-      // style today, and hardcoded ids would break silently if it changes or
-      // is swapped. `fill-extrusion` is the 3D buildings; `fill` is landuse
-      // and water. SRS §F3.2 specifies the 0.1–0.4 opacity band.
-      const UNDERGROUND_BASEMAP_OPACITY = 0.25;
-      const dimmable = map
-        .getStyle()
-        .layers.filter((l) => l.type === "fill-extrusion" || l.type === "fill")
-        .map((l) => {
-          const prop = (
-            l.type === "fill-extrusion" ? "fill-extrusion-opacity" : "fill-opacity"
-          ) as "fill-extrusion-opacity" | "fill-opacity";
-          return {
-            id: l.id,
-            prop,
-            original: (map.getPaintProperty(l.id, prop) as number | undefined) ?? 1,
-          };
-        });
-
-      const applyUnderground = (on: boolean) => {
-        layer.setUndergroundMode(on);
-        for (const d of dimmable) {
-          map.setPaintProperty(
-            d.id,
-            d.prop,
-            on ? Math.min(d.original, UNDERGROUND_BASEMAP_OPACITY) : d.original,
-          );
-        }
-        map.triggerRepaint();
-      };
-      applyUnderground(useAppStore.getState().undergroundMode);
+      const binding = bindStyle(map, layer);
+      if (import.meta.env.DEV) {
+        console.info(
+          `[styleBinding] ${binding.themeableCount} layer paint properties themeable, ` +
+            `${binding.skippedCount} skipped (expression/stop-function/unsupported colour syntax)`,
+        );
+      }
+      binding.applyUnderground(useAppStore.getState().undergroundMode);
       layer.setShadowsEnabled(useAppStore.getState().shadowsEnabled);
       // Seed line visibility from any hiddenRoutes already in the store at
       // mount — the subscription below only reacts to CHANGES, so without
@@ -155,90 +125,6 @@ export function MapContainer() {
         }
       }
 
-      // Basemap day/night theming (Task 10b, human-added scope beyond
-      // SRS F3.3): `skyPalette` already re-lights the Three.js layer from
-      // the sim clock, but the MapLibre basemap itself kept its daytime
-      // colours at 02:00. This snapshots each themeable layer's *original*
-      // colour once — same discipline as `dimmable` above — and every
-      // later tick blends from that original toward the night target, never
-      // from the layer's current (already-blended) value, or the blend
-      // would compound every tick and drift the whole map to black.
-      // Colours only: this never touches a `*-opacity` paint property —
-      // that stays `dimmable`'s and `applyUnderground`'s alone.
-      type ThemeRole = keyof BasemapTheme;
-      type ColorProp =
-        | "background-color"
-        | "fill-color"
-        | "fill-extrusion-color"
-        | "line-color"
-        | "text-color"
-        | "text-halo-color";
-      // `lastApplied` tracks the most recent value actually written to this
-      // layer (starts at `original`, i.e. nothing written yet) so a tick
-      // whose blended colour hasn't actually changed since the last write
-      // can skip the setPaintProperty call entirely — near full day/night
-      // the blend saturates for many layers well before `t` itself stops
-      // moving, and Liberty has 100+ themeable layers, so at up to 2 Hz
-      // (more at high time-warp, where the bucket can change nearly every
-      // tick) that redundant-write elimination cuts most of the property
-      // writes (perf note on finding 7).
-      const themeable: { id: string; prop: ColorProp; role: ThemeRole; original: string; lastApplied: string }[] =
-        [];
-      let skippedExpressionLayers = 0;
-      const captureThemeable = (id: string, prop: ColorProp, role: ThemeRole) => {
-        const raw = map.getPaintProperty(id, prop);
-        if (raw === undefined) return; // no override on this layer; nothing to theme
-        if (typeof raw !== "string" || parseColor(raw) === null) {
-          // MapLibre expression (array) or stop-function (object), or a CSS
-          // colour syntax outside what parseColor supports (e.g. a named
-          // colour) — cannot be interpolated this way, so leave it alone.
-          skippedExpressionLayers++;
-          return;
-        }
-        themeable.push({ id, prop, role, original: raw, lastApplied: raw });
-      };
-      for (const l of map.getStyle().layers) {
-        if (l.type === "background") captureThemeable(l.id, "background-color", "background");
-        else if (l.type === "fill")
-          captureThemeable(l.id, "fill-color", l.id.includes("water") ? "water" : "land");
-        else if (l.type === "fill-extrusion")
-          captureThemeable(l.id, "fill-extrusion-color", "building");
-        else if (l.type === "line") captureThemeable(l.id, "line-color", "road");
-        else if (l.type === "symbol") {
-          captureThemeable(l.id, "text-color", "labelText");
-          captureThemeable(l.id, "text-halo-color", "labelHalo");
-        }
-      }
-      if (import.meta.env.DEV) {
-        console.info(
-          `[basemapTheme] ${themeable.length} layer paint properties themeable, ` +
-            `${skippedExpressionLayers} skipped (expression/stop-function/unsupported colour syntax)`,
-        );
-      }
-
-      let lastNightBucket = -1;
-      const applyBasemapTheme = (elevationDeg: number) => {
-        const t = nightFactor(elevationDeg);
-        // Quantised to avoid dozens of no-op setPaintProperty calls a
-        // second while the sun barely moves (e.g. deep night or midday).
-        const bucket = Math.round(t * 200);
-        if (bucket === lastNightBucket) return;
-        lastNightBucket = bucket;
-        // Blend each layer's captured original directly to the fixed night
-        // target — `t` applied exactly once. (An earlier version blended
-        // through an elevation-dependent `basemapTheme(elevationDeg)`,
-        // which was itself already a day/night blend by `t`; composing the
-        // two applied `t` twice, pulling mid-transition colours toward a
-        // generic hardcoded reference that should never reach the map —
-        // see basemapTheme.ts's NIGHT_THEME doc comment.)
-        for (const entry of themeable) {
-          const next = mixColor(entry.original, NIGHT_THEME[entry.role], t);
-          if (next === entry.lastApplied) continue; // saturated already — skip the redundant write
-          entry.lastApplied = next;
-          map.setPaintProperty(entry.id, entry.prop, next);
-        }
-      };
-
       // Visibility is UI state, so it drives the scene through a subscription
       // rather than the per-frame path.
       unsubscribeVisibility = useAppStore.subscribe((state, prev) => {
@@ -251,7 +137,7 @@ export function MapContainer() {
           map.triggerRepaint();
         }
         if (state.undergroundMode !== prev.undergroundMode) {
-          applyUnderground(state.undergroundMode);
+          binding.applyUnderground(state.undergroundMode);
         }
         if (state.shadowsEnabled !== prev.shadowsEnabled) {
           layer.setShadowsEnabled(state.shadowsEnabled);
@@ -267,7 +153,7 @@ export function MapContainer() {
           // Force the next tick to recompute: `lastApplied` still holds the
           // previous mode's blended values, so without this the redundant-
           // write skip would keep them.
-          lastNightBucket = -1;
+          binding.resetThemeCache();
           map.triggerRepaint();
         }
       });
@@ -378,7 +264,7 @@ export function MapContainer() {
         // mode-effective elevation.
         const eff = effectiveElevationDeg(mode, dir.elevationDeg);
         layer.setSun(dir, skyPalette(eff));
-        applyBasemapTheme(eff);
+        binding.applyThemeElevation(eff);
       };
 
       // MapLibre only repaints on demand — keep frames coming while the
