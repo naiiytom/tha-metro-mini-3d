@@ -1,7 +1,7 @@
 {
-  "bytes": 492112,
-  "feed_version": "20260801",
-  "gzip_bytes": 283441,
+  "bytes": 600138,
+  "feed_version": "20260803",
+  "gzip_bytes": 350893,
   "interchanges": [
     {
       "a": "sukhumvit/Samrong",
@@ -20,7 +20,7 @@
       "b": "arl/Phaya Thai"
     },
     {
-      "a": "sukhumvit/Mo Chit",
+      "a": "sukhumvit/BTS Mo Chit",
       "b": "blue/Chatuchak Park"
     },
     {
@@ -181,6 +181,24 @@
       "runs": 3712,
       "stations": 38,
       "track_points": 4697
+    },
+    {
+      "gtfs_route_id": "",
+      "length_m": 43597.6328125,
+      "name_en": "MRT Orange Line",
+      "patterns": 0,
+      "runs": 0,
+      "stations": 0,
+      "track_points": 4361
+    },
+    {
+      "gtfs_route_id": "",
+      "length_m": 23840.091796875,
+      "name_en": "MRT Purple Line (Phase 2)",
+      "patterns": 0,
+      "runs": 0,
+      "stations": 0,
+      "track_points": 2385
     }
   ],
   "runs": 8193,

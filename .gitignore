@@ -5,3 +5,8 @@ rust-engine/target/
 *.local
 .DS_Store
 .superpowers/
+
+# Namtang GTFS feed, fetched on demand by tools/fetch-gtfs.mjs — ~230 MB
+# extracted, dominated by shapes.txt/fare_*.txt the preprocessor never reads.
+# Never committed; re-download instead of trusting a stale local copy.
+.gtfs-cache/

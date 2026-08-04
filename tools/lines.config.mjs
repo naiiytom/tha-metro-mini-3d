@@ -220,6 +220,57 @@ export const LINES = [
     // ten lines are fetched together; not a discrepancy worth chasing.)
     osm: { relationId: 444659, match: /blue/i },
   },
+  {
+    key: "orange",
+    name: "MRT Orange Line",
+    nameTh: "สายสีส้ม",
+    color: "#F57C00",
+    // Default only; real per-point tunnel/bridge/layer tags on these ways
+    // give a genuine underground/elevated mix (verified 2026-08-04: 165
+    // underground / 160 elevated points across the stitched alignment).
+    structure: "underground",
+    vehicleType: "heavy",
+    // Pre-revenue: Eastern Section projected late 2027 (SRS §2 caveat block,
+    // re-verified 2026-07-31). No trains until it has a published schedule.
+    gtfsRouteId: null,
+    preRevenue: true,
+    // No route relation exists for this line anywhere in OSM (checked
+    // operational, route=construction, and proposed:route — none, verified
+    // 2026-08-04), so there is no relationId to pin. What DOES exist: 16 real
+    // railway=construction ways named exactly "รถไฟฟ้ามหานคร สายสีส้ม" (the
+    // Eastern Section — deliberately excluded the separately-named "...
+    // ตะวันตก" (West) ways, same Eastern-only scoping the original plan
+    // called for). wayNamePattern pins that exact name so fetchBranchFromWayName
+    // can stitch them directly; see that function's own comment for why
+    // stations are intentionally empty.
+    osm: { relationId: null, wayNamePattern: "^รถไฟฟ้ามหานคร สายสีส้ม$" },
+  },
+  {
+    key: "purple-ext",
+    name: "MRT Purple Line (Phase 2)",
+    nameTh: "สายสีม่วงใต้ ช่วงเตาปูน–ราษฎร์บูรณะ",
+    // Same hue as the operational Purple so the two read as one line; the
+    // dashed/desaturated pre-revenue treatment distinguishes them on screen.
+    color: "#660066",
+    // Default only; real per-point tags give a genuine mix (verified
+    // 2026-08-04: elevated/underground both present across the stitched
+    // alignment, spanning the full Rat Burana-to-Tao Poon extent).
+    structure: "underground",
+    vehicleType: "heavy",
+    // Still under construction: opening_date=2027 per the OSM way tags
+    // themselves (cross-checked against SRS §2's caveat block, re-verified
+    // 2026-07-31, which also notes a September 2025 worksite road collapse).
+    gtfsRouteId: null,
+    preRevenue: true,
+    // Same situation as `orange` above: no route relation exists in OSM for
+    // this extension (verified 2026-08-04). The real geometry is 10
+    // railway=construction ways named "รถไฟฟ้าสายสีม่วงใต้ ช่วงเตาปูน–
+    // ราษฎร์บูรณะ-ครุใน" (Purple South, Tao Poon-Rat Burana-Khru Nai) — this
+    // is the southern extension, distinct from the operational `purple`
+    // entry's own relation. wayNamePattern pins the exact name; see
+    // fetchBranchFromWayName for why stations are intentionally empty.
+    osm: { relationId: null, wayNamePattern: "สายสีม่วงใต้" },
+  },
 ];
 
 /**

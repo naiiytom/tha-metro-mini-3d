@@ -13,6 +13,12 @@
  * pinned back into tools/lines.config.mjs. Discovery is for bootstrapping a new
  * line only — committed data must come from a pinned id, or the geometry
  * silently changes when OSM does.
+ *
+ * A line with `osm.wayNamePattern` set (instead of a relation id) is fetched
+ * straight from named OSM ways, bypassing the relation layer entirely — for
+ * a line whose alignment is real, tagged OSM geometry but has no route
+ * relation grouping it yet (MRT Orange, MRT Purple Phase 2 as of 2026-08-04;
+ * see fetchBranchFromWayName's own comment for why).
  */
 
 import { writeFile, mkdir } from "node:fs/promises";
@@ -263,6 +269,71 @@ async function fetchBranch(relationId, branchKey, defaultStructure) {
   };
 }
 
+/**
+ * Fetch track geometry directly from named OSM ways, bypassing the relation
+ * layer — for a line with real, tagged construction geometry but no wrapping
+ * route relation. Verified 2026-08-04: MRT Orange and MRT Purple Phase 2
+ * have ZERO `type=route` relations anywhere in OSM's Bangkok data (checked
+ * operational, `route=construction`, and `proposed:route` — none exist), yet
+ * both have genuine `railway=construction` ways with real tunnel/bridge/layer
+ * tags. `fetchBranch` cannot run without a relation id; this is the fallback.
+ *
+ * Deliberately returns NO stations. A citywide search for construction-stage
+ * station nodes found exactly 2 in all of OSM, and both fall outside the
+ * bounding box of these two lines' own track ways — either a station on a
+ * section not fetched here, or a mistagged/unrelated node reusing a station
+ * name. Either way, not reliable enough to place on the map (same standing
+ * practice as the Mo Chit/Itsaraphap snap fixes in CLAUDE.md: verify a
+ * position before committing it, never guess from a name alone).
+ */
+async function fetchBranchFromWayName(namePattern, branchKey, defaultStructure) {
+  const data = await overpass(
+    `[out:json][timeout:90];way["railway"="construction"]["name"~"${namePattern}"](13.4,100.2,14.3,101.0);out geom;`,
+  );
+  const allWays = data.elements.filter((e) => e.type === "way" && e.geometry);
+  if (allWays.length === 0) {
+    throw new Error(`${branchKey}: no construction way matched name pattern ${namePattern}`);
+  }
+
+  // Ways tagged `service` (crossover/siding/spur) are pocket track between
+  // the two running tracks, not the route itself — stitching one in would
+  // walk the path onto a dead-end. A real PTv2 route relation excludes these
+  // automatically (they're never route members); a raw name-based way query
+  // has no such filter, so this does it by hand.
+  const trackWays = allWays.filter((w) => !w.tags.service);
+
+  // Unlike a relation's `out geom` member list, a standalone way's `out geom`
+  // response already carries its own tags — no follow-up tags query needed.
+  const tagsByWay = new Map(trackWays.map((w) => [String(w.id), w.tags]));
+  const wayRefs = trackWays.map((w) => ({ ref: w.id, geometry: w.geometry }));
+  const path = dedupe(stitchWays(wayRefs, tagsByWay, defaultStructure));
+
+  const histogram = path.reduce((acc, p) => {
+    acc[p[2]] = (acc[p[2]] ?? 0) + 1;
+    return acc;
+  }, {});
+  console.log(
+    `${branchKey}: ${trackWays.length}/${allWays.length} ways (excluding service/crossover) -> ` +
+      `${path.length} points (${Object.entries(histogram).map(([k, v]) => `${k}:${v}`).join(" ")}), ` +
+      `0 stops (no reliable OSM station data for this line yet)`,
+  );
+
+  const rawTrack = path.map(([lon, lat, structure]) => [
+    lon,
+    lat,
+    STRUCTURE_ALTITUDE_M[structure],
+    structure,
+  ]);
+  const track = limitTrackGradient(rawTrack);
+
+  return {
+    relationId: null,
+    osmName: trackWays[0]?.tags.name ?? "",
+    track,
+    stations: [],
+  };
+}
+
 /** Resolve a relation id from `osm.match` when none is pinned. */
 async function discoverRelationId(line) {
   // Under-construction alignments (MRT Orange, Purple Phase 2) are tagged
@@ -302,8 +373,9 @@ async function main() {
   const lines = [];
   for (const line of LINES) {
     if (!selected.includes(line)) continue;
-    const relationId = line.osm.relationId ?? (await discoverRelationId(line));
-    const geom = await fetchBranch(relationId, line.key, line.structure);
+    const geom = line.osm.wayNamePattern
+      ? await fetchBranchFromWayName(line.osm.wayNamePattern, line.key, line.structure)
+      : await fetchBranch(line.osm.relationId ?? (await discoverRelationId(line)), line.key, line.structure);
     lines.push({
       key: line.key,
       name: line.name,

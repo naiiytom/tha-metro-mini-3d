@@ -85,13 +85,13 @@ Features to close parity with [nagix/mini-tokyo-3d](https://github.com/nagix/min
 
 Concrete, already-scoped work that fell out of MVP 6. Constraints below were established during MVP 6 — they are not guesses, and they are the expensive part to rediscover.
 
-### 19. MRT Orange + MRT Purple Phase 2 (track-only, pre-revenue)
-- Was Task 6 of the MVP 6 plan; **deferred by decision, not blocked**
-- Both render as track geometry with no trains (`gtfsRouteId: null`, `preRevenue: true`)
-- The pre-revenue treatment is **already built and unit-tested** (dashed centerline, desaturated deck, `LineSelector` badge, and `assertRegistryValid` refusing a pre-revenue line with a non-null `gtfsRouteId`) — it simply has **no registry line using it yet**. These two would be its first real users.
-- Requires widening OSM discovery: under-construction alignments are tagged `route=construction` + `construction:route=subway`, which the current operational-only filter never matches
-- **`LINES` is append-only** — appending is safe; reordering or removing invalidates the committed `.tmb` and desyncs `route_idx` across the whole stack
-- Two acceptance checks in `verify:mvp6` are deferred with this item (a pre-revenue line renders but never simulates; a pre-revenue station's board resolves empty rather than erroring). They are documented in-file, not deleted.
+### 19. MRT Orange + MRT Purple Phase 2 (track-only, pre-revenue) — ✅ delivered 2026-08-04
+- Was Task 6 of the MVP 6 plan, deferred by decision, then picked back up and completed
+- Both render as track geometry with no trains (`gtfsRouteId: null`, `preRevenue: true`), dashed centerline + desaturated deck — the pre-revenue treatment built in MVP 5/6 got its first real users
+- **The plan's assumed mechanism didn't hold**: neither line has a route relation in OSM (checked operational, `route=construction`, `proposed:route` — all empty, verified 2026-08-04). The widened discovery query correctly found nothing; what exists instead is raw, individually-tagged `railway=construction` ways with no relation grouping them. A new way-name-based fetch path (`fetchBranchFromWayName` in `tools/fetch-network.mjs`) queries and stitches these directly, skipping the relation layer — see CLAUDE.md's "Orange/Purple Phase 2 track-only fetch" implementation notes for the full mechanism (crossover-way filtering, why stations are empty, etc.)
+- **Both lines have zero stations** — a citywide search found only 2 named construction-stage station nodes in all of OSM, both outside these lines' own track bounding boxes and not trustworthy enough to place
+- `LINES` grew from 10 to 12 (append-only, invariant preserved); network totals (8,193 runs, 193 stations) unchanged since both lines contribute zero of either
+- The two `verify:mvp6` acceptance checks this item's absence had caused to be deferred (a pre-revenue line renders but never simulates; a pre-revenue station's board resolves empty) still aren't wired into the harness — worth adding now that real registry lines exercise both paths, but not done as part of this pass
 
 ### 20. Automated coverage for visual/perceptual regressions
 - **All three defects found at the end of MVP 6 were spotted by a human looking at the running app** — broken portal geometry, a station ~187 m off its track, and an unreadable network at night. `verify:mvp6` (6/6), `verify:mvp4`, `verify:mvp5`, `verify:kinematics` and the full unit suite were **green throughout**.
