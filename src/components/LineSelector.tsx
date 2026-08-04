@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { useAppStore } from "../stores/useAppStore";
 import type { LineGeometry } from "../types";
@@ -63,10 +63,25 @@ export function LineSelector() {
   const isMobile = useIsMobile();
   const [expanded, setExpanded] = useState(!isMobile);
 
+  // useState's initial value only runs once — without this, resizing
+  // desktop -> mobile mid-session leaves the card expanded on a phone
+  // (and vice versa), rather than picking up each side's own default.
+  useEffect(() => {
+    setExpanded(!isMobile);
+  }, [isMobile]);
+
   const bodyVisible = !isMobile || (expanded && !uiHidden);
 
   return (
-    <div className="pointer-events-auto absolute left-4 top-4 max-h-[calc(100dvh-2rem)] w-[min(15rem,calc(100vw-6rem))] overflow-y-auto rounded-xl border border-white/40 bg-white/70 px-4 py-3 shadow-xl shadow-slate-900/10 backdrop-blur-md ring-1 ring-slate-900/5 md:w-60">
+    <div
+      data-testid="line-selector"
+      // The left offset accounts for the safe-area-inset-left env variable,
+      // not just a flat 16px, since on a landscape notched device
+      // `viewport-fit=cover` (index.html) exposes a left inset a fixed
+      // offset doesn't, and this card can end up rendered partly under the
+      // cutout otherwise (finding 7).
+      className="pointer-events-auto absolute left-[max(1rem,env(safe-area-inset-left))] top-4 max-h-[calc(100dvh-16rem)] w-[min(15rem,calc(100vw-6rem))] overflow-y-auto rounded-xl border border-white/40 bg-white/70 px-4 py-3 shadow-xl shadow-slate-900/10 backdrop-blur-md ring-1 ring-slate-900/5 md:left-4 md:max-h-[calc(100dvh-2rem)] md:w-60"
+    >
       <div className="flex items-start gap-1">
         <div className="min-w-0 flex-1">
           <h1 className="text-sm font-semibold text-slate-900">Greater Bangkok Metro Mini 3D</h1>
@@ -84,15 +99,22 @@ export function LineSelector() {
         >
           {uiHidden ? "☰" : "✕"}
         </button>
-        <button
-          type="button"
-          onClick={() => setExpanded((e) => !e)}
-          aria-expanded={bodyVisible}
-          aria-label={expanded ? "Collapse line list" : "Expand line list"}
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-slate-500 hover:bg-slate-200/60 md:hidden"
-        >
-          {expanded ? "▲" : "▼"}
-        </button>
+        {/* Hidden rather than merely disabled while uiHidden: it would
+         * otherwise toggle `expanded` with no visible effect (bodyVisible
+         * stays false either way) and desync aria-expanded from its own
+         * label — the ☰ button above is the only expand/collapse control
+         * that does anything while every overlay is collapsed. */}
+        {!uiHidden && (
+          <button
+            type="button"
+            onClick={() => setExpanded((e) => !e)}
+            aria-expanded={bodyVisible}
+            aria-label={expanded ? "Collapse line list" : "Expand line list"}
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-slate-500 hover:bg-slate-200/60 md:hidden"
+          >
+            {expanded ? "▲" : "▼"}
+          </button>
+        )}
       </div>
       {bodyVisible && (
         <>

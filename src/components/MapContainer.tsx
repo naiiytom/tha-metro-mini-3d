@@ -67,11 +67,17 @@ export function MapContainer() {
       // shared MapLibre/Three canvas's fragment cost up to ~9x at dpr=3 vs
       // dpr=1 — this is Three's own drawing buffer too, since it renders
       // into MapLibre's canvas (§3A "MapLibre↔Three bridge"). 2 is the
-      // standard mobile-safe ceiling and is visually indistinguishable from
-      // uncapped on desktop retina displays at normal viewing distance.
-      // ThreeLayer.ts needs no matching change: its render() already reads
-      // back the actual drawing-buffer size every frame.
-      pixelRatio: Math.min(window.devicePixelRatio || 1, 2),
+      // standard mobile-safe ceiling. Gated on a coarse (touch-primary)
+      // pointer rather than applied unconditionally: a 3x desktop retina
+      // display has a real, visible sharpness regression from this cap, and
+      // that hardware is never the fragment-cost problem this exists for —
+      // only a fine-pointer device with room for a large uncapped canvas
+      // gets to skip it. ThreeLayer.ts needs no matching change: its
+      // render() already reads back the actual drawing-buffer size every
+      // frame.
+      pixelRatio: window.matchMedia("(pointer: coarse)").matches
+        ? Math.min(window.devicePixelRatio || 1, 2)
+        : window.devicePixelRatio || 1,
       // v5+ moved GL context flags out of MapOptions into this bag.
       canvasContextAttributes: { antialias: true },
       attributionControl: {
@@ -347,11 +353,19 @@ export function MapContainer() {
       // rather than shared: a small, independent poll matches the existing
       // TrainInspector/StationBoard precedent and avoids new cross-component
       // cache plumbing for one short string.
-      const refreshTooltipContent = async () => {
+      //
+      // The placeholder ("Train {idx}") is only ever written on a selection
+      // change, not on every poll tick — mirroring TrainInspector.tsx, whose
+      // placeholder reset lives in the `selectedRunIdx === null` branch of its
+      // effect, outside the poll body. Writing it unconditionally here too
+      // used to flash the resolved label back to the placeholder once a
+      // second, since every poll's `await` momentarily left the tooltip
+      // showing the reset text before the real detail came back.
+      const refreshTooltipContent = async (showPlaceholder: boolean) => {
         const selectedRunIdx = useAppStore.getState().selectedRunIdx;
         const client = activeSimClient.current;
         if (selectedRunIdx === null || !client) return;
-        trainTooltip.setContent("#94a3b8", `Train ${selectedRunIdx}`);
+        if (showPlaceholder) trainTooltip.setContent("#94a3b8", `Train ${selectedRunIdx}`);
         try {
           const detail = await client.getRunDetail(selectedRunIdx, client.getSimNow());
           // Bail on a stale response after the user re-selected mid-flight —
@@ -371,9 +385,9 @@ export function MapContainer() {
           // Worker torn down mid-flight; the next poll or selection re-queries.
         }
       };
-      tooltipTimer = setInterval(() => void refreshTooltipContent(), 1000);
+      tooltipTimer = setInterval(() => void refreshTooltipContent(false), 1000);
       unsubscribeTooltipSelection = useAppStore.subscribe((state, prev) => {
-        if (state.selectedRunIdx !== prev.selectedRunIdx) void refreshTooltipContent();
+        if (state.selectedRunIdx !== prev.selectedRunIdx) void refreshTooltipContent(true);
       });
 
       // Day/night follows the SIM clock, not wall time (F3.3) — scrubbing to
@@ -406,7 +420,7 @@ export function MapContainer() {
         if (useAppStore.getState().engineStatus === "ready") {
           updateSun(performance.now());
           follow.apply(map);
-          trainTooltip.apply(map);
+          trainTooltip.apply(map, useAppStore.getState().uiHidden);
           map.triggerRepaint();
         }
         rafId = requestAnimationFrame(loop);

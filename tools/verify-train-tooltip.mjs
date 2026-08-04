@@ -99,6 +99,27 @@ check(
 const following = await page.evaluate(() => window.__store.getState().following);
 check("selecting a train does not itself engage follow", following === false, `following=${following}`);
 
+// --- content doesn't flicker back to the placeholder on every 1 Hz poll -----
+// (regression check for the bug where the "Train {idx}" placeholder was
+// rewritten unconditionally on every poll tick, not just on selection
+// change, flashing resolved content back to the placeholder once a second)
+
+const resolvedText = afterSelect?.text ?? null;
+let flickered = false;
+const samples = [];
+for (let i = 0; i < 12; i++) {
+  await new Promise((r) => setTimeout(r, 100));
+  const rect = await tooltipRect();
+  const text = rect?.text ?? null;
+  samples.push(text);
+  if (text !== null && /^Train \d+$/.test(text) && text !== resolvedText) flickered = true;
+}
+check(
+  "resolved tooltip content doesn't revert to the placeholder across poll ticks",
+  !flickered,
+  flickered ? `samples: ${JSON.stringify(samples)}` : "stable across 1.2s of polling",
+);
+
 // --- position tracks the projected screen point -----------------------------
 
 const checkTracksProjection = async (label) => {

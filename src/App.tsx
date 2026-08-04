@@ -20,9 +20,22 @@ export default function App() {
        * child restores its own `md:absolute` corner/bottom-center position —
        * see each component's own responsive classes. */}
       <div
-        className={`pointer-events-none absolute inset-x-0 bottom-0 flex flex-col items-center gap-2 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:contents md:p-0 ${
-          uiHidden ? "hidden" : ""
-        }`}
+        data-testid="bottom-sheet-stack"
+        // Two full, mutually exclusive class strings rather than always
+        // applying the base list and conditionally appending "hidden" to
+        // it: `hidden` must lose to `md:contents` at desktop widths, which
+        // Tailwind v4 does resolve correctly today (responsive variants
+        // emit after base utilities in the generated CSS, regardless of
+        // where the class name sits in this attribute) — but that's an
+        // implicit ordering dependency, the same one trainTooltip.ts's own
+        // className comment argues against relying on. With only "hidden"
+        // and "md:contents" present in the uiHidden branch, there's nothing
+        // else in play for the cascade to have to get right.
+        className={
+          uiHidden
+            ? "hidden md:contents md:p-0"
+            : "pointer-events-none absolute inset-x-0 bottom-0 flex flex-col items-center gap-2 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] md:contents md:p-0"
+        }
       >
         <TrainInspector />
         <StationBoard />

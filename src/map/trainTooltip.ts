@@ -3,6 +3,43 @@ import { LANE_RUN_IDX, LANE_X, LANE_Y, VEHICLE_STRIDE } from "../sim/protocol";
 import { localToLngLat } from "./coordinates";
 
 /**
+ * Scan an interpolated vehicle buffer for `runIdx`'s current position.
+ * Extracted from `capture()` so the scan itself is unit-testable without a
+ * DOM or a MapLibre map instance — same rationale as `followCamera.ts`'s
+ * `yawToBearing`/`lerpBearing` exports.
+ */
+export function findVehiclePosition(
+  vehicles: Float32Array,
+  count: number,
+  runIdx: number,
+): { x: number; y: number } | null {
+  for (let i = 0; i < count; i++) {
+    const o = i * VEHICLE_STRIDE;
+    if (vehicles[o + LANE_RUN_IDX] === runIdx) {
+      return { x: vehicles[o + LANE_X], y: vehicles[o + LANE_Y] };
+    }
+  }
+  return null;
+}
+
+/**
+ * Whether a projected screen point is far enough outside the canvas that the
+ * tooltip should hide rather than clamp/scroll into view. Exported for tests.
+ */
+export function isOffScreen(
+  x: number,
+  y: number,
+  canvasWidth: number,
+  canvasHeight: number,
+  margin: number,
+): boolean {
+  return x < -margin || y < -margin || x > canvasWidth + margin || y > canvasHeight + margin;
+}
+
+/** How far off-canvas (px) the projected point can drift before the label hides. */
+const TOOLTIP_OFFSCREEN_MARGIN_PX = 80;
+
+/**
  * On-map label that tracks the selected train's live screen position — shown
  * whenever a train is selected, independent of the "follow" camera lock
  * (contrast `FollowCamera.capture`, which is gated on `following`).
@@ -63,40 +100,27 @@ export class TrainTooltip {
    *  while the camera is locked onto it. */
   capture(vehicles: Float32Array, count: number, selectedRunIdx: number | null): void {
     this.selected = selectedRunIdx !== null;
-    if (selectedRunIdx === null) {
-      this.capturedX = null;
-      this.capturedY = null;
-      return;
-    }
-    for (let i = 0; i < count; i++) {
-      const o = i * VEHICLE_STRIDE;
-      if (vehicles[o + LANE_RUN_IDX] === selectedRunIdx) {
-        this.capturedX = vehicles[o + LANE_X];
-        this.capturedY = vehicles[o + LANE_Y];
-        return;
-      }
-    }
-    // Selected run isn't currently active (finished, or not yet started).
-    this.capturedX = null;
-    this.capturedY = null;
+    // findVehiclePosition returns null both when nothing is selected and
+    // when the selected run isn't currently active (finished, or not yet
+    // started) — either way there's nowhere to draw the label this frame.
+    const pos = selectedRunIdx === null ? null : findVehiclePosition(vehicles, count, selectedRunIdx);
+    this.capturedX = pos?.x ?? null;
+    this.capturedY = pos?.y ?? null;
   }
 
   /** Move the label onto the captured position. Call once per rAF, after the
-   *  camera itself has been moved for this frame. */
-  apply(map: MapLibreMap): void {
-    if (!this.selected || this.capturedX === null || this.capturedY === null) {
+   *  camera itself has been moved for this frame. `uiHidden` mirrors the
+   *  store's mobile "hide UI" toggle — without it, this DOM-owned element
+   *  (unlike every React-rendered overlay) stayed up under "hide UI", since
+   *  nothing else ever told it to hide. */
+  apply(map: MapLibreMap, uiHidden = false): void {
+    if (uiHidden || !this.selected || this.capturedX === null || this.capturedY === null) {
       this.el.classList.add("hidden");
       return;
     }
     const p = map.project(localToLngLat(this.capturedX, this.capturedY));
     const canvas = map.getCanvas();
-    const margin = 80;
-    if (
-      p.x < -margin ||
-      p.y < -margin ||
-      p.x > canvas.clientWidth + margin ||
-      p.y > canvas.clientHeight + margin
-    ) {
+    if (isOffScreen(p.x, p.y, canvas.clientWidth, canvas.clientHeight, TOOLTIP_OFFSCREEN_MARGIN_PX)) {
       this.el.classList.add("hidden");
       return;
     }

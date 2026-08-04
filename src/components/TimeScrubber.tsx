@@ -60,7 +60,10 @@ export function TimeScrubber() {
   };
 
   return (
-    <div className="pointer-events-auto w-full rounded-xl border border-white/40 bg-white/70 px-4 py-2.5 shadow-xl shadow-slate-900/10 backdrop-blur-md ring-1 ring-slate-900/5 md:w-[min(32rem,calc(100vw-2rem))]">
+    <div
+      data-testid="time-scrubber"
+      className="pointer-events-auto w-full rounded-xl border border-white/40 bg-white/70 px-4 py-2.5 shadow-xl shadow-slate-900/10 backdrop-blur-md ring-1 ring-slate-900/5 md:w-[min(32rem,calc(100vw-2rem))]"
+    >
       <div className="flex items-center gap-3">
         <span className="shrink-0 text-[10px] uppercase tracking-wide text-slate-500">
           Scrub

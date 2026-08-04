@@ -73,7 +73,10 @@ export function TrainInspector() {
   const color = detail ? `#${detail.color_rgb.toString(16).padStart(6, "0")}` : "#94a3b8";
 
   return (
-    <div className="pointer-events-auto flex max-h-[50dvh] w-full flex-col overflow-hidden rounded-t-2xl border border-white/40 bg-white/70 shadow-xl shadow-slate-900/10 backdrop-blur-md ring-1 ring-slate-900/5 md:absolute md:right-4 md:top-4 md:max-h-[calc(100dvh-2rem)] md:w-72 md:rounded-xl">
+    <div
+      data-testid="train-inspector"
+      className="pointer-events-auto flex max-h-[50dvh] w-full flex-col overflow-hidden rounded-t-2xl border border-white/40 bg-white/70 shadow-xl shadow-slate-900/10 backdrop-blur-md ring-1 ring-slate-900/5 md:absolute md:right-4 md:top-4 md:max-h-[calc(100dvh-2rem)] md:w-72 md:rounded-xl"
+    >
       <div className="flex items-start gap-2 border-b border-slate-200 px-4 py-3">
         <span
           className="mt-1 inline-block h-3 w-3 shrink-0 rounded-full"
