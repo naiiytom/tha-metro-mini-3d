@@ -1,15 +1,24 @@
 /**
- * Gradient-limiting for track altitude profiles (MVP 6 Task 13, defect A).
+ * Pure track-polyline helpers shared by the OSM fetch pipeline, kept here
+ * (rather than inline in fetch-network.mjs) so they're importable by tests
+ * with synthetic fixtures instead of only exercisable via a live Overpass
+ * fetch.
  *
- * `STRUCTURE_ALTITUDE_M` (lines.config.mjs) is a per-point STEP function —
- * the instant an OSM way's tunnel/bridge/layer tag flips, the committed
- * altitude teleports (e.g. red-dark idx 103: +14.5 m over 13.4 m of track,
- * a 108% grade / 47° wall). Real rail ramps at a few percent. This module's
- * `limitTrackGradient` turns that step function into a physically plausible
- * ramp by capping the altitude change allowed between consecutive points to
- * `MAX_TRACK_GRADIENT` per meter of along-track distance — without ever
- * touching a point's lon, lat, or structure tag.
+ * `limitTrackGradient` (MVP 6 Task 13, defect A): `STRUCTURE_ALTITUDE_M`
+ * (lines.config.mjs) is a per-point STEP function — the instant an OSM way's
+ * tunnel/bridge/layer tag flips, the committed altitude teleports (e.g.
+ * red-dark idx 103: +14.5 m over 13.4 m of track, a 108% grade / 47° wall).
+ * Real rail ramps at a few percent. This turns that step function into a
+ * physically plausible ramp by capping the altitude change allowed between
+ * consecutive points to `MAX_TRACK_GRADIENT` per meter of along-track
+ * distance — without ever touching a point's lon, lat, or structure tag.
+ *
+ * `stitchWays`/`truncateAtFold`: greedy way-segment stitching, and detection
+ * of an out-and-back fold that stitching two nearly-parallel tracks can
+ * produce (see `truncateAtFold`'s own comment).
  */
+
+import { structureOfWay } from "./lines.config.mjs";
 
 /** MapLibre's mean earth radius (src/geo/lng_lat.ts, rust-engine/sim-core/src/geo.rs
  *  — 6371008.8 m, NOT the WGS84 circumference). Reused here for consistency;
@@ -145,4 +154,105 @@ export function nearestTrackAltitude(lon, lat, track) {
     }
   }
   return { altitude: bestAlt, distanceM: bestDist, index: bestIndex };
+}
+
+/**
+ * Greedily stitch unordered way segments into one continuous polyline. Each
+ * point carries the structure classification of the way it came from.
+ *
+ * Returns `{ path, consumed, total }`, not just the path: `consumed` is how
+ * many of the input ways actually got merged in. A non-touching segment
+ * (parallel track of the opposite direction, depot spur, etc.) breaks the
+ * loop and is silently dropped — the caller decides whether `consumed <
+ * total` deserves a warning. A relation's member list is ordered and curated
+ * so this rarely bites a relation-based fetch; a raw name-based way query has
+ * no such curation and hits it far more often (fetch-network.mjs's
+ * `fetchBranch` vs `fetchBranchFromWayName`).
+ */
+export function stitchWays(ways, tagsByWay, defaultStructure) {
+  const segments = ways.map((w) => {
+    const structure = structureOfWay(tagsByWay.get(String(w.ref)) ?? {}, defaultStructure);
+    return w.geometry.map((p) => [p.lon, p.lat, structure]);
+  });
+  const total = segments.length;
+  if (total === 0) return { path: [], consumed: 0, total };
+  const path = segments.shift();
+  let consumed = 1;
+  const near = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]) < 1e-4; // ~10 m
+
+  while (segments.length > 0) {
+    const head = path[0];
+    const tail = path[path.length - 1];
+    let bestIdx = -1;
+    let bestMode = null;
+    for (let i = 0; i < segments.length; i++) {
+      const s = segments[i];
+      if (near(tail, s[0])) { bestIdx = i; bestMode = "append"; break; }
+      if (near(tail, s[s.length - 1])) { bestIdx = i; bestMode = "appendRev"; break; }
+      if (near(head, s[s.length - 1])) { bestIdx = i; bestMode = "prepend"; break; }
+      if (near(head, s[0])) { bestIdx = i; bestMode = "prependRev"; break; }
+    }
+    if (bestIdx === -1) {
+      // No touching segment (parallel track of the opposite direction,
+      // depot spur, etc.) — drop the remainder rather than jumping gaps.
+      break;
+    }
+    const seg = segments.splice(bestIdx, 1)[0];
+    consumed++;
+    if (bestMode === "append") path.push(...seg.slice(1));
+    else if (bestMode === "appendRev") path.push(...seg.reverse().slice(1));
+    else if (bestMode === "prepend") path.unshift(...seg.slice(0, -1));
+    else path.unshift(...seg.reverse().slice(0, -1));
+  }
+  return { path, consumed, total };
+}
+
+/**
+ * Detect and cut off an out-and-back fold in a stitched polyline.
+ *
+ * A way-name-based fetch has no relation-level direction to separate up/down
+ * track the way a PTv2 route relation does: two nearly-parallel tracks
+ * running the same corridor a few metres apart can get greedily stitched
+ * end-to-end into one loop — walk out on one track, U-turn at the terminus,
+ * walk back on the other. Found on MRT Orange: a stitched length of 43.6 km
+ * for a real ~22 km alignment, with the second half running a mean 30 m
+ * (max 458 m) from the first half.
+ *
+ * A genuine single traverse's distance from its own earlier trace only
+ * grows; a fold bends back close to it. Requires a SUSTAINED run of close
+ * points, not one coincidence, so real self-proximity (e.g. the
+ * loop-plus-branch pattern CLAUDE.md documents for MRT Blue at Tha Phra)
+ * doesn't false-positive on a single near-miss — and once a fold's onset is
+ * found, the cut point is refined backward to the local distance maximum
+ * (the true turnaround) rather than the fuzzy detection threshold itself.
+ */
+export const FOLD_DISTANCE_M = 60; // twin-track separation is typically 10-30 m
+export const FOLD_MIN_RUN = 10; // consecutive close points required before calling it a fold
+export const FOLD_MIN_GAP = 20; // ignore comparisons against recently-visited points (normal curvature)
+export const FOLD_REFINE_WINDOW = 40; // how far back to search for the true turnaround once a fold is found
+
+export function truncateAtFold(path) {
+  let run = 0;
+  let foldStart = -1;
+  for (let i = 0; i < path.length; i++) {
+    let nearest = Infinity;
+    for (let j = 0; j < i - FOLD_MIN_GAP; j++) {
+      const d = haversineMeters(path[i], path[j]);
+      if (d < nearest) nearest = d;
+    }
+    run = nearest < FOLD_DISTANCE_M ? run + 1 : 0;
+    if (run === FOLD_MIN_RUN) {
+      foldStart = i - FOLD_MIN_RUN + 1;
+      break;
+    }
+  }
+  if (foldStart === -1) return path;
+
+  let turnaroundIdx = foldStart;
+  let maxD = -1;
+  for (let k = Math.max(0, foldStart - FOLD_REFINE_WINDOW); k <= foldStart; k++) {
+    const d = haversineMeters(path[0], path[k]);
+    if (d > maxD) { maxD = d; turnaroundIdx = k; }
+  }
+  return path.slice(0, turnaroundIdx + 1);
 }

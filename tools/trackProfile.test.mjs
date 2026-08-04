@@ -4,6 +4,8 @@ import {
   haversineMeters,
   limitTrackGradient,
   nearestTrackAltitude,
+  stitchWays,
+  truncateAtFold,
 } from "./trackProfile.mjs";
 
 /** Build a synthetic point list: `n` points spaced `stepDeg` apart in
@@ -184,5 +186,84 @@ describe("nearestTrackAltitude", () => {
     const pRaw = nearestTrackAltitude(100.50025, 13.75, raw);
     const pRamped = nearestTrackAltitude(100.50025, 13.75, ramped);
     expect(pRaw.index).toBe(pRamped.index);
+  });
+});
+
+describe("stitchWays", () => {
+  const way = (ref, points) => ({ ref, geometry: points.map(([lon, lat]) => ({ lon, lat })) });
+
+  it("stitches two touching ways end to end, in order", () => {
+    const a = way(1, [[100.5, 13.75], [100.501, 13.75]]);
+    const b = way(2, [[100.501, 13.75], [100.502, 13.75]]);
+    const { path, consumed, total } = stitchWays([a, b], new Map(), "elevated");
+    expect(consumed).toBe(2);
+    expect(total).toBe(2);
+    expect(path.map((p) => p[0])).toEqual([100.5, 100.501, 100.502]);
+  });
+
+  it("reverses a way whose far end touches, not its near end", () => {
+    const a = way(1, [[100.5, 13.75], [100.501, 13.75]]);
+    // b's own point order runs the "wrong" way — its LAST point touches a's tail.
+    const b = way(2, [[100.503, 13.75], [100.502, 13.75], [100.501, 13.75]]);
+    const { path, consumed } = stitchWays([a, b], new Map(), "elevated");
+    expect(consumed).toBe(2);
+    expect(path.map((p) => p[0])).toEqual([100.5, 100.501, 100.502, 100.503]);
+  });
+
+  it("drops a non-touching way rather than jumping the gap", () => {
+    // The exact shape that produced the MRT Orange fold: an unordered way
+    // soup can include a way from a disconnected section, or the opposite
+    // direction's track, with nothing nearby to connect it to.
+    const a = way(1, [[100.5, 13.75], [100.501, 13.75]]);
+    const farAway = way(2, [[101.0, 13.9], [101.001, 13.9]]);
+    const { path, consumed, total } = stitchWays([a, farAway], new Map(), "elevated");
+    expect(consumed).toBe(1);
+    expect(total).toBe(2);
+    expect(path).toHaveLength(2);
+  });
+
+  it("returns an empty result for no input", () => {
+    const { path, consumed, total } = stitchWays([], new Map(), "elevated");
+    expect(path).toEqual([]);
+    expect(consumed).toBe(0);
+    expect(total).toBe(0);
+  });
+});
+
+describe("truncateAtFold", () => {
+  const mkLeg = (n, latOffsetDeg, { startLon = 100.5, lat = 13.75, stepDeg = 0.001 } = {}) =>
+    Array.from({ length: n }, (_, i) => [startLon + i * stepDeg, lat + latOffsetDeg, 15, "elevated"]);
+
+  it("leaves a genuine single traverse untouched", () => {
+    const clean = mkLeg(80, 0);
+    expect(truncateAtFold(clean)).toEqual(clean);
+  });
+
+  it("cuts an out-and-back fold at the turnaround", () => {
+    // Two nearly-parallel tracks ~30 m apart (1 degree latitude is ~110.9 km
+    // at this latitude, so a 0.00027 deg offset is ~30 m) — the exact shape
+    // greedy stitching produces from an unordered pair of up/down
+    // construction ways with no direction tag to separate them (found on
+    // MRT Orange: see this function's own comment for the real numbers).
+    const outbound = mkLeg(40, 0);
+    const returnLeg = mkLeg(40, 0.00027).reverse();
+    const folded = [...outbound, ...returnLeg];
+
+    const result = truncateAtFold(folded);
+
+    expect(result.length).toBeLessThan(folded.length);
+    // Cuts at the turnaround (~index 40), not partway down either leg.
+    expect(result.length).toBeGreaterThan(30);
+    expect(result.length).toBeLessThan(50);
+  });
+
+  it("does not false-positive on a single coincidental near-miss", () => {
+    // Real track can briefly pass near itself on a tight curve (e.g. MRT
+    // Blue's loop-plus-branch at Tha Phra, CLAUDE.md) without being a
+    // stitching fold. A lone close point must never trigger truncation —
+    // only a SUSTAINED run does.
+    const track = mkLeg(80, 0);
+    track[50] = [track[10][0], track[10][1], 15, "elevated"];
+    expect(truncateAtFold(track)).toEqual(track);
   });
 });
