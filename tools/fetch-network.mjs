@@ -391,6 +391,7 @@ async function main() {
       preRevenue: line.preRevenue,
       excludeGtfsStopIds: line.excludeGtfsStopIds ?? [],
       allowLargeSnapStopIds: line.allowLargeSnapStopIds ?? [],
+      snapWarnExemptStopIds: line.snapWarnExemptStopIds ?? [],
       ...geom,
     });
   }

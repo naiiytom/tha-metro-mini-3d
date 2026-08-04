@@ -55,6 +55,11 @@ describe("line registry", () => {
     expect(() => assertRegistryValid(bad)).toThrow(/must have gtfsRouteId: null/);
   });
 
+  it("rejects a non-array snapWarnExemptStopIds", () => {
+    const bad = [{ ...LINES[0], snapWarnExemptStopIds: "13627" }];
+    expect(() => assertRegistryValid(bad)).toThrow(/snapWarnExemptStopIds/);
+  });
+
   it("treats tunnel=building_passage as covered, not underground", () => {
     // Real Bangkok data: SRT Dark/Light Red are tagged tunnel=building_passage
     // + layer=1 (positive) where they pass through Bang Sue Grand Station —

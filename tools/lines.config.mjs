@@ -58,6 +58,15 @@ export const LINES = [
     gtfsRouteId: "1",
     preRevenue: false,
     osm: { relationId: 444651, match: /sukhumvit/i },
+    // Disclosed snap in the 50-150 m band (see SNAP_WARN_M in the
+    // preprocessor). GTFS stop 13608 "BTS Kheha" (this line's northern-most
+    // extension terminus) snaps 63.9 m from the fetched OSM track — a
+    // genuine terminus geometry offset, not bad data (see the MVP 2/3
+    // implementation notes in CLAUDE.md: Kheha has snapped 60-65 m since
+    // MVP 2, well under the 150 m hard limit). Measured 2026-08-04 — re-run
+    // npm run data:fetch and re-measure if the feed or track moves.
+    //   13608 BTS Kheha  63.9 m
+    snapWarnExemptStopIds: ["13608"],
   },
   {
     key: "silom",
@@ -128,6 +137,12 @@ export const LINES = [
     // (2026-07-31); allowing the large snap keeps the real terminus in
     // simulation instead of failing the whole route or dropping it.
     allowLargeSnapStopIds: ["359"],
+    // Stop 359's 554.7 m snap is already disclosed above via
+    // allowLargeSnapStopIds; classify_snap() in the preprocessor treats that
+    // list as also satisfying the 50 m warn band, so no separate
+    // snapWarnExemptStopIds entry is needed for it (one disclosure per
+    // stop — see main.rs's snap_band_defers_to_the_existing_large_snap_
+    // allowance_above_the_hard_limit test).
   },
   {
     key: "yellow",
@@ -219,6 +234,19 @@ export const LINES = [
     // a one-point delta from a way-join dedup step that only fires when all
     // ten lines are fetched together; not a discrepancy worth chasing.)
     osm: { relationId: 444659, match: /blue/i },
+    // Disclosed snaps in the 50-150 m band (see SNAP_WARN_M in the
+    // preprocessor). Blue's underground alignment is denser and more
+    // convoluted than the elevated BTS lines the 150 m limit was originally
+    // benchmarked against, so a worse snap here is the expected shape, not a
+    // red flag (see CLAUDE.md's MVP 2/3 implementation notes: Itsaraphap is
+    // already documented there as the network's single largest snap,
+    // 109.47 m, confirmed from the preprocessor's own stderr). Measured
+    // 2026-08-04 — re-run npm run data:fetch and re-measure if the feed or
+    // track moves. (Queen Sirikit NCC, stop 361, is 48.9 m — under the 50 m
+    // warn band, so it needs no entry here.)
+    //   13627 MRT Itsaraphap      109.5 m
+    //   352   MRT Chatuchak Park   61.1 m
+    snapWarnExemptStopIds: ["13627", "352"],
   },
   {
     key: "orange",
@@ -334,7 +362,7 @@ export function assertRegistryValid(lines = LINES) {
       // on track that does not exist yet.
       throw new Error(`${l.key}: a preRevenue line must have gtfsRouteId: null`);
     }
-    for (const field of ["excludeGtfsStopIds", "allowLargeSnapStopIds"]) {
+    for (const field of ["excludeGtfsStopIds", "allowLargeSnapStopIds", "snapWarnExemptStopIds"]) {
       const v = l[field];
       if (v === undefined) continue;
       if (!Array.isArray(v) || !v.every((id) => typeof id === "string" && id.length > 0)) {
