@@ -226,8 +226,10 @@ export const LINES = [
     nameTh: "สายสีส้ม",
     color: "#F57C00",
     // Default only; real per-point tunnel/bridge/layer tags on these ways
-    // give a genuine underground/elevated mix (verified 2026-08-04: 165
-    // underground / 160 elevated points across the stitched alignment).
+    // give a genuine underground/elevated mix (verified 2026-08-04: 88
+    // underground / 83 elevated points across the stitched alignment, after
+    // truncateAtFold removes an out-and-back double-back the raw greedy
+    // stitch produced — see tools/trackProfile.mjs).
     structure: "underground",
     vehicleType: "heavy",
     // Pre-revenue: Eastern Section projected late 2027 (SRS §2 caveat block,
@@ -338,6 +340,29 @@ export function assertRegistryValid(lines = LINES) {
       if (!Array.isArray(v) || !v.every((id) => typeof id === "string" && id.length > 0)) {
         throw new Error(`${l.key}: ${field} must be an array of non-empty strings`);
       }
+    }
+    // Exactly one OSM discovery mode: a pinned relationId (with an optional
+    // `match` only meaningful if relationId is null, for bootstrapping), or
+    // wayNamePattern (fetchBranchFromWayName, for a line with no route
+    // relation at all). An entry with neither silently falls into
+    // discoverRelationId and crashes on `line.osm.match.test(...)` with no
+    // match regex — catch it here instead.
+    const hasRelation = l.osm?.relationId != null;
+    const hasWayPattern = typeof l.osm?.wayNamePattern === "string" && l.osm.wayNamePattern.length > 0;
+    const hasMatch = l.osm?.match instanceof RegExp;
+    if (hasRelation && hasWayPattern) {
+      throw new Error(`${l.key}: osm.relationId and osm.wayNamePattern are mutually exclusive`);
+    }
+    if (!hasRelation && !hasWayPattern && !hasMatch) {
+      throw new Error(
+        `${l.key}: osm must set relationId, wayNamePattern, or match (for relation discovery)`,
+      );
+    }
+    if (hasWayPattern && /["\\]/.test(l.osm.wayNamePattern)) {
+      // Interpolated raw into an Overpass regex-in-quotes filter
+      // (`["name"~"${pattern}"]`) — an unescaped quote or backslash would
+      // break the query string rather than fail with a clear error.
+      throw new Error(`${l.key}: osm.wayNamePattern must not contain '"' or '\\'`);
     }
   }
 

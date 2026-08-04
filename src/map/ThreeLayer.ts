@@ -180,8 +180,8 @@ export class NetworkLayer implements CustomLayerInterface {
    * straight by `on`/`off` — otherwise underground-ON would set it fully
    * opaque (`opacity = 1`), erasing the "this line isn't running trains
    * yet" ghost look the deck was deliberately built with (finding 6b).
-   * Latent today (no registry line is preRevenue: true yet), but real the
-   * moment one is added.
+   * Exercised for real since 2026-08-04 (MRT Orange, MRT Purple Phase 2 —
+   * see CLAUDE.md's "Orange/Purple Phase 2 track-only fetch" notes).
    */
   private applyUndergroundMode(): void {
     const on = this.undergroundMode;

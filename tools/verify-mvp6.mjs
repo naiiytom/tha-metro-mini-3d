@@ -12,31 +12,28 @@
 // discipline as verify-mvp5.mjs.
 //
 // -----------------------------------------------------------------------
-// KNOWN, DELIBERATE DEVIATION FROM THE ORIGINAL TASK-12 BRIEF
+// TASK 6 (MRT Orange, MRT Purple Phase 2) LANDED 2026-08-04
 // -----------------------------------------------------------------------
-// The brief's checks 3 and 4 asserted a `preRevenue: true` line renders but
-// never simulates, and that a pre-revenue station's board resolves empty
-// rather than erroring. Both are **deferred along with Task 6** (MRT Orange
-// + MRT Purple Phase 2), which the human explicitly deferred out of this
-// plan. The registry has exactly ten lines (sukhumvit, silom, purple, arl,
-// pink, yellow, gold, red-dark, red-light, blue) and zero of them set
-// `preRevenue: true` — `grep "preRevenue: true" tools/lines.config.mjs`
-// returns nothing. The mechanism itself (dashed centerline, desaturated/
-// translucent deck, registry validation, LineSelector badge) was built in
-// Task 4 and is unit-tested (trackGeometry.test.ts, lines.config.test.mjs)
-// — it simply has no real registry user yet, so brief-check-3's
-// `preRevenue.idxs.length >= 2` would assert `0 >= 2` and can never pass
-// honestly. Rather than delete the acceptance criteria or weaken them to
-// something trivially true, they are replaced below with two checks that
-// test what MVP 6 actually delivered:
-//   - Replacement A: MRT Blue's track deck is genuinely split into separate
-//     per-structure meshes in the rendered Three scene (Task 3's actual
-//     deliverable — check 2 below only proves the *data* is mixed, not that
-//     the deck was split).
-//   - Replacement B: the basemap itself (not just the Three.js sun/sky) is
-//     measurably darker at a midnight sim clock than at noon (Task 10b).
-// When Task 6 lands, the original pre-revenue checks belong back in this
-// file (or a follow-on), unmodified in spirit.
+// The original Task-12 brief's checks 3 and 4 asserted a `preRevenue: true`
+// line renders but never simulates, and that a pre-revenue station's board
+// resolves empty rather than erroring. Both were deferred along with Task 6
+// during the MVP 6 cycle itself and replaced with two checks that tested
+// what MVP 6 actually shipped at the time (MRT Blue's split deck meshes;
+// the basemap darkening at night — still checks 3/4 below, unchanged).
+// Task 6 has since landed (`orange`, `purple-ext`, both `preRevenue: true`,
+// `gtfsRouteId: null`), so the original checks are restored below as 7 and
+// 8 — with one honest adjustment to check 8: neither new line has ANY
+// station data (see CLAUDE.md's "Orange/Purple Phase 2 track-only fetch"
+// notes for why — the only OSM construction-stage station nodes found sit
+// outside both lines' own track, not reliable enough to place), so there is
+// no pre-revenue station marker to click in the running app. Check 8
+// verifies the same real state instead: both lines render with zero
+// stations and produce no console error, and the underlying "empty board,
+// not a missing one" guarantee the original check wanted is covered by
+// `cargo test`'s `a_track_only_route_has_an_empty_board_not_a_missing_one`
+// (sim-core/src/query.rs) — exercising it end-to-end through a browser
+// click needs a registry line with both `preRevenue: true` AND real station
+// geometry, which doesn't exist yet.
 //
 // Usage: npm run verify:mvp6   (dev server must be running on :5173)
 import puppeteer from "puppeteer-core";
@@ -217,6 +214,49 @@ check(
   "the basemap itself (background-color) themes darker at a midnight sim clock than at noon",
   noonLum !== null && midnightLum !== null && midnightLum < noonLum,
   `layer '${theme.bgId}' background-color noon ${theme.noon} (Y=${noonLum?.toFixed(1)}) vs midnight ${theme.midnight} (Y=${midnightLum?.toFixed(1)})`,
+);
+
+// --- 7 (restored). a pre-revenue line renders but never simulates -----------
+// The original Task-12 brief check, restored now that Task 6 has landed.
+
+const preRevenue = await page.evaluate(() => {
+  const routes = window.__store.getState().routes;
+  const idxs = routes
+    .map((r, i) => (r.preRevenue ? i : -1))
+    .filter((i) => i >= 0);
+  const rendered = idxs.every((i) => !!routes[i]);
+  const { vehicles, count } = window.__sim.current.getInterpolated(performance.now());
+  const simulatedIdxs = new Set();
+  for (let i = 0; i < count; i++) simulatedIdxs.add(vehicles[i * 8 + 6] | 0);
+  const neverSimulated = idxs.every((i) => !simulatedIdxs.has(i));
+  return { idxs, rendered, neverSimulated };
+});
+check(
+  "a pre-revenue line renders but never simulates",
+  preRevenue.idxs.length >= 2 && preRevenue.rendered && preRevenue.neverSimulated,
+  `preRevenue route_idx [${preRevenue.idxs.join(",")}], rendered=${preRevenue.rendered}, ` +
+    `never in vehicle buffer=${preRevenue.neverSimulated}`,
+);
+
+// --- 8 (restored, adjusted). a pre-revenue line has no station to mis-click -
+// The original brief wanted "a pre-revenue station's board resolves empty,
+// not an error." Neither orange nor purple-ext has any station data (see
+// CLAUDE.md), so there is no marker to click — this instead confirms that
+// real state directly (zero stations, no console error from either line
+// being present) rather than fabricating a station to click. The "empty
+// board, not missing" guarantee itself is covered by
+// `cargo test`'s a_track_only_route_has_an_empty_board_not_a_missing_one.
+
+const stationCounts = await page.evaluate(() => {
+  const routes = window.__store.getState().routes;
+  return routes
+    .filter((r) => r.preRevenue)
+    .map((r) => ({ key: r.key, stations: r.stations.length }));
+});
+check(
+  "a pre-revenue line's station list is empty by design, not silently wrong",
+  stationCounts.length >= 2 && stationCounts.every((r) => r.stations === 0),
+  stationCounts.map((r) => `${r.key}:${r.stations}`).join(" "),
 );
 
 await finish(false);

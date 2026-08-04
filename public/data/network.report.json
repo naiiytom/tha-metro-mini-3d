@@ -1,7 +1,7 @@
 {
-  "bytes": 600138,
+  "bytes": 565242,
   "feed_version": "20260803",
-  "gzip_bytes": 350893,
+  "gzip_bytes": 329020,
   "interchanges": [
     {
       "a": "sukhumvit/Samrong",
@@ -103,12 +103,12 @@
     },
     {
       "gtfs_route_id": "2",
-      "length_m": 13191.6767578125,
+      "length_m": 13197.5517578125,
       "name_en": "Silom Line",
       "patterns": 4,
       "runs": 798,
       "stations": 14,
-      "track_points": 1320
+      "track_points": 1321
     },
     {
       "gtfs_route_id": "4",
@@ -184,12 +184,12 @@
     },
     {
       "gtfs_route_id": "",
-      "length_m": 43597.6328125,
+      "length_m": 21777.65625,
       "name_en": "MRT Orange Line",
       "patterns": 0,
       "runs": 0,
       "stations": 0,
-      "track_points": 4361
+      "track_points": 2179
     },
     {
       "gtfs_route_id": "",

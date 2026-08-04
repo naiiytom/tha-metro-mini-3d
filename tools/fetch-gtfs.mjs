@@ -14,15 +14,15 @@
  *   npm run data:preprocess -- --gtfs .gtfs-cache
  */
 
-import { mkdir, rm, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import AdmZip from "adm-zip";
 
 const FEED_URL = "https://namtang-api.otp.go.th/download/namtang-gtfs.zip";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const OUT_DIR = resolve(ROOT, ".gtfs-cache");
-const ZIP_PATH = resolve(ROOT, ".gtfs-cache.zip");
 
 async function main() {
   console.log(`Downloading ${FEED_URL} ...`);
@@ -31,13 +31,18 @@ async function main() {
   });
   if (!res.ok) throw new Error(`GTFS download failed: HTTP ${res.status}`);
   const buffer = Buffer.from(await res.arrayBuffer());
-  await writeFile(ZIP_PATH, buffer);
-  console.log(`Downloaded ${(buffer.length / 1e6).toFixed(1)} MB -> ${ZIP_PATH}`);
+
+  // Written to the OS temp dir, never the repo tree — an interrupted
+  // extraction can't leave a stray large archive for `git status` to notice.
+  const scratchDir = await mkdtemp(join(tmpdir(), "tha-metro-gtfs-"));
+  const zipPath = join(scratchDir, "namtang-gtfs.zip");
+  await writeFile(zipPath, buffer);
+  console.log(`Downloaded ${(buffer.length / 1e6).toFixed(1)} MB -> ${zipPath}`);
 
   await rm(OUT_DIR, { recursive: true, force: true });
   await mkdir(OUT_DIR, { recursive: true });
-  new AdmZip(ZIP_PATH).extractAllTo(OUT_DIR, true);
-  await rm(ZIP_PATH, { force: true });
+  new AdmZip(zipPath).extractAllTo(OUT_DIR, true);
+  await rm(scratchDir, { recursive: true, force: true });
 
   console.log(`Extracted to ${OUT_DIR}`);
   console.log(`Run: npm run data:preprocess -- --gtfs ${OUT_DIR}`);

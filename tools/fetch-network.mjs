@@ -29,11 +29,18 @@ import {
   INTERCHANGE_OVERRIDES,
   LINES,
   STRUCTURE_ALTITUDE_M,
-  structureOfWay,
 } from "./lines.config.mjs";
-import { limitTrackGradient, nearestTrackAltitude } from "./trackProfile.mjs";
+import {
+  limitTrackGradient,
+  nearestTrackAltitude,
+  stitchWays,
+  truncateAtFold,
+} from "./trackProfile.mjs";
 
 const OUT_PATH = resolve(dirname(fileURLToPath(import.meta.url)), "../src/data/network.json");
+
+/** Bangkok metropolitan area, south,west,north,east — every Overpass query in this file is scoped to it. */
+const BBOX = "13.4,100.2,14.3,101.0";
 
 const MIRRORS = [
   "https://overpass-api.de/api/interpreter",
@@ -84,43 +91,6 @@ async function overpass(query) {
   throw lastError;
 }
 
-/** Greedily stitch unordered way segments into one continuous polyline.
- *  Each point carries the structure classification of the way it came from. */
-function stitchWays(ways, tagsByWay, defaultStructure) {
-  const segments = ways.map((w) => {
-    const structure = structureOfWay(tagsByWay.get(String(w.ref)) ?? {}, defaultStructure);
-    return w.geometry.map((p) => [p.lon, p.lat, structure]);
-  });
-  if (segments.length === 0) return [];
-  const path = segments.shift();
-  const near = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]) < 1e-4; // ~10 m
-
-  while (segments.length > 0) {
-    const head = path[0];
-    const tail = path[path.length - 1];
-    let bestIdx = -1;
-    let bestMode = null;
-    for (let i = 0; i < segments.length; i++) {
-      const s = segments[i];
-      if (near(tail, s[0])) { bestIdx = i; bestMode = "append"; break; }
-      if (near(tail, s[s.length - 1])) { bestIdx = i; bestMode = "appendRev"; break; }
-      if (near(head, s[s.length - 1])) { bestIdx = i; bestMode = "prepend"; break; }
-      if (near(head, s[0])) { bestIdx = i; bestMode = "prependRev"; break; }
-    }
-    if (bestIdx === -1) {
-      // No touching segment (parallel track of the opposite direction,
-      // depot spur, etc.) — drop the remainder rather than jumping gaps.
-      break;
-    }
-    const seg = segments.splice(bestIdx, 1)[0];
-    if (bestMode === "append") path.push(...seg.slice(1));
-    else if (bestMode === "appendRev") path.push(...seg.reverse().slice(1));
-    else if (bestMode === "prepend") path.unshift(...seg.slice(0, -1));
-    else path.unshift(...seg.reverse().slice(0, -1));
-  }
-  return path;
-}
-
 /** Drop consecutive duplicate points. */
 function dedupe(coords) {
   return coords.filter(
@@ -162,7 +132,14 @@ async function fetchBranch(relationId, branchKey, defaultStructure) {
     );
   }
 
-  const path = dedupe(stitchWays(trackWays, tagsByWay, defaultStructure));
+  const stitched = stitchWays(trackWays, tagsByWay, defaultStructure);
+  if (stitched.consumed < stitched.total) {
+    console.warn(
+      `  warning: ${branchKey}: stitched ${stitched.consumed}/${stitched.total} track ways — ` +
+        `the rest didn't touch the main path (parallel opposite-direction track, depot spur, etc.) and were dropped`,
+    );
+  }
+  const path = dedupe(stitched.path);
 
   // Candidate stop/platform node members: PTv2 route relations mark these
   // either with an explicit role starting "stop"/"platform", OR with an
@@ -288,7 +265,7 @@ async function fetchBranch(relationId, branchKey, defaultStructure) {
  */
 async function fetchBranchFromWayName(namePattern, branchKey, defaultStructure) {
   const data = await overpass(
-    `[out:json][timeout:90];way["railway"="construction"]["name"~"${namePattern}"](13.4,100.2,14.3,101.0);out geom;`,
+    `[out:json][timeout:90];way["railway"="construction"]["name"~"${namePattern}"](${BBOX});out geom;`,
   );
   const allWays = data.elements.filter((e) => e.type === "way" && e.geometry);
   if (allWays.length === 0) {
@@ -300,20 +277,47 @@ async function fetchBranchFromWayName(namePattern, branchKey, defaultStructure) 
   // walk the path onto a dead-end. A real PTv2 route relation excludes these
   // automatically (they're never route members); a raw name-based way query
   // has no such filter, so this does it by hand.
-  const trackWays = allWays.filter((w) => !w.tags.service);
+  const trackWays = allWays.filter((w) => !w.tags?.service);
+  if (trackWays.length === 0) {
+    throw new Error(
+      `${branchKey}: every way matching ${namePattern} is tagged 'service' (crossover/siding) — nothing left to stitch`,
+    );
+  }
 
   // Unlike a relation's `out geom` member list, a standalone way's `out geom`
   // response already carries its own tags — no follow-up tags query needed.
   const tagsByWay = new Map(trackWays.map((w) => [String(w.id), w.tags]));
   const wayRefs = trackWays.map((w) => ({ ref: w.id, geometry: w.geometry }));
-  const path = dedupe(stitchWays(wayRefs, tagsByWay, defaultStructure));
+  const stitched = stitchWays(wayRefs, tagsByWay, defaultStructure);
+  if (stitched.consumed < stitched.total) {
+    console.warn(
+      `  warning: ${branchKey}: stitched ${stitched.consumed}/${stitched.total} track ways — ` +
+        `the rest didn't touch the main path (a separate disconnected section, most likely) and were dropped`,
+    );
+  }
+
+  // A way-name-based fetch has no relation-level direction to separate
+  // up/down track: without this, a pair of nearly-parallel twin tracks along
+  // the whole corridor greedily stitches into one out-and-back loop instead
+  // of a single traverse (found on MRT Orange — see truncateAtFold's comment
+  // for the numbers). Fails loudly rather than silently committing a doubled
+  // alignment.
+  const foldChecked = truncateAtFold(stitched.path);
+  if (foldChecked.length < stitched.path.length) {
+    console.warn(
+      `  warning: ${branchKey}: detected an out-and-back fold in the stitched path — ` +
+        `truncated from ${stitched.path.length} to ${foldChecked.length} points at the turnaround ` +
+        `(likely two parallel tracks with no direction tag to separate them; verify the result)`,
+    );
+  }
+  const path = dedupe(foldChecked);
 
   const histogram = path.reduce((acc, p) => {
     acc[p[2]] = (acc[p[2]] ?? 0) + 1;
     return acc;
   }, {});
   console.log(
-    `${branchKey}: ${trackWays.length}/${allWays.length} ways (excluding service/crossover) -> ` +
+    `${branchKey}: ${stitched.consumed}/${allWays.length} ways stitched (of ${trackWays.length} non-service candidates) -> ` +
       `${path.length} points (${Object.entries(histogram).map(([k, v]) => `${k}:${v}`).join(" ")}), ` +
       `0 stops (no reliable OSM station data for this line yet)`,
   );
@@ -342,9 +346,9 @@ async function discoverRelationId(line) {
   const data = await overpass(
     `[out:json][timeout:90];
      (
-       relation["route"~"train|light_rail|subway|monorail"](13.4,100.2,14.3,101.0);
-       relation["construction:route"~"train|light_rail|subway|monorail"](13.4,100.2,14.3,101.0);
-       relation["proposed:route"~"train|light_rail|subway|monorail"](13.4,100.2,14.3,101.0);
+       relation["route"~"train|light_rail|subway|monorail"](${BBOX});
+       relation["construction:route"~"train|light_rail|subway|monorail"](${BBOX});
+       relation["proposed:route"~"train|light_rail|subway|monorail"](${BBOX});
      );
      out tags;`,
   );

@@ -35,7 +35,8 @@ export interface LineGeometry {
   gtfsRouteId: string | null;
   /** Under construction / not yet in revenue service — rendered distinctly. */
   preRevenue: boolean;
-  relationId: number;
+  /** null for a line fetched by wayNamePattern instead of a route relation. */
+  relationId: number | null;
   osmName: string;
   track: TrackPoint[];
   stations: Station[];
