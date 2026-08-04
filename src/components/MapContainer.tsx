@@ -19,7 +19,7 @@ import { bindStyle, type StyleBinding } from "../map/styleBinding";
 import { TrainTooltip } from "../map/trainTooltip";
 import { effectiveElevationDeg } from "../map/themeMode";
 import { VehicleManager } from "../map/VehicleManager";
-import { localToLngLat, ORIGIN_LNG_LAT } from "../map/coordinates";
+import { lngLatToLocal, localToLngLat, ORIGIN_LNG_LAT } from "../map/coordinates";
 import { SimClient, activeSimClient } from "../sim/SimClient";
 import { LANE_RUN_IDX, LANE_Z, VEHICLE_STRIDE } from "../sim/protocol";
 import { formatCountdown } from "../sim/time";
@@ -174,6 +174,7 @@ export function MapContainer() {
           const dir = sunDirection(client.getSimNow());
           const eff = effectiveElevationDeg(state.themeMode, dir.elevationDeg);
           layer.setSun(dir, skyPalette(eff));
+          layer.setSkyElevation(eff);
         }
         // Force the next tick to recompute: `lastApplied` still holds the
         // previous mode's blended values, so without this the redundant-
@@ -335,6 +336,7 @@ export function MapContainer() {
         // mode-effective elevation.
         const eff = effectiveElevationDeg(mode, dir.elevationDeg);
         layer?.setSun(dir, skyPalette(eff));
+        layer?.setSkyElevation(eff);
         binding?.applyThemeElevation(eff);
       };
 
@@ -344,6 +346,11 @@ export function MapContainer() {
         if (useAppStore.getState().engineStatus === "ready") {
           updateSun(performance.now());
           follow.apply(map);
+          {
+            const c = map.getCenter();
+            const [e, n] = lngLatToLocal(c.lng, c.lat);
+            layer?.setSkyCenter(e, n);
+          }
           {
             const s = useAppStore.getState();
             const d = decideAutoUnderground(autoUnderground, {

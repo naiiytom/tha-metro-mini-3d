@@ -39,6 +39,17 @@ export function lngLatAltToLocal([lng, lat, alt]: LngLatAlt): [number, number, n
 }
 
 /**
+ * Inverse of {@link localToLngLat} — [lng, lat] to local ENU east/north
+ * meters. Needed to keep scene-anchored geometry (e.g. the sky dome) centred
+ * on the current map view: MapLibre APIs speak LngLat, but Three geometry
+ * lives in the local ENU frame.
+ */
+export function lngLatToLocal(lng: number, lat: number): [number, number] {
+  const m = MercatorCoordinate.fromLngLat({ lng, lat }, 0);
+  return [(m.x - ORIGIN_MERC.x) / MERC_PER_METER, -(m.y - ORIGIN_MERC.y) / MERC_PER_METER];
+}
+
+/**
  * Inverse of {@link lngLatAltToLocal} — local ENU meters back to [lng, lat].
  * Needed to hand engine-frame positions (vehicles, stations) to MapLibre APIs
  * that speak LngLat: `map.project()` for click hit-testing and `jumpTo()` for

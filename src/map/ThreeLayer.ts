@@ -7,6 +7,7 @@ import * as THREE from "three";
 import type { NetworkData } from "../types";
 import type { LineMaterial } from "three/addons/lines/LineMaterial.js";
 import { MERC_PER_METER, ORIGIN_MERC } from "./coordinates";
+import { buildSkyDome, type SkyDome } from "./skyDome";
 import { PRE_REVENUE_OPACITY, buildStationMarkers, buildTrackDeck, buildTrackLine } from "./trackGeometry";
 import type { VehicleManager } from "./VehicleManager";
 
@@ -41,6 +42,7 @@ export class NetworkLayer implements CustomLayerInterface {
   private surfaceMaterials: THREE.Material[] = [];
   private subsurfaceMaterials: THREE.Material[] = [];
   private undergroundMode = false;
+  private skyDome: SkyDome | null = null;
 
   /**
    * Per-frame hook, invoked at the start of every render() before drawing —
@@ -69,6 +71,12 @@ export class NetworkLayer implements CustomLayerInterface {
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
     const scene = new THREE.Scene();
+    // First into the scene and renderOrder -1: the sky composites UNDER the
+    // network, and its horizon discard keeps it off the basemap (see
+    // skyDome.ts for the §3A.4 reasoning).
+    const sky = buildSkyDome();
+    scene.add(sky.mesh);
+    this.skyDome = sky;
     const ambient = new THREE.AmbientLight(0xffffff, 1.6);
     scene.add(ambient);
     const sun = new THREE.DirectionalLight(0xffffff, 2.2);
@@ -131,6 +139,18 @@ export class NetworkLayer implements CustomLayerInterface {
     this.sunLight.intensity = palette.sunIntensity;
     this.ambientLight.color.setHex(palette.ambient);
     this.ambientLight.intensity = palette.ambientIntensity;
+  }
+
+  /** Sky colours follow the same solar elevation the key light does. Called
+   *  at UI rate from MapContainer, never per frame. */
+  setSkyElevation(elevationDeg: number): void {
+    this.skyDome?.setElevation(elevationDeg);
+  }
+
+  /** Keep the dome centred on the viewer — scene coordinates are local ENU
+   *  meters around Siam and the network spans ~50 km. */
+  setSkyCenter(east: number, north: number): void {
+    this.skyDome?.setCenter(east, north);
   }
 
   /**
@@ -252,6 +272,8 @@ export class NetworkLayer implements CustomLayerInterface {
         mats.forEach((m) => m.dispose());
       }
     });
+    this.skyDome?.dispose();
+    this.skyDome = null;
     this.scene = null;
     this.lineMaterials = [];
     this.lineGroups = [];
