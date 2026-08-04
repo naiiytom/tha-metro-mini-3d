@@ -77,7 +77,7 @@ export function ViewControls() {
                 mode === "auto"
                   ? "Follow the simulated clock — dusk and dawn fade smoothly"
                   : mode === "light"
-                    ? "Always daytime colours, whatever the clock says"
+                    ? "Pinned to full-day lighting, whatever the clock says"
                     : "Always night colours, whatever the clock says"
               }
               className={`flex-1 rounded px-2 py-1.5 text-sm capitalize transition-colors md:py-0.5 md:text-xs ${

@@ -31,10 +31,18 @@ describe("effectiveElevationDeg", () => {
     }
   });
 
-  it("light mode reproduces the old dayPalette exactly", () => {
-    // MapContainer's removed `dayPalette()` was skyPalette(DAY_ELEVATION_DEG).
-    // Light mode must be byte-identical to it or this is a visual regression
-    // disguised as a refactor.
+  it("light mode pins to basemapTheme's DAY_ELEVATION_DEG, independent of the real elevation", () => {
+    // NOT a comparison against the old MapContainer-local `DAY_ELEVATION_DEG
+    // = 90` (a different, now-removed constant, and the value the
+    // pre-tri-state "night theme off" scene used) — that constant is gone.
+    // Light mode is deliberately pinned to the *shared* elevation this module
+    // imports from basemapTheme.ts (3°), the same anchor applyBasemapTheme
+    // uses for "full day" on the basemap. At 3° skyPalette is measurably
+    // dimmer/warmer (golden-hour-ish) than it was at the old 90° — that's the
+    // accepted cost of the shared-elevation trick (one number feeds both
+    // consumers, so they can never drift apart the way they did before), not
+    // a bug. This test only pins the mechanism: whatever the real elevation
+    // is, "light" always resolves to exactly basemapTheme's DAY_ELEVATION_DEG.
     expect(skyPalette(effectiveElevationDeg("light", -20))).toEqual(
       skyPalette(DAY_ELEVATION_DEG),
     );
