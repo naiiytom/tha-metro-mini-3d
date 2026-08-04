@@ -16,6 +16,8 @@ export function ViewControls() {
   const setThemeMode = useAppStore((s) => s.setThemeMode);
   const basemapStyle = useAppStore((s) => s.basemapStyle);
   const setBasemapStyle = useAppStore((s) => s.setBasemapStyle);
+  const ecoMode = useAppStore((s) => s.ecoMode);
+  const setEcoMode = useAppStore((s) => s.setEcoMode);
 
   const row = (label: string, hint: string, on: boolean, set: (v: boolean) => void) => (
     <button
@@ -60,6 +62,12 @@ export function ViewControls() {
         "Higher fidelity, lower frame rate — only near central Bangkok; no effect further out",
         shadowsEnabled,
         setShadowsEnabled,
+      )}
+      {row(
+        "Eco mode",
+        "Drop to about 1 frame per second to save battery — trains stay on schedule",
+        ecoMode,
+        setEcoMode,
       )}
       <div className="mt-1 px-3 py-2 md:px-1.5 md:py-1">
         <div className="mb-1 text-sm text-slate-500 md:text-xs">Theme</div>

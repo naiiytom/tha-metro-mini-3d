@@ -21,7 +21,7 @@ import { effectiveElevationDeg } from "../map/themeMode";
 import { VehicleManager } from "../map/VehicleManager";
 import { lngLatToLocal, localToLngLat, ORIGIN_LNG_LAT } from "../map/coordinates";
 import { SimClient, activeSimClient } from "../sim/SimClient";
-import { LANE_RUN_IDX, LANE_Z, VEHICLE_STRIDE } from "../sim/protocol";
+import { DEFAULT_TICK_MS, ECO_TICK_MS, LANE_RUN_IDX, LANE_Z, VEHICLE_STRIDE } from "../sim/protocol";
 import { formatCountdown } from "../sim/time";
 import { useAppStore } from "../stores/useAppStore";
 import network from "../data/network.json";
@@ -203,6 +203,10 @@ export function MapContainer() {
         }
         map.setStyle(styleUrl(state.basemapStyle));
       }
+      if (state.ecoMode !== prev.ecoMode) {
+        activeSimClient.current?.setTickMs(state.ecoMode ? ECO_TICK_MS : DEFAULT_TICK_MS);
+        map.triggerRepaint(); // repaint once immediately on exit
+      }
     });
 
     map.on("style.load", () => {
@@ -342,27 +346,36 @@ export function MapContainer() {
 
       // MapLibre only repaints on demand — keep frames coming while the
       // engine is running.
+      let lastEcoFrame = 0;
       const loop = () => {
-        if (useAppStore.getState().engineStatus === "ready") {
-          updateSun(performance.now());
-          follow.apply(map);
-          {
-            const c = map.getCenter();
-            const [e, n] = lngLatToLocal(c.lng, c.lat);
-            layer?.setSkyCenter(e, n);
+        const s = useAppStore.getState();
+        if (s.engineStatus === "ready") {
+          const now = performance.now();
+          // Eco mode still runs the rAF callback every frame (that is how it
+          // stays alive to notice being switched off) but only does the
+          // actual paint work at ECO_TICK_MS — the roadmap-item-2 power save.
+          const paint = !s.ecoMode || now - lastEcoFrame >= ECO_TICK_MS;
+          if (paint) {
+            lastEcoFrame = now;
+            updateSun(now);
+            follow.apply(map);
+            {
+              const c = map.getCenter();
+              const [e, n] = lngLatToLocal(c.lng, c.lat);
+              layer?.setSkyCenter(e, n);
+            }
+            {
+              const d = decideAutoUnderground(autoUnderground, {
+                following: s.following,
+                altitudeM: followedAltitudeM,
+                undergroundMode: s.undergroundMode,
+              });
+              autoUnderground = d.next;
+              if (d.setUndergroundTo !== null) s.setUndergroundMode(d.setUndergroundTo);
+            }
+            trainTooltip.apply(map, s.uiHidden);
+            map.triggerRepaint();
           }
-          {
-            const s = useAppStore.getState();
-            const d = decideAutoUnderground(autoUnderground, {
-              following: s.following,
-              altitudeM: followedAltitudeM,
-              undergroundMode: s.undergroundMode,
-            });
-            autoUnderground = d.next;
-            if (d.setUndergroundTo !== null) s.setUndergroundMode(d.setUndergroundTo);
-          }
-          trainTooltip.apply(map, useAppStore.getState().uiHidden);
-          map.triggerRepaint();
         }
         rafId = requestAnimationFrame(loop);
       };

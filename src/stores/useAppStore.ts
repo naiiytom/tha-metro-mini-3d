@@ -99,6 +99,11 @@ interface AppState {
    *  deliberately not. */
   basemapStyle: BasemapStyleKey;
   setBasemapStyle: (key: BasemapStyleKey) => void;
+
+  /** Eco mode: drop the render loop and the worker tick to ~1 Hz to save
+   *  power (roadmap item 2). Off by default. */
+  ecoMode: boolean;
+  setEcoMode: (on: boolean) => void;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -168,4 +173,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   basemapStyle: "liberty",
   setBasemapStyle: (key) => set({ basemapStyle: key }),
+
+  ecoMode: false,
+  setEcoMode: (on) => set({ ecoMode: on }),
 }));

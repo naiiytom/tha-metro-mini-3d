@@ -285,6 +285,12 @@ export class SimClient {
     this.setClock(this.getSimNow(), warp);
   }
 
+  /** Re-cadence the worker's sim loop (eco mode). Positions are a pure
+   *  function of time, so this changes cost, never correctness. */
+  setTickMs(tickMs: number): void {
+    this.post({ kind: "tickRate", tickMs } satisfies MainToWorker);
+  }
+
   /** Snap the sim clock back to real wall-clock time (keeps current warp). */
   resetToNow(): void {
     this.setClock(Date.now(), this.clock.warp);
