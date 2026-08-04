@@ -1,7 +1,7 @@
 {
-  "bytes": 565250,
+  "bytes": 565242,
   "feed_version": "20260803",
-  "gzip_bytes": 329026,
+  "gzip_bytes": 329021,
   "interchanges": [
     {
       "a": "sukhumvit/Samrong",
@@ -215,14 +215,14 @@
       "snap_m": 554.7298250815825
     },
     {
-      "gtfs_stop_id": "13627",
-      "line": "blue",
-      "snap_m": 109.47373318622579
-    },
-    {
       "gtfs_stop_id": "352",
       "line": "blue",
       "snap_m": 61.11812032496024
+    },
+    {
+      "gtfs_stop_id": "13627",
+      "line": "blue",
+      "snap_m": 109.47373318622579
     }
   ],
   "stations": 193
