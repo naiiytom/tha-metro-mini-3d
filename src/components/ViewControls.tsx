@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { BASEMAP_STYLES } from "../map/basemapStyles";
 import { THEME_MODES } from "../map/themeMode";
 import { useAppStore } from "../stores/useAppStore";
@@ -18,6 +19,28 @@ export function ViewControls() {
   const setBasemapStyle = useAppStore((s) => s.setBasemapStyle);
   const ecoMode = useAppStore((s) => s.ecoMode);
   const setEcoMode = useAppStore((s) => s.setEcoMode);
+
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  // The DOM owns this state, not the store: Esc exits fullscreen without
+  // going through our handler, so a store boolean would go stale.
+  useEffect(() => {
+    const sync = () => setIsFullscreen(document.fullscreenElement !== null);
+    sync();
+    document.addEventListener("fullscreenchange", sync);
+    return () => document.removeEventListener("fullscreenchange", sync);
+  }, []);
+
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement) {
+      void document.exitFullscreen();
+      return;
+    }
+    // The map container, not documentElement: every overlay is a child of
+    // it, so they stay visible in fullscreen.
+    const target = document.querySelector<HTMLElement>('[data-testid="map-container"]');
+    void target?.requestFullscreen();
+  };
 
   const row = (label: string, hint: string, on: boolean, set: (v: boolean) => void) => (
     <button
@@ -68,6 +91,12 @@ export function ViewControls() {
         "Drop to about 1 frame per second to save battery — trains stay on schedule",
         ecoMode,
         setEcoMode,
+      )}
+      {row(
+        "Fullscreen",
+        "Fill the screen — press Esc to leave",
+        isFullscreen,
+        () => toggleFullscreen(),
       )}
       <div className="mt-1 px-3 py-2 md:px-1.5 md:py-1">
         <div className="mb-1 text-sm text-slate-500 md:text-xs">Theme</div>

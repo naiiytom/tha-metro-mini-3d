@@ -10,7 +10,18 @@ export default function App() {
   const uiHidden = useAppStore((s) => s.uiHidden);
 
   return (
-    <div className="relative h-dvh w-dvw overflow-hidden bg-slate-900">
+    // data-testid="map-container" names the fullscreen TARGET (see
+    // ViewControls.tsx's toggleFullscreen), not literally the map: this is
+    // App's own top-level wrapper, because it's the real common ancestor of
+    // MapContainer, LineSelector, and the bottom-sheet stack.
+    // MapContainer.tsx's own div only ever receives MapLibre's injected DOM
+    // plus the imperatively-appended TrainTooltip — never these
+    // React-rendered overlays — so fullscreening that div instead would
+    // hide every overlay the moment fullscreen engages.
+    <div
+      data-testid="map-container"
+      className="relative h-dvh w-dvw overflow-hidden bg-slate-900"
+    >
       <MapContainer />
       <LineSelector />
       {/* Below `md:`, TrainInspector/StationBoard join the bottom stack as
