@@ -254,26 +254,47 @@ export const LINES = [
     nameTh: "สายสีส้ม",
     color: "#F57C00",
     // Default only; real per-point tunnel/bridge/layer tags on these ways
-    // give a genuine underground/elevated mix (verified 2026-08-04: 88
-    // underground / 83 elevated points across the stitched alignment, after
-    // truncateAtFold removes an out-and-back double-back the raw greedy
-    // stitch produced — see tools/trackProfile.mjs).
+    // give a genuine underground/elevated mix. Measured 2026-08-04 for the
+    // COMBINED line (both sections concatenated via fetchBranchFromWayNames,
+    // see the osm comment below): 275 track points, 192 underground / 83
+    // elevated, ~35.3 km total (western sub-fetch 105 pts / 13.5 km +
+    // eastern sub-fetch 171 pts / 21.8 km, minus the 1 shared junction
+    // point at Thailand Cultural Centre — 105 + 171 - 1 = 275, confirming a
+    // clean single splice with neither a duplicate nor a gap).
     structure: "underground",
     vehicleType: "heavy",
-    // Pre-revenue: Eastern Section projected late 2027 (SRS §2 caveat block,
-    // re-verified 2026-07-31). No trains until it has a published schedule.
+    // Pre-revenue: Eastern Section projected late 2027, Western ~2030 (SRS §2
+    // caveat block, re-verified 2026-07-31). No trains until a published
+    // schedule exists for either section.
     gtfsRouteId: null,
     preRevenue: true,
-    // No route relation exists for this line anywhere in OSM (checked
-    // operational, route=construction, and proposed:route — none, verified
-    // 2026-08-04), so there is no relationId to pin. What DOES exist: 16 real
-    // railway=construction ways named exactly "รถไฟฟ้ามหานคร สายสีส้ม" (the
-    // Eastern Section — deliberately excluded the separately-named "...
-    // ตะวันตก" (West) ways, same Eastern-only scoping the original plan
-    // called for). wayNamePattern pins that exact name so fetchBranchFromWayName
-    // can stitch them directly; see that function's own comment for why
-    // stations are intentionally empty.
-    osm: { relationId: null, wayNamePattern: "^รถไฟฟ้ามหานคร สายสีส้ม$" },
+    // No route relation exists for this line anywhere in OSM, for either
+    // section (checked operational, route=construction, and proposed:route —
+    // all empty, verified 2026-08-04). What DOES exist: two disjoint sets of
+    // real railway=construction ways, one per section, that physically meet
+    // at Thailand Cultural Centre but were never mapped as one relation:
+    // 16 ways named exactly "รถไฟฟ้ามหานคร สายสีส้ม" (Eastern Section,
+    // deliberately excluding the separately-named "...ตะวันตก" (West) ways)
+    // and 3 ways named "รถไฟฟ้าสายสีส้มตะวันตก ช่วงศูนย์วัฒนธรรมฯ-บางขุนนนท์"
+    // (Western Section, Thailand Cultural Centre <-> Bang Khun Non).
+    // wayNamePatterns (western pattern FIRST — its last point is the shared
+    // junction that the eastern pattern's ways start from) fetches both via
+    // fetchBranchFromWayNames, which concatenates them at that junction; see
+    // that function's own doc comment for the mechanism and
+    // fetchBranchFromWayName's for why stations are intentionally empty.
+    // 0 stations placed: the only construction-stage station node found in
+    // either section's own bounding box (Democracy Monument, western half)
+    // has ref "PP22" (Purple Line's prefix, not Orange's "OR") and its own
+    // fixme tag reads "update to subway stopping location when opened" —
+    // OSM's own contributors flag the position as provisional, so per the
+    // Mo Chit precedent (CLAUDE.md) it is not placed.
+    osm: {
+      relationId: null,
+      wayNamePatterns: [
+        "รถไฟฟ้าสายสีส้มตะวันตก ช่วงศูนย์วัฒนธรรมฯ-บางขุนนนท์",
+        "^รถไฟฟ้ามหานคร สายสีส้ม$",
+      ],
+    },
   },
   {
     key: "purple-ext",
@@ -300,51 +321,6 @@ export const LINES = [
     // entry's own relation. wayNamePattern pins the exact name; see
     // fetchBranchFromWayName for why stations are intentionally empty.
     osm: { relationId: null, wayNamePattern: "สายสีม่วงใต้" },
-  },
-  {
-    key: "orange-west",
-    name: "MRT Orange Line (Western Section)",
-    nameTh: "สายสีส้ม ช่วงตะวันตก",
-    // Same hue as the Eastern Section so the two read as one line; the
-    // dashed/desaturated pre-revenue treatment distinguishes both from
-    // revenue service.
-    color: "#F57C00",
-    // Default only; real per-point tunnel/bridge/layer tags on these ways
-    // give a genuine classification (verified 2026-08-04: all 105 stitched
-    // points tag underground — the whole Western Section runs under the
-    // Chao Phraya river crossing and central Bangkok, unlike Eastern's mix).
-    // Published length for Bang Khun Non <-> Thailand Cultural Centre:
-    // ~13.4 km (Wikipedia "Orange Line (Bangkok)" infobox) / 13.49 km
-    // (MRTA's own page, mrta.co.th/en/the-orange-line-Bang Khun Non).
-    // Measured (haversine over the stitched network.json track): 13.5 km —
-    // within 0.7% of both published figures, confirming a single traverse,
-    // not the ~2x doubled-polyline signature the Eastern Section hit first
-    // time round. 0 stations placed: the only construction-stage station
-    // node found in this line's own bounding box (Democracy Monument) has
-    // ref "PP22" (Purple Line's prefix, not Orange's "OR") and its own
-    // fixme tag reads "update to subway stopping location when opened" —
-    // OSM's own contributors flag the position as provisional, so per the
-    // Mo Chit precedent (CLAUDE.md) it is not placed.
-    structure: "underground",
-    vehicleType: "heavy",
-    // Pre-revenue: Western Section projected ~2030 (SRS §2 caveat block,
-    // re-verified 2026-07-31). No trains until it has a published schedule.
-    gtfsRouteId: null,
-    preRevenue: true,
-    // No route relation exists in OSM for any part of MRT Orange (checked
-    // operational, route=construction, and proposed:route — all empty,
-    // verified 2026-08-04), so there is no relationId to pin. The Eastern
-    // Section entry above pins the exact Eastern way name and deliberately
-    // excludes these separately-named West ways; this entry picks them up.
-    // Pattern below is EXACTLY what the Step 1 Overpass scan returned —
-    // do not loosen it, or it re-swallows the Eastern ways and the two
-    // entries fight over the same geometry. Scan returned exactly one
-    // distinct West name across 3 matching ways (Eastern's 16 ways carry a
-    // different, already-pinned name).
-    osm: {
-      relationId: null,
-      wayNamePattern: "รถไฟฟ้าสายสีส้มตะวันตก ช่วงศูนย์วัฒนธรรมฯ-บางขุนนนท์",
-    },
   },
 ];
 
@@ -415,20 +391,29 @@ export function assertRegistryValid(lines = LINES) {
       }
     }
     // Exactly one OSM discovery mode: a pinned relationId (with an optional
-    // `match` only meaningful if relationId is null, for bootstrapping), or
+    // `match` only meaningful if relationId is null, for bootstrapping),
     // wayNamePattern (fetchBranchFromWayName, for a line with no route
-    // relation at all). An entry with neither silently falls into
-    // discoverRelationId and crashes on `line.osm.match.test(...)` with no
-    // match regex — catch it here instead.
+    // relation at all), or wayNamePatterns (fetchBranchFromWayNames, for a
+    // line stitched from multiple disconnected named-way branches — e.g.
+    // MRT Orange's Eastern + Western Sections). An entry with none silently
+    // falls into discoverRelationId and crashes on `line.osm.match.test(...)`
+    // with no match regex — catch it here instead.
     const hasRelation = l.osm?.relationId != null;
     const hasWayPattern = typeof l.osm?.wayNamePattern === "string" && l.osm.wayNamePattern.length > 0;
+    const hasWayPatterns = Array.isArray(l.osm?.wayNamePatterns);
     const hasMatch = l.osm?.match instanceof RegExp;
     if (hasRelation && hasWayPattern) {
       throw new Error(`${l.key}: osm.relationId and osm.wayNamePattern are mutually exclusive`);
     }
-    if (!hasRelation && !hasWayPattern && !hasMatch) {
+    if (hasRelation && hasWayPatterns) {
+      throw new Error(`${l.key}: osm.relationId and osm.wayNamePatterns are mutually exclusive`);
+    }
+    if (hasWayPattern && hasWayPatterns) {
+      throw new Error(`${l.key}: osm.wayNamePattern and osm.wayNamePatterns are mutually exclusive`);
+    }
+    if (!hasRelation && !hasWayPattern && !hasWayPatterns && !hasMatch) {
       throw new Error(
-        `${l.key}: osm must set relationId, wayNamePattern, or match (for relation discovery)`,
+        `${l.key}: osm must set relationId, wayNamePattern, wayNamePatterns, or match (for relation discovery)`,
       );
     }
     if (hasWayPattern && /["\\]/.test(l.osm.wayNamePattern)) {
@@ -436,6 +421,19 @@ export function assertRegistryValid(lines = LINES) {
       // (`["name"~"${pattern}"]`) — an unescaped quote or backslash would
       // break the query string rather than fail with a clear error.
       throw new Error(`${l.key}: osm.wayNamePattern must not contain '"' or '\\'`);
+    }
+    if (hasWayPatterns) {
+      if (
+        l.osm.wayNamePatterns.length < 2 ||
+        !l.osm.wayNamePatterns.every((p) => typeof p === "string" && p.length > 0)
+      ) {
+        throw new Error(
+          `${l.key}: osm.wayNamePatterns must be an array of at least 2 non-empty strings`,
+        );
+      }
+      if (l.osm.wayNamePatterns.some((p) => /["\\]/.test(p))) {
+        throw new Error(`${l.key}: osm.wayNamePatterns entries must not contain '"' or '\\'`);
+      }
     }
   }
 
