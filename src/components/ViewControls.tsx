@@ -1,3 +1,4 @@
+import { THEME_MODES } from "../map/themeMode";
 import { useAppStore } from "../stores/useAppStore";
 
 /**
@@ -10,8 +11,8 @@ export function ViewControls() {
   const setUndergroundMode = useAppStore((s) => s.setUndergroundMode);
   const shadowsEnabled = useAppStore((s) => s.shadowsEnabled);
   const setShadowsEnabled = useAppStore((s) => s.setShadowsEnabled);
-  const nightThemeEnabled = useAppStore((s) => s.nightThemeEnabled);
-  const setNightThemeEnabled = useAppStore((s) => s.setNightThemeEnabled);
+  const themeMode = useAppStore((s) => s.themeMode);
+  const setThemeMode = useAppStore((s) => s.setThemeMode);
 
   const row = (label: string, hint: string, on: boolean, set: (v: boolean) => void) => (
     <button
@@ -57,12 +58,39 @@ export function ViewControls() {
         shadowsEnabled,
         setShadowsEnabled,
       )}
-      {row(
-        "Night theme",
-        "Darken the basemap after dusk; turn off if a variant reads poorly on your display",
-        nightThemeEnabled,
-        setNightThemeEnabled,
-      )}
+      <div className="mt-1 px-3 py-2 md:px-1.5 md:py-1">
+        <div className="mb-1 text-sm text-slate-500 md:text-xs">Theme</div>
+        <div
+          role="radiogroup"
+          aria-label="Theme"
+          className="flex gap-1 rounded-md bg-slate-200/60 p-0.5"
+        >
+          {THEME_MODES.map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              role="radio"
+              aria-checked={themeMode === mode}
+              data-theme-mode={mode}
+              onClick={() => setThemeMode(mode)}
+              title={
+                mode === "auto"
+                  ? "Follow the simulated clock — dusk and dawn fade smoothly"
+                  : mode === "light"
+                    ? "Always daytime colours, whatever the clock says"
+                    : "Always night colours, whatever the clock says"
+              }
+              className={`flex-1 rounded px-2 py-1.5 text-sm capitalize transition-colors md:py-0.5 md:text-xs ${
+                themeMode === mode
+                  ? "bg-white text-slate-800 shadow-sm"
+                  : "text-slate-500 hover:text-slate-700"
+              }`}
+            >
+              {mode}
+            </button>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { ThemeMode } from "../map/themeMode";
 import type { StationInfo, ValidationSummary } from "../sim/protocol";
 import type { ClockParams } from "../sim/SimClient";
 import type { LineGeometry } from "../types";
@@ -77,14 +78,13 @@ interface AppState {
   shadowsEnabled: boolean;
   setShadowsEnabled: (on: boolean) => void;
 
-  /** Basemap day/night colour theming (Task 10b) opt-out. On by default;
-   *  the escape hatch exists because it is the mechanism behind a previously
-   *  reported night-legibility defect, and a user hitting a variant on
-   *  different hardware otherwise has no way out short of scrubbing to noon
-   *  (finding 7). Forward-compatible with the tri-state Auto/Light/Dark
-   *  scoped for MVP 7 — "off" becomes "Light" later. */
-  nightThemeEnabled: boolean;
-  setNightThemeEnabled: (on: boolean) => void;
+  /** Tri-state day/night appearance (roadmap item 21). `auto` is the
+   *  clock-driven SRS F3.3 behaviour and the default; `light`/`dark` pin it.
+   *  Replaces MVP 6's `nightThemeEnabled` boolean — that flag's "off" was
+   *  always really "light", and a user who wanted a permanently dark map had
+   *  no way to ask for one short of scrubbing the clock to midnight. */
+  themeMode: ThemeMode;
+  setThemeMode: (mode: ThemeMode) => void;
 
   /** Mobile-only "hide UI" toggle: collapses every overlay panel to leave an
    *  unobstructed map. No effect at the `md:` desktop layout, which has no
@@ -152,8 +152,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   shadowsEnabled: false,
   setShadowsEnabled: (on) => set({ shadowsEnabled: on }),
 
-  nightThemeEnabled: true,
-  setNightThemeEnabled: (on) => set({ nightThemeEnabled: on }),
+  themeMode: "auto",
+  setThemeMode: (mode) => set({ themeMode: mode }),
 
   uiHidden: false,
   setUiHidden: (hidden) => set({ uiHidden: hidden }),

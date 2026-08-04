@@ -21,6 +21,7 @@ import {
   type BasemapTheme,
 } from "../map/basemapTheme";
 import { TrainTooltip } from "../map/trainTooltip";
+import { effectiveElevationDeg } from "../map/themeMode";
 import { VehicleManager } from "../map/VehicleManager";
 import { localToLngLat, ORIGIN_LNG_LAT } from "../map/coordinates";
 import { SimClient, activeSimClient } from "../sim/SimClient";
@@ -30,17 +31,6 @@ import network from "../data/network.json";
 import type { NetworkData } from "../types";
 
 setWorkerUrl(maplibreWorkerUrl);
-
-// `skyPalette`'s day/golden blend saturates to fully daytime at any
-// elevation this far from the horizon (`day` clamps to 1 at +12°, `golden`
-// clamps to 0 this far from its +4° peak) — so calling it here reuses the
-// exact daytime output (DAY_SUN/DAY_AMBIENT, intensities 2.2/1.6) without
-// widening `skyPalette`'s own signature or duplicating its constants. Used
-// when the night-theme opt-out is off so the Three.js scene's *palette*
-// (never its sun *direction* — see updateSun) stays daytime regardless of
-// simulated clock time.
-const DAY_ELEVATION_DEG = 90;
-const dayPalette = () => skyPalette(DAY_ELEVATION_DEG);
 
 export function MapContainer() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -249,22 +239,6 @@ export function MapContainer() {
         }
       };
 
-      // Finding 7: an escape hatch for the basemap night theme — it is the
-      // mechanism behind a previously reported night-legibility defect, and
-      // without this a user hitting a variant on some display combination
-      // has no way out short of scrubbing the clock to noon. Restores every
-      // themed layer to its captured original colour and resets the bucket
-      // so re-enabling recomputes from a clean slate rather than skipping a
-      // write because `lastApplied` still holds a stale blended value.
-      const restoreBasemapTheme = () => {
-        for (const entry of themeable) {
-          map.setPaintProperty(entry.id, entry.prop, entry.original);
-          entry.lastApplied = entry.original;
-        }
-        lastNightBucket = -1;
-      };
-      if (!useAppStore.getState().nightThemeEnabled) restoreBasemapTheme();
-
       // Visibility is UI state, so it drives the scene through a subscription
       // rather than the per-frame path.
       unsubscribeVisibility = useAppStore.subscribe((state, prev) => {
@@ -283,20 +257,17 @@ export function MapContainer() {
           layer.setShadowsEnabled(state.shadowsEnabled);
           map.triggerRepaint();
         }
-        if (state.nightThemeEnabled !== prev.nightThemeEnabled) {
-          // Apply the scene-lighting side immediately rather than waiting up
-          // to 500 ms for the next updateSun tick — same immediacy
-          // restoreBasemapTheme() already gives the basemap side below.
+        if (state.themeMode !== prev.themeMode) {
           const client = activeSimClient.current;
           if (client) {
             const dir = sunDirection(client.getSimNow());
-            layer.setSun(dir, state.nightThemeEnabled ? skyPalette(dir.elevationDeg) : dayPalette());
+            const eff = effectiveElevationDeg(state.themeMode, dir.elevationDeg);
+            layer.setSun(dir, skyPalette(eff));
           }
-          if (state.nightThemeEnabled) {
-            lastNightBucket = -1; // force the next updateSun tick to recompute and apply
-          } else {
-            restoreBasemapTheme();
-          }
+          // Force the next tick to recompute: `lastApplied` still holds the
+          // previous mode's blended values, so without this the redundant-
+          // write skip would keep them.
+          lastNightBucket = -1;
           map.triggerRepaint();
         }
       });
@@ -401,17 +372,13 @@ export function MapContainer() {
         const client = activeSimClient.current;
         if (!client) return;
         const dir = sunDirection(client.getSimNow());
-        const nightThemeEnabled = useAppStore.getState().nightThemeEnabled;
-        // The opt-out (finding 7) means "no night appearance anywhere," not
-        // "basemap only" — it originally gated only applyBasemapTheme below,
-        // leaving the Three.js scene clock-lit while the basemap reverted to
-        // day, i.e. a bright day map over a dark night-lit track/train scene
-        // (user report: "when night disable the track color does not return
-        // to normal"). The sun *direction* (`dir`, and therefore the light's
-        // position/shadow direction — what verify:mvp6 check 6 reads) stays
-        // clock-driven either way; only the *palette* freezes to daytime.
-        layer.setSun(dir, nightThemeEnabled ? skyPalette(dir.elevationDeg) : dayPalette());
-        if (nightThemeEnabled) applyBasemapTheme(dir.elevationDeg);
+        const mode = useAppStore.getState().themeMode;
+        // Direction stays REAL in every mode (verify:mvp6 check 5 reads the
+        // light position); only the palette and the basemap blend use the
+        // mode-effective elevation.
+        const eff = effectiveElevationDeg(mode, dir.elevationDeg);
+        layer.setSun(dir, skyPalette(eff));
+        applyBasemapTheme(eff);
       };
 
       // MapLibre only repaints on demand — keep frames coming while the

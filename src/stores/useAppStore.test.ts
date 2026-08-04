@@ -41,3 +41,13 @@ describe("underground mode", () => {
     expect(useAppStore.getState().undergroundMode).toBe(true);
   });
 });
+
+describe("theme mode", () => {
+  it("defaults themeMode to auto and round-trips all three modes", () => {
+    expect(useAppStore.getState().themeMode).toBe("auto");
+    for (const mode of ["light", "dark", "auto"] as const) {
+      useAppStore.getState().setThemeMode(mode);
+      expect(useAppStore.getState().themeMode).toBe(mode);
+    }
+  });
+});
