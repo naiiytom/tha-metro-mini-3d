@@ -31,6 +31,26 @@ const MAX_SNAP_M: f64 = 150.0;
 /// coordinate quirk (555 m), not an unbounded escape hatch. A future
 /// exception past this is almost certainly a real mistake, not a known one.
 const ALLOW_LARGE_SNAP_CEILING_M: f64 = 1_000.0;
+/// Maximum |altitude change| per meter of horizontal travel between two
+/// consecutive track vertices. Mirrors MAX_TRACK_GRADIENT in
+/// tools/trackProfile.mjs (0.04 — the standard heavy-rail ruling gradient).
+///
+/// tools/trackProfile.mjs's limitTrackGradient ESTABLISHES this invariant in
+/// the pipeline; this gate ASSERTS it still holds in whatever network.json
+/// actually reached the preprocessor. Without it, a hand-edited network.json,
+/// a fetch that skipped the limiter, or a future pipeline regression
+/// reintroduces the 108% portal wall a user reported in MVP 6 and nothing
+/// fails until somebody looks at a screenshot.
+const MAX_TRACK_GRADIENT: f64 = 0.04;
+/// f64 slack only. limitTrackGradient converges to exactly 4.00% on the
+/// current network (blue idx 347), so this must stay tight enough that a
+/// real regression cannot hide inside it.
+const GRADIENT_EPSILON: f64 = 1e-4;
+/// Below this horizontal separation two vertices are treated as coincident:
+/// dividing by their distance would report a meaningless (or infinite)
+/// gradient. A coincident PAIR is still rejected if its altitudes differ by
+/// more than this, which is the genuinely broken case (a vertical wall).
+const COINCIDENT_POINT_M: f64 = 0.5;
 
 /// Weekday/weekend sample dates for the peak-concurrent scan, inside the
 /// Namtang feed's 20260101-20261231 validity window (contract §0). Ordinary
@@ -311,6 +331,7 @@ fn run() -> Result<(), String> {
     let mut large_snap_exceptions: Vec<serde_json::Value> = Vec::new();
 
     for line in &track_file.lines {
+        check_track_gradient(&line.key, &line.track, &proj)?;
         let ctrl: Vec<[f64; 3]> = line
             .track
             .iter()
@@ -1141,6 +1162,44 @@ fn resolve_pattern_arcs_full(candidate_lists: &[Vec<(f64, f64)>]) -> (Vec<f64>, 
     }
 }
 
+/// Reject any consecutive track-vertex pair steeper than the ruling gradient.
+/// Returns the FIRST violation with enough context to find it in
+/// src/data/network.json (line key + vertex index + the measured grade).
+fn check_track_gradient(
+    key: &str,
+    track: &[TrackVertex],
+    proj: &EnuProjector,
+) -> Result<(), String> {
+    for i in 1..track.len() {
+        let a = proj.project(track[i - 1].0, track[i - 1].1, track[i - 1].2);
+        let b = proj.project(track[i].0, track[i].1, track[i].2);
+        let horiz = ((b[0] - a[0]).powi(2) + (b[1] - a[1]).powi(2)).sqrt();
+        let rise = (b[2] - a[2]).abs();
+        if horiz < COINCIDENT_POINT_M {
+            if rise > COINCIDENT_POINT_M {
+                return Err(format!(
+                    "line '{key}' vertex {i}: {rise:.1} m altitude step across only \
+                     {horiz:.2} m of track — a vertical wall. Re-run the fetch so \
+                     tools/trackProfile.mjs's limitTrackGradient ramps it."
+                ));
+            }
+            continue;
+        }
+        let grade = rise / horiz;
+        if grade > MAX_TRACK_GRADIENT + GRADIENT_EPSILON {
+            return Err(format!(
+                "line '{key}' vertex {i}: track gradient {:.1}% exceeds the \
+                 {:.0}% ruling limit ({rise:.1} m rise over {horiz:.1} m). \
+                 Re-run the fetch so tools/trackProfile.mjs's limitTrackGradient \
+                 ramps it.",
+                grade * 100.0,
+                MAX_TRACK_GRADIENT * 100.0
+            ));
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1537,5 +1596,54 @@ mod tests {
         let (arcs, fallback) = resolve_pattern_arcs(&lists);
         assert_eq!(arcs, vec![100.0, 50.0, 300.0], "fallback still uses the real (only) position");
         assert_eq!(fallback, vec![false, true, false], "only the inconsistent stop is flagged");
+    }
+
+    #[test]
+    fn gradient_gate_rejects_a_portal_wall() {
+        let proj = EnuProjector::new(ORIGIN_LNG_LAT.0, ORIGIN_LNG_LAT.1);
+        // Two points ~13.4 m apart horizontally with a 14.5 m altitude step —
+        // the real red-dark idx 103 defect, a 108% grade.
+        let track = vec![
+            TrackVertex(100.5000000, 13.8000000, -3.0, "underground".into()),
+            TrackVertex(100.5001235, 13.8000000, 11.5, "elevated".into()),
+        ];
+        let err = check_track_gradient("red-dark", &track, &proj)
+            .expect_err("a 108% grade must fail the gate");
+        assert!(err.contains("red-dark"), "error names the line: {err}");
+        assert!(err.contains("gradient"), "error names the failure: {err}");
+    }
+
+    #[test]
+    fn gradient_gate_accepts_a_ruling_grade_ramp() {
+        let proj = EnuProjector::new(ORIGIN_LNG_LAT.0, ORIGIN_LNG_LAT.1);
+        // ~107 m apart horizontally, 4.0 m rise = exactly the 4% ruling gradient
+        // limitTrackGradient converges to (blue idx 347 is exactly 4.00% today).
+        let track = vec![
+            TrackVertex(100.5000000, 13.8000000, -18.0, "underground".into()),
+            TrackVertex(100.5009880, 13.8000000, -14.0, "underground".into()),
+        ];
+        assert!(check_track_gradient("blue", &track, &proj).is_ok());
+    }
+
+    #[test]
+    fn gradient_gate_rejects_a_vertical_step_at_a_duplicated_point() {
+        let proj = EnuProjector::new(ORIGIN_LNG_LAT.0, ORIGIN_LNG_LAT.1);
+        // Coincident lng/lat with a real altitude jump: an infinite gradient that
+        // a naive delta/distance would divide by zero on.
+        let track = vec![
+            TrackVertex(100.5000000, 13.8000000, -18.0, "underground".into()),
+            TrackVertex(100.5000000, 13.8000000, 12.0, "elevated".into()),
+        ];
+        assert!(check_track_gradient("blue", &track, &proj).is_err());
+    }
+
+    #[test]
+    fn gradient_gate_tolerates_a_duplicated_point_at_the_same_altitude() {
+        let proj = EnuProjector::new(ORIGIN_LNG_LAT.0, ORIGIN_LNG_LAT.1);
+        let track = vec![
+            TrackVertex(100.5000000, 13.8000000, 12.0, "elevated".into()),
+            TrackVertex(100.5000000, 13.8000000, 12.0, "elevated".into()),
+        ];
+        assert!(check_track_gradient("blue", &track, &proj).is_ok());
     }
 }
