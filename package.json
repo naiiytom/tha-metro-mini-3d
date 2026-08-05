@@ -23,6 +23,7 @@
     "verify:perf": "node tools/verify-perf.mjs",
     "verify:mvp5": "node tools/verify-mvp5.mjs",
     "verify:mvp6": "node tools/verify-mvp6.mjs",
+    "verify:mvp7": "node tools/verify-mvp7.mjs",
     "verify:mobile": "node tools/verify-mobile.mjs",
     "verify:train-tooltip": "node tools/verify-train-tooltip.mjs",
     "verify:legibility": "node tools/verify-legibility.mjs",
