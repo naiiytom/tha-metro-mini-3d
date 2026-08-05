@@ -25,6 +25,7 @@
     "verify:mvp6": "node tools/verify-mvp6.mjs",
     "verify:mobile": "node tools/verify-mobile.mjs",
     "verify:train-tooltip": "node tools/verify-train-tooltip.mjs",
+    "verify:legibility": "node tools/verify-legibility.mjs",
     "screenshot": "node tools/screenshot.mjs",
     "check:bundle": "node tools/check-bundle.mjs"
   },
