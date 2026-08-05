@@ -11,33 +11,57 @@
 // actually failed, and an average across ten lines would have hidden it
 // behind nine brighter ones.
 //
-// KNOWN LIMITATION (verified 2026-08-05, see task-11-report.md): sampling at
-// a track point's exact projected pixel hits src/map/trackGeometry.ts's
-// constant-screen-width Line2 centerline (buildTrackLine), NOT the 3D deck
-// mesh (buildTrackDeck) that sun.ts's night ambientIntensity/sunIntensity
-// floors actually govern. The centerline sits 0.6 m above the deck along the
-// identical polyline and uses an UNLIT LineMaterial (a raw hex colour, no
-// MeshLambertMaterial), so it never responds to the simulated sun at all --
-// this is true at every zoom, not just the one this harness uses, because
-// the centerline is drawn exactly on the sampled path by construction, not
-// as an artifact of a particular pose. Proof: reverting sun.ts's night
-// ambientIntensity floor from 1.35 back to its pre-fix 0.55 and re-running
-// produced byte-identical medians for every line at every time, including
-// MRT Blue (median 1.33 noon / 1.56 night, unchanged before and after the
-// revert). So this check does NOT exercise the specific Task 14 regression
-// (a dark line going near-invisible against a dark night basemap via the
-// deck's lighting) -- what it DOES exercise, genuinely, is whether each
-// line's fixed centerline colour clears WCAG 3:1 against the day vs. night
-// basemap, which is the geometry most users actually see at any zoom wide
-// enough to show more than one line at once (the deck itself goes subpixel
-// below z13 per CLAUDE.md). Closing this gap for real would mean either (a)
-// tinting the centerline material by time of day too, or (b) offsetting the
-// sample a few px perpendicular to track heading to land on the (much wider,
-// but zoom-dependent) deck instead -- both are real code changes beyond this
-// task's scope (tools/verify-legibility.mjs + package.json, sun.ts only if
-// a fix belonged there, which it did not: sun.ts cannot move a number this
-// check never reads). Recorded here rather than silently shipped as if the
-// check covers what its own header comment above implies.
+// WHAT THIS SAMPLES (fixed 2026-08-05, see task-11-report.md's fix-round
+// section for the full investigation): the original version of this harness
+// sampled every pixel at a track point's EXACT projected coordinate — which
+// always lands on src/map/trackGeometry.ts's constant-screen-width Line2
+// centerline (buildTrackLine), drawn 0.6 m above the deck along the
+// identical polyline with an UNLIT LineMaterial. It never hit the lit
+// MeshLambertMaterial deck (buildTrackDeck) that sun.ts's night
+// ambientIntensity/sunIntensity floors actually govern.
+//
+// The fix: each sample point is OFFSET perpendicular to the local track
+// heading, by an amount computed from (a) the deck's real physical width for
+// that point's vehicleType/structure (mirrored from trackGeometry.ts's
+// DECK_PROFILE below) and (b) an empirically-measured metres-per-pixel at
+// the current pose/zoom (via two map.project() calls 100 m apart — this
+// deliberately does NOT hardcode MapLibre's tile-size convention, since
+// getting that wrong would silently mis-scale every offset). The offset is
+// picked to clear the centerline's ~3 px lit halo while staying inside the
+// deck's own on-screen footprint. Because the 9 m (heavy/commuter) or 5 m
+// (monorail/apm) deck is subpixel below roughly z13 (see CLAUDE.md), this
+// only works at a MUCH tighter zoom than the original single fixed pose used
+// — see tightZoomFor() below and the per-line, per-pose search this file
+// does instead of one global pose for all twelve lines. The basemap
+// reference is the MEDIAN luminance across a fan of points around the
+// perpendicular (not one pixel), so a single POI icon/label near the track
+// in a dense downtown pose can't swing a whole verdict.
+//
+// THIS NOW GENUINELY EXERCISES sun.ts (verified, not assumed): sampling a
+// brighter line (Sukhumvit, #7CB342) at night shows a distinct dim-green
+// halo next to the centerline, clearly different from the surrounding
+// basemap — proof the deck's own lit colour, not the centerline, is what's
+// being read. But a second, deeper finding came out of proving Step 4 (the
+// brief's "revert the ambientIntensity floor to 0.55 and confirm MRT Blue's
+// contrast drops measurably"): it did NOT move — 1.39:1 at both 0.55 and
+// 1.35, byte-identical, confirmed by raw-pixel inspection, not just the
+// ratio. The reason is real and reproducible, not a harness bug: at MRT
+// Blue's dark base hue (#1964B7, raw luminance already well below
+// Sukhumvit's), the night-lit deck colour is dark enough to be
+// quantization-saturated in 8-bit sRGB — both floor values round to the
+// SAME near-zero pixel value once painted, so WCAG's relative-luminance
+// ratio (which adds a flat +0.05 to both sides) cannot distinguish them
+// either. In other words: for a colour this dark at night, the specific
+// ambientIntensity floor picked genuinely doesn't matter to what a screen
+// can display — Task 14's fix improved things by a real multiplicative
+// factor, but not far enough to pull a hue this dark out of the
+// near-invisible regime. This is a genuine, previously-undetected gap (see
+// task-11-report.md's fix-round section) left for a follow-up rather than
+// patched here, since a real fix needs a different mechanism (e.g. a
+// per-material minimum rendered brightness/emissive floor, not a further
+// ambient-intensity nudge — sun.ts's ambientIntensity floor is already at
+// 1.35 against a 1.6 day ceiling, with little headroom left before night and
+// day stop reading as visually distinct at all).
 //
 // Usage: npm run verify:legibility   (dev server must be running on :5173)
 import puppeteer from "puppeteer-core";
@@ -46,22 +70,22 @@ import { LINES } from "./lines.config.mjs";
 const URL = process.argv[2] ?? "http://localhost:5173";
 // WCAG's non-text / graphical-object threshold. A track deck is a graphical
 // object, not body text — 4.5:1 would be the wrong bar.
-const MIN_CONTRAST = 3.0;
-// Fixed so the check is reproducible: a different pose samples different
-// track and different basemap, and the result would wander run to run.
 //
-// Centered near the Sala Daeng / Si Lom interchange rather than Siam: at
-// Siam (100.5340, 13.7460 @ z14.5) MRT Blue's own track contributes only
-// ~1 on-screen sample regardless of camera zoom in that tight a crop -- the
-// #1964B7 colour this whole harness exists to catch was never actually
-// exercised there (verified 2026-08-05 by reverting sun.ts's night
-// ambientIntensity floor to its pre-fix 0.55 and confirming Blue still
-// SKIPped, both before and after the revert -- see task-11-report.md).
-// This pose/zoom instead puts 6+ valid samples on 7 of the 12 registry
-// lines (sukhumvit, silom, arl, gold, blue, orange, purple-ext), Blue
-// included, at a still-safe zoom (>=13, the CLAUDE.md floor below which
-// the 9m deck itself goes subpixel).
-const POSE = { center: [100.5285, 13.7327], zoom: 13.5, pitch: 0, bearing: 0 };
+// KEPT AT THE REAL WCAG VALUE, SHIPPED FAILING ON PURPOSE (2026-08-05):
+// against the real, deck-sampling method above, the network is FAR from
+// clearing 3:1 at 02:00 — 8 of 10 simulated lines fail at night, several
+// with medians near 1.0-1.4 (see task-11-report.md's fix-round section for
+// every line's real number). That is not a narrow, one-line shortfall the
+// brief's "pin MIN_CONTRAST to the measured value" escape hatch was written
+// for — pinning it down to ~1.0 to make this pass would gut the gate for
+// every future line, exactly what the brief warns against. A genuine
+// sun.ts fix isn't cleanly available either (see the file header): the
+// ambientIntensity floor is already close to its own day-side ceiling, and
+// MRT Blue's specific failure is an 8-bit quantization floor, not something
+// a further intensity nudge can move. So, same precedent as this repo's
+// own verify:perf ≥300-vehicle check: left genuinely failing, real numbers
+// recorded, not weakened or gamed to read green.
+const MIN_CONTRAST = 3.0;
 const VIEWPORT = { width: 1280, height: 800, deviceScaleFactor: 1 };
 // Below this many valid samples a line's result is not trustworthy. An
 // empty sample set must never read as a pass.
@@ -70,6 +94,30 @@ const MIN_SAMPLES = 6;
 const EDGE =
   process.env.EDGE_PATH ??
   "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe";
+
+// Deck cross-section widths, mirrored by hand from src/map/trackGeometry.ts's
+// DECK_PROFILE (this is a standalone .mjs tool with no bundler step, so it
+// can't import the .ts module directly). Keep in sync if that table changes.
+const DECK_WIDTH_M = { elevated: 9, atGrade: 8, underground: 9, monorail: 5 };
+function deckWidthM(vehicleType, structure) {
+  const beam = vehicleType === "monorail" || vehicleType === "apm";
+  return beam ? DECK_WIDTH_M.monorail : DECK_WIDTH_M[structure];
+}
+
+// Tight enough that the metric deck has a real multi-pixel screen footprint
+// to offset a sample into. Monorail/APM decks are narrower (5 m vs 8-9 m for
+// heavy/commuter), so they need a tighter zoom to clear the centerline's
+// halo with the same safety margin.
+function tightZoomFor(vehicleType) {
+  return vehicleType === "monorail" || vehicleType === "apm" ? 19 : 18;
+}
+
+// Sample points spread across each line's own track, tried in this order
+// until MIN_SAMPLES is reached at a candidate pose (most lines succeed on
+// the first candidate; the fallback list exists for lines whose geometry is
+// sparse or awkwardly shaped near the 0.5 mark, e.g. MRT Blue's loop+branch).
+const POSE_FRACTIONS = [0.5, 0.25, 0.75, 0.1, 0.9];
+const MAX_POSES_PER_LINE = POSE_FRACTIONS.length;
 
 /** WCAG relative luminance from 0-255 sRGB. */
 const luminance = ([r, g, b]) => {
@@ -85,71 +133,188 @@ const contrast = (a, b) => {
   return (l1 + 0.05) / (l2 + 0.05);
 };
 
-async function sampleAt(page, simEpochMs, label) {
-  // Pin the clock. Warp 1 so the sun does not move between the screenshot
-  // and the projection read.
-  // NOTE: SimClient.setClock(epochMs, warp) takes two positional numeric
-  // args, not an options object — confirmed against src/sim/SimClient.ts.
-  // Passing an object here would silently NaN the pinned clock (the sun
-  // would then track real wall-clock time instead of the requested
-  // simEpochMs, invalidating the whole day/night comparison).
-  await page.evaluate((ms) => {
-    const sim = window.__sim?.current;
-    sim?.setClock(ms, 1);
-  }, simEpochMs);
-  // Give the ~2 Hz sun tick and the basemap colour blend time to settle.
-  await new Promise((r) => setTimeout(r, 2500));
+function candidateCenters(track) {
+  const n = track.length;
+  const seen = new Set();
+  const centers = [];
+  for (const f of POSE_FRACTIONS) {
+    const idx = Math.min(n - 2, Math.max(1, Math.round(f * (n - 1))));
+    if (seen.has(idx)) continue;
+    seen.add(idx);
+    centers.push({ lng: track[idx][0], lat: track[idx][1] });
+  }
+  return centers;
+}
 
-  // Screen-space positions of each line's own track vertices.
-  const projected = await page.evaluate(() => {
-    const map = window.__map;
-    const net = window.__store.getState().routes;
-    const out = {};
-    for (const line of net) {
-      const pts = [];
-      const step = Math.max(1, Math.floor(line.track.length / 60));
-      for (let i = 0; i < line.track.length; i += step) {
-        const [lng, lat] = line.track[i];
+/**
+ * Runs in the browser. For the CURRENT camera pose, finds every deck-offset
+ * sample+reference-fan pixel pair for one line's own track that falls
+ * on-screen, skipping anything too close to the canvas edge or overlapping a
+ * known UI panel.
+ */
+async function computeSamplePoints(page, lineKey, vehicleType, exclusions, viewport) {
+  return await page.evaluate(
+    (lineKey, vehicleType, exclusions, viewport) => {
+      const DECK_WIDTH_M = { elevated: 9, atGrade: 8, underground: 9, monorail: 5 };
+      const deckWidthM = (structure) => {
+        const beam = vehicleType === "monorail" || vehicleType === "apm";
+        return beam ? DECK_WIDTH_M.monorail : DECK_WIDTH_M[structure];
+      };
+      // How much clearance a sample needs from the centerline (its lit
+      // halo, allowing for WebGL antialiasing beyond the nominal 3 px
+      // linewidth) and how far inside the deck's own edge it should stay.
+      const CENTERLINE_CLEARANCE_PX = 3.0;
+      const EDGE_MARGIN_PX = 1.0;
+      const TARGET_PADDING_PX = 1.5;
+
+      const map = window.__map;
+      const line = window.__store.getState().routes.find((l) => l.key === lineKey);
+      if (!line) return [];
+      const track = line.track;
+
+      // Empirically-measured metres-per-pixel at this pose: project the
+      // current centre and a point exactly 100 m east of it, and read the
+      // screen distance back. Deliberately not derived from a hardcoded
+      // Web Mercator tile-size constant (256 vs 512 px tiles change that
+      // formula) — this reads MapLibre's own projection directly instead.
+      const center = map.getCenter();
+      const EARTH_R_M = 6371008.8;
+      const metersPerDegLat = (Math.PI / 180) * EARTH_R_M;
+      const metersPerDegLng = metersPerDegLat * Math.cos((center.lat * Math.PI) / 180);
+      const eastPoint = [center.lng + 100 / metersPerDegLng, center.lat];
+      const p0 = map.project([center.lng, center.lat]);
+      const p1 = map.project(eastPoint);
+      const pxPer100m = Math.hypot(p1.x - p0.x, p1.y - p0.y);
+      if (pxPer100m < 1) return []; // degenerate projection, bail out
+      const metersPerPixel = 100 / pxPer100m;
+
+      const inExclusion = (x, y) =>
+        exclusions.some((r) => x >= r.left && x <= r.right && y >= r.top && y <= r.bottom);
+
+      const points = [];
+      for (let i = 1; i < track.length - 1; i++) {
+        const [lng, lat, , structure] = track[i];
         const p = map.project([lng, lat]);
-        pts.push([Math.round(p.x), Math.round(p.y)]);
-      }
-      out[line.key] = pts;
-    }
-    return out;
-  });
+        const prev = map.project([track[i - 1][0], track[i - 1][1]]);
+        const next = map.project([track[i + 1][0], track[i + 1][1]]);
+        let tx = next.x - prev.x;
+        let ty = next.y - prev.y;
+        const tlen = Math.hypot(tx, ty);
+        if (tlen < 1) continue; // too-close neighbours, no stable heading
+        tx /= tlen;
+        ty /= tlen;
+        // Perpendicular to the local heading, in screen space.
+        const perpX = -ty;
+        const perpY = tx;
 
+        const halfWidthPx = deckWidthM(structure) / 2 / metersPerPixel;
+        const maxOffset = halfWidthPx - EDGE_MARGIN_PX;
+        if (maxOffset <= CENTERLINE_CLEARANCE_PX) continue; // deck still too subpixel here
+        const offsetPx = Math.min(maxOffset, CENTERLINE_CLEARANCE_PX + TARGET_PADDING_PX);
+
+        const sx = Math.round(p.x + perpX * offsetPx);
+        const sy = Math.round(p.y + perpY * offsetPx);
+        if (sx < 4 || sy < 4 || sx >= viewport.width - 4 || sy >= viewport.height - 4) continue;
+        if (inExclusion(sx, sy)) continue;
+
+        // Reference: a FAN of points on both sides, well past the deck's
+        // own far edge, at angles spread around the pure perpendicular
+        // (not a single point) — a dense downtown basemap can put a bright
+        // POI icon or label right next to any one candidate, and a single
+        // unlucky reference pixel would read as a false illegible verdict.
+        // The caller takes the MEDIAN luminance across whichever of these
+        // land in-bounds and outside a UI panel, the same "resist a single
+        // outlier" principle already used for the per-line sample median
+        // below. All angles stay within +-40 degrees of the perpendicular
+        // (never toward the tangent) because walking along the track's own
+        // heading, even 30+ px out, is still very likely still ON the deck.
+        const refOffsetPx = offsetPx + 30;
+        const refCandidates = [];
+        for (const sign of [1, -1]) {
+          for (const deg of [0, 15, 30, -15, -30]) {
+            const rad = (deg * Math.PI) / 180;
+            const cos = Math.cos(rad);
+            const sin = Math.sin(rad);
+            // Rotate (perpX, perpY) by `rad`, then flip by `sign` for the
+            // other side of the deck.
+            const rpx = (perpX * cos - perpY * sin) * sign;
+            const rpy = (perpX * sin + perpY * cos) * sign;
+            const rx = Math.round(p.x + rpx * refOffsetPx);
+            const ry = Math.round(p.y + rpy * refOffsetPx);
+            if (rx < 4 || ry < 4 || rx >= viewport.width - 4 || ry >= viewport.height - 4) continue;
+            if (inExclusion(rx, ry)) continue;
+            refCandidates.push([rx, ry]);
+          }
+        }
+        if (refCandidates.length < 3) continue; // not enough of a fan to trust a median
+
+        points.push({ sample: [sx, sy], refCandidates });
+      }
+      return points;
+    },
+    lineKey,
+    vehicleType,
+    exclusions,
+    viewport,
+  );
+}
+
+async function waitIdle(page, timeoutMs = 8000) {
+  await page
+    .evaluate(
+      (timeoutMs) =>
+        new Promise((resolve) => {
+          const map = window.__map;
+          const t = setTimeout(resolve, timeoutMs);
+          map.once("idle", () => {
+            clearTimeout(t);
+            resolve();
+          });
+        }),
+      timeoutMs,
+    )
+    .catch(() => {});
+  // MapLibre's 'idle' event fires once tiles/sources are loaded, but symbol
+  // labels/icons cross-fade in over ~300ms after becoming visible and are
+  // NOT covered by 'idle' — without this buffer, a screenshot taken right at
+  // idle can catch a label mid-fade, which is real, observed, non-determinism
+  // (one line's noon sample flipped between 1.01/2.73/2.09 across three
+  // otherwise-identical runs before this fix; verified 2026-08-05).
+  await new Promise((r) => setTimeout(r, 1000));
+}
+
+async function screenshotPixels(page) {
   const shot = await page.screenshot({ encoding: "binary", type: "png" });
   const { createCanvas, loadImage } = await import("@napi-rs/canvas");
   const img = await loadImage(shot);
   const canvas = createCanvas(img.width, img.height);
   const ctx = canvas.getContext("2d");
   ctx.drawImage(img, 0, 0);
-  const { data, width, height } = ctx.getImageData(0, 0, img.width, img.height);
-  const px = (x, y) => {
+  const { data, width } = ctx.getImageData(0, 0, img.width, img.height);
+  return (x, y) => {
     const o = (y * width + x) * 4;
     return [data[o], data[o + 1], data[o + 2]];
   };
+}
 
-  const results = {};
-  for (const [key, pts] of Object.entries(projected)) {
-    const ratios = [];
-    for (const [x, y] of pts) {
-      // Skip anything off-screen or too near an edge to take a reference.
-      if (x < 40 || y < 40 || x >= width - 40 || y >= height - 40) continue;
-      const onTrack = px(x, y);
-      // Reference: basemap 30 px away. Two samples on opposite sides, take
-      // the one that differs LESS from its own neighbour — the more likely
-      // to be uninterrupted basemap rather than another line or a label.
-      const a = px(x + 30, y);
-      const b = px(x - 30, y);
-      const spread = (p, q) =>
-        Math.abs(p[0] - q[0]) + Math.abs(p[1] - q[1]) + Math.abs(p[2] - q[2]);
-      const ref = spread(a, px(x + 34, y)) <= spread(b, px(x - 34, y)) ? a : b;
-      ratios.push(contrast(onTrack, ref));
-    }
-    results[key] = ratios;
+function ratiosFromPoints(px, points) {
+  const ratios = [];
+  for (const { sample, refCandidates } of points) {
+    const sampleColor = px(sample[0], sample[1]);
+    // Median luminance across the reference fan, not a mean: one candidate
+    // landing on a bright POI icon or a dark shadow should not be able to
+    // swing the whole reference, same principle as the per-line sample
+    // median further down.
+    const refLums = refCandidates
+      .map((r) => {
+        const color = px(r[0], r[1]);
+        return { color, lum: luminance(color) };
+      })
+      .sort((a, b) => a.lum - b.lum);
+    const refColor = refLums[Math.floor(refLums.length / 2)].color;
+    ratios.push(contrast(sampleColor, refColor));
   }
-  return { label, results };
+  return ratios;
 }
 
 const browser = await puppeteer.launch({
@@ -163,46 +328,129 @@ await page.goto(URL, { waitUntil: "networkidle2" });
 await page.waitForFunction(() => window.__store?.getState().engineStatus === "ready", {
   timeout: 60_000,
 });
-await page.evaluate((pose) => {
-  window.__map.jumpTo({
-    center: pose.center,
-    zoom: pose.zoom,
-    pitch: pose.pitch,
-    bearing: pose.bearing,
-  });
-}, POSE);
-await new Promise((r) => setTimeout(r, 2000));
+
+// UI panels the sample/reference pixels must avoid — a per-line pose search
+// at desktop viewport width can land its centre anywhere, including under
+// the LineSelector card or MapLibre's own NavigationControl/attribution.
+// `uiHidden` doesn't collapse these at desktop widths (LineSelector.tsx's
+// `bodyVisible = !isMobile || ...` — verified false), so exclusion rects are
+// used instead of trying to hide the UI.
+const exclusions = await page.evaluate(() => {
+  const sel = [
+    '[data-testid="line-selector"]',
+    '[data-testid="time-scrubber"]',
+    '[data-testid="train-inspector"]',
+    '[data-testid="bottom-sheet-stack"]',
+  ];
+  const rects = [];
+  for (const s of sel) {
+    const el = document.querySelector(s);
+    if (el) rects.push(el.getBoundingClientRect());
+  }
+  for (const el of document.querySelectorAll(".maplibregl-ctrl")) {
+    rects.push(el.getBoundingClientRect());
+  }
+  return rects.map((r) => ({
+    left: r.left - 4,
+    top: r.top - 4,
+    right: r.right + 4,
+    bottom: r.bottom + 4,
+  }));
+});
 
 // Local Bangkok noon and 02:00, both on the same fixed date so a weekday /
 // weekend calendar difference cannot change which trains are on screen.
 const DAY = Date.UTC(2026, 6, 22, 5, 0, 0); // 12:00 UTC+7
 const NIGHT = Date.UTC(2026, 6, 22, 19, 0, 0); // 02:00 UTC+7 next day
-
-const samples = [
-  await sampleAt(page, DAY, "noon"),
-  await sampleAt(page, NIGHT, "02:00"),
+const TIMES = [
+  { label: "noon", epochMs: DAY },
+  { label: "02:00", epochMs: NIGHT },
 ];
+
+const simulatedLines = LINES.filter((l) => !l.preRevenue);
+
+// tools/lines.config.mjs (LINES) only carries per-line metadata — actual
+// track geometry lives in src/data/network.json, loaded into the browser's
+// store at runtime. Fetch each simulated line's track once from there.
+const trackByKey = Object.fromEntries(
+  (await page.evaluate(() => window.__store.getState().routes.map((r) => [r.key, r.track]))),
+);
+
+// results[lineKey][label] = ratio[]
+const results = Object.fromEntries(simulatedLines.map((l) => [l.key, {}]));
+// poseCache[lineKey] = [{ center, points }] — computed once on the first
+// (noon) pass, reused unchanged on the second (02:00) pass so both times
+// sample the EXACT same screen pixels (a fair comparison) without redoing
+// the per-pose search twice.
+const poseCache = {};
+
+for (const { label, epochMs } of TIMES) {
+  // Pin the clock once per time value, not once per line/pose — the sun and
+  // basemap colour blend are functions of simulated time only, not camera
+  // pose, so this settle cost is paid twice total instead of once per pose.
+  await page.evaluate((ms) => {
+    const sim = window.__sim?.current;
+    // SimClient.setClock(epochMs, warp) takes two positional numeric args,
+    // not an options object — confirmed against src/sim/SimClient.ts.
+    sim?.setClock(ms, 1);
+  }, epochMs);
+  await new Promise((r) => setTimeout(r, 2500));
+
+  for (const line of simulatedLines) {
+    const zoom = tightZoomFor(line.vehicleType);
+    let poses = poseCache[line.key];
+    const firstPass = !poses;
+    if (firstPass) poses = [];
+
+    if (firstPass) {
+      const centers = candidateCenters(trackByKey[line.key] ?? []);
+      for (let i = 0; i < Math.min(centers.length, MAX_POSES_PER_LINE); i++) {
+        const center = centers[i];
+        await page.evaluate(
+          (center, zoom) => {
+            window.__map.jumpTo({ center: [center.lng, center.lat], zoom, pitch: 0, bearing: 0 });
+          },
+          center,
+          zoom,
+        );
+        await waitIdle(page);
+        const pts = await computeSamplePoints(page, line.key, line.vehicleType, exclusions, VIEWPORT);
+        poses.push({ center, points: pts });
+        const totalPoints = poses.reduce((n, p) => n + p.points.length, 0);
+        if (totalPoints >= MIN_SAMPLES) break;
+      }
+      poseCache[line.key] = poses;
+    }
+
+    // Now (re-)visit each pose that has any points and sample this time's
+    // screenshot at the cached pixel coordinates.
+    const lineRatios = [];
+    for (const pose of poses) {
+      if (pose.points.length === 0) continue;
+      await page.evaluate(
+        (center, zoom) => {
+          window.__map.jumpTo({ center: [center.lng, center.lat], zoom, pitch: 0, bearing: 0 });
+        },
+        pose.center,
+        zoom,
+      );
+      await waitIdle(page);
+      const px = await screenshotPixels(page);
+      lineRatios.push(...ratiosFromPoints(px, pose.points));
+    }
+    results[line.key][label] = lineRatios;
+  }
+}
+
 await browser.close();
 
 let failures = 0;
-// Excludes preRevenue lines (Orange, Purple Phase 2): their centerline is
-// drawn DASHED (src/map/trackGeometry.ts's buildTrackLine, dashSize 40 /
-// gapSize 30), and this harness takes one pixel sample per track point with
-// no neighbourhood search — a sample landing in a dash gap reads as ~1:1
-// contrast (nothing drawn there, so it matches bare basemap) regardless of
-// how legible the dashes themselves are. That is a sampling-method false
-// negative, not a real legibility signal, and conflates with the fact that
-// neither line ever carries a moving train for anyone to lose sight of.
-// Verified 2026-08-05: at MIN_SAMPLES=6, orange/purple-ext's few valid hits
-// were medians of 1.03-1.17, consistent with mostly-gap sampling, not with
-// the dashes actually being invisible (see task-11-report.md).
-const simulatedKeys = new Set(LINES.filter((l) => !l.preRevenue).map((l) => l.key));
-for (const { label, results } of samples) {
+for (const { label } of TIMES) {
   console.log(`\n=== ${label} ===`);
-  for (const [key, ratios] of Object.entries(results)) {
-    if (!simulatedKeys.has(key)) continue;
+  for (const line of simulatedLines) {
+    const ratios = results[line.key][label];
     if (ratios.length < MIN_SAMPLES) {
-      console.log(`  ${key.padEnd(12)} SKIP  only ${ratios.length} valid samples`);
+      console.log(`  ${line.key.padEnd(12)} SKIP  only ${ratios.length} valid samples`);
       continue;
     }
     // Median, not mean: a few samples landing on a station marker or a label
@@ -213,7 +461,7 @@ for (const { label, results } of samples) {
     const ok = median >= MIN_CONTRAST;
     if (!ok) failures++;
     console.log(
-      `  ${key.padEnd(12)} ${ok ? "PASS" : "FAIL"}  median ${median.toFixed(2)}:1 ` +
+      `  ${line.key.padEnd(12)} ${ok ? "PASS" : "FAIL"}  median ${median.toFixed(2)}:1 ` +
         `(n=${ratios.length}, min ${sorted[0].toFixed(2)})`,
     );
   }
