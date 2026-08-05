@@ -36,8 +36,12 @@ export function ViewControls() {
       void document.exitFullscreen();
       return;
     }
-    // The map container, not documentElement: every overlay is a child of
-    // it, so they stay visible in fullscreen.
+    // Not documentElement: `[data-testid="map-container"]` is App.tsx's own
+    // top-level wrapper div, NOT a child of MapContainer.tsx despite the
+    // testid's name — App and MapContainer are siblings. See App.tsx's own
+    // comment on this element for why: it's the real common ancestor of
+    // MapContainer, LineSelector, and the bottom-sheet stack, so fullscreening
+    // it keeps every React-rendered overlay visible in fullscreen.
     const target = document.querySelector<HTMLElement>('[data-testid="map-container"]');
     void target?.requestFullscreen();
   };

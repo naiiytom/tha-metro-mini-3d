@@ -351,6 +351,19 @@ async function fetchBranchFromWayName(namePattern, branchKey, defaultStructure) 
  * parts' track arrays are expected to share their junction point (part[i]'s
  * last point == part[i+1]'s first point, or very close); the duplicate is
  * dropped, not doubled.
+ *
+ * Each part arrives already gradient-limited (fetchBranchFromWayName runs
+ * limitTrackGradient on it before returning) — but the SEAM this function
+ * creates by concatenating two parts (prevLast -> nextPart[1], right after
+ * the shared junction point is dropped below) is never itself re-limited. No
+ * limiter has ever seen that specific pair of points; it is the one segment
+ * in the whole merged line no gradient pass has touched. Currently harmless
+ * (the real data's worst gradient at this seam is well under the 4% cap —
+ * see CLAUDE.md's MVP 7 notes), but if a future re-fetch ever produces a
+ * structure-tag mismatch right at this seam steep enough to hit the
+ * preprocessor's gradient gate, do NOT chase "re-run the fetch so
+ * limitTrackGradient ramps it" as the fix — the seam is created AFTER the
+ * limiter runs, so a re-fetch reproduces the same unramped seam every time.
  */
 async function fetchBranchFromWayNames(namePatterns, branchKey, defaultStructure) {
   if (namePatterns.length < 2) {

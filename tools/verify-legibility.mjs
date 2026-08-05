@@ -73,7 +73,7 @@ const URL = process.argv[2] ?? "http://localhost:5173";
 //
 // KEPT AT THE REAL WCAG VALUE, SHIPPED FAILING ON PURPOSE (2026-08-05):
 // against the real, deck-sampling method above, the network is FAR from
-// clearing 3:1 at 02:00 — 8 of 10 simulated lines fail at night, several
+// clearing 3:1 at 02:00 — 9 of 10 simulated lines fail at night, several
 // with medians near 1.0-1.4 (see task-11-report.md's fix-round section for
 // every line's real number). That is not a narrow, one-line shortfall the
 // brief's "pin MIN_CONTRAST to the measured value" escape hatch was written
