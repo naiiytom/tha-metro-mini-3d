@@ -113,6 +113,18 @@ const reg1 = await page.evaluate(async () => {
     boardResult,
   };
 });
+// A literal hardcoded 12, not just `LINES.length` compared against itself:
+// the brief's original check ("LINES.length === 13") was a real registry-
+// drift detector — a silent 13th/14th line added to BOTH the config and the
+// running store would still make `reg1.routeKeys.length === LINES.length`
+// pass trivially, since that comparison only proves the two ends of the
+// SAME pipeline agree with each other, never that the count is what it's
+// actually supposed to be. This literal keeps that drift-detection property.
+check(
+  "the registry is still exactly 12 lines (10 simulated + orange/purple-ext track-only)",
+  LINES.length === 12,
+  `LINES.length = ${LINES.length}`,
+);
 check(
   `the ${LINES.length}-line registry renders in order`,
   reg1.routeKeys.length === LINES.length && reg1.routeKeys.every((k, i) => k === LINES[i].key),
