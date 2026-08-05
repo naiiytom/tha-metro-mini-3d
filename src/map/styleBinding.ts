@@ -58,12 +58,21 @@ export function bindStyle(map: MapLibreMap, layer: UndergroundTarget): StyleBind
       const prop = (
         l.type === "fill-extrusion" ? "fill-extrusion-opacity" : "fill-opacity"
       ) as "fill-extrusion-opacity" | "fill-opacity";
-      return {
-        id: l.id,
-        prop,
-        original: (map.getPaintProperty(l.id, prop) as number | undefined) ?? 1,
-      };
-    });
+      const raw = map.getPaintProperty(l.id, prop);
+      // Some basemap styles (Bright, Positron) use a zoom EXPRESSION (an
+      // array) for fill-opacity/fill-extrusion-opacity on several
+      // landcover/landuse/aeroway layers, not a plain number. Treating that
+      // as a number lies about the type: Math.min(expressionArray, 0.25)
+      // evaluates to NaN, and setPaintProperty(..., NaN) fails MapLibre's
+      // validation (a console error) and never actually dims. Skip it
+      // instead — same shape as the colour-capture guard below.
+      const original = raw === undefined ? 1 : typeof raw === "number" ? raw : null;
+      return { id: l.id, prop, original };
+    })
+    .filter(
+      (d): d is { id: string; prop: "fill-extrusion-opacity" | "fill-opacity"; original: number } =>
+        d.original !== null,
+    );
 
   const applyUnderground = (on: boolean) => {
     layer.setUndergroundMode(on);

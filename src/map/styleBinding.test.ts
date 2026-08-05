@@ -101,6 +101,25 @@ describe("bindStyle", () => {
     expect(() => b.applyThemeElevation(-40)).not.toThrow();
   });
 
+  it("skips layers whose fill-opacity is an expression rather than passing NaN through", () => {
+    const map = fakeMap([
+      {
+        id: "landcover-expr",
+        type: "fill",
+        paint: { "fill-opacity": ["interpolate", ["linear"], ["zoom"], 0, 0, 10, 1] },
+      },
+      { id: "landuse-plain", type: "fill", paint: { "fill-opacity": 1 } },
+    ]);
+    const b = bindStyle(map as never, fakeLayer() as never);
+    expect(() => b.applyUnderground(true)).not.toThrow();
+    // The expression-valued layer must never receive a NaN write...
+    const nanWrites = map.setPaintProperty.mock.calls.filter(([, , value]) => Number.isNaN(value));
+    expect(nanWrites).toEqual([]);
+    expect(map.setPaintProperty.mock.calls.some(([id]) => id === "landcover-expr")).toBe(false);
+    // ...while a plain-number layer alongside it still dims normally.
+    expect(map._read("landuse-plain", "fill-opacity")).toBeLessThanOrEqual(0.4);
+  });
+
   it("captures a fresh snapshot per binding, so a style swap does not reuse stale ids", () => {
     const first = fakeMap([{ id: "old-bg", type: "background", paint: { "background-color": "#ffffff" } }]);
     const second = fakeMap([{ id: "new-bg", type: "background", paint: { "background-color": "#111111" } }]);

@@ -283,24 +283,17 @@ const swap = await page.evaluate(async () => {
   };
 });
 const errDuringSwap = consoleErrors.slice(errBeforeSwap);
-// KNOWN, ALREADY-DOCUMENTED deferred finding (MVP 7 Task 6's ledger entry):
-// styleBinding.ts's underground-opacity capture has no type guard for
-// expression-valued paint properties (unlike its own colour-capture code,
-// which does guard) — on styles whose landcover/landuse/aeroway layers use a
-// zoom EXPRESSION for fill-opacity rather than a flat number,
-// `Math.min(expression, 0.25)` silently NaNs and MapLibre logs a validation
-// error for that one layer (which then just never dims under underground
-// mode — the mode still works overall). Previously only observed on the
-// Bright style (landcover-glacier); re-confirmed here that Positron hits the
-// same class on 4 different layers. This is a real, pre-existing, disclosed
-// gap — out of scope for Task 12 (a docs+harness task, not a styleBinding.ts
-// fix) — so it is excused by exact message pattern here, not swallowed
-// wholesale: any OTHER console error during the swap still fails this check.
-const KNOWN_EXPRESSION_OPACITY_ERROR = /paint\.fill-opacity: number expected, NaN found/;
-const unexpectedErrors = errDuringSwap.filter((e) => !KNOWN_EXPRESSION_OPACITY_ERROR.test(e));
+// styleBinding.ts's underground-opacity capture now guards expression-valued
+// paint properties the same way its colour-capture path always has (skip the
+// layer for opacity-dimming rather than passing a non-numeric value through
+// Math.min), so a style swap onto Positron/Bright — whose landcover/
+// landuse/aeroway layers use a zoom EXPRESSION for fill-opacity, not a flat
+// number — no longer produces a "paint.fill-opacity: number expected, NaN
+// found" console error for those layers. No excusing/whitelisting here
+// anymore: ANY console error during the swap fails this check.
 const expectedGroups = LINES.map((l) => `line-${l.key}`);
 check(
-  "style swap (positron) rebinds the network-3d layer, its per-line groups, and underground dimming, with no UNEXPECTED console errors",
+  "style swap (positron) rebinds the network-3d layer, its per-line groups, and underground dimming, with no console errors",
   swap.layerExists &&
     expectedGroups.every((g) => swap.groupNames.includes(g)) &&
     swap.vehicleCount > 0 &&
@@ -308,10 +301,9 @@ check(
     swap.after < swap.before &&
     swap.after >= 0.1 &&
     swap.after <= 0.4 &&
-    unexpectedErrors.length === 0,
+    errDuringSwap.length === 0,
   `${swap.groupNames.length}/${expectedGroups.length} line groups present, vehicleCount=${swap.vehicleCount}, ` +
-    `dimmable-layer opacity ${swap.before} -> ${swap.after}, ${errDuringSwap.length} console error(s) during swap ` +
-    `(${errDuringSwap.length - unexpectedErrors.length} known expression-opacity NaN, ${unexpectedErrors.length} unexpected)`,
+    `dimmable-layer opacity ${swap.before} -> ${swap.after}, ${errDuringSwap.length} console error(s) during swap`,
 );
 
 // --- 5. auto underground while following -------------------------------------
