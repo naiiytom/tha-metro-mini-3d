@@ -448,6 +448,7 @@ Main → worker:
 { kind: "init", wasmUrl: string, cache: ArrayBuffer }        // cache transferred
 { kind: "clock", epochMs: number, warp: number }             // set/replace clock
 { kind: "returnBuffer", buffer: ArrayBuffer }                // recycle (transferred)
+{ kind: "tickRate", tickMs: number }                         // re-cadence the sim loop (eco mode)
 { kind: "stop" }
 ```
 
@@ -477,6 +478,25 @@ Worker → main:
 - Warp changes rebase the clock so sim time is continuous.
 - If the buffer pool is empty (main thread hasn't returned buffers), skip the
   tick — never allocate unboundedly, never block.
+- **Tick cadence is mutable, not a fixed 10 Hz constant** (roadmap item 2, eco
+  mode). `DEFAULT_TICK_MS = 100` (10 Hz, the MVP 3 baseline) and
+  `ECO_TICK_MS = 1000` (~1 Hz) live in `src/sim/protocol.ts`. A `{ kind:
+  "tickRate", tickMs }` message clamps `tickMs` to `[DEFAULT_TICK_MS,
+  ECO_TICK_MS]` (guards against a zero/negative interval spinning the worker,
+  or an absurdly large one looking like a hang), and — only if the loop is
+  already running — clears and re-arms `setInterval` at the new cadence; a
+  `tickRate` message that arrives before `init` just updates the pending
+  cadence, it does not start the loop early. `SimClient.setTickMs(tickMs)` is
+  the main-thread entry point; `MapContainer.tsx` drives it from the store's
+  `ecoMode` boolean, and independently throttles its own rAF repaint calls to
+  the same `ECO_TICK_MS` cadence, so eco mode throttles both halves of the
+  pipeline. **This is a pure cost control — it never changes an evaluated
+  position.** Nothing in the engine integrates or accumulates state between
+  ticks (see the "Renderer-side interpolation" note just below: every frame is
+  `engine.evaluate()` at the current sim time, from scratch); a tick every 1 s
+  instead of every 100 ms just means fewer, further-apart samples of the same
+  pure function of time. Un-throttling snaps immediately back to the correct
+  current pose with no catch-up animation and no drift.
 
 Renderer-side interpolation (§3A.7): keep the two most recent frames; at
 render time `alpha = (renderSimTime - frameA.simEpochMs) / (frameB.simEpochMs

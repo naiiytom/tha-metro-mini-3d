@@ -1,7 +1,7 @@
 {
-  "bytes": 565242,
+  "bytes": 586826,
   "feed_version": "20260803",
-  "gzip_bytes": 329020,
+  "gzip_bytes": 343417,
   "interchanges": [
     {
       "a": "sukhumvit/Samrong",
@@ -184,12 +184,12 @@
     },
     {
       "gtfs_route_id": "",
-      "length_m": 21777.65625,
+      "length_m": 35272.34375,
       "name_en": "MRT Orange Line",
       "patterns": 0,
       "runs": 0,
       "stations": 0,
-      "track_points": 2179
+      "track_points": 3528
     },
     {
       "gtfs_route_id": "",
@@ -203,5 +203,27 @@
   ],
   "runs": 8193,
   "services": 3,
+  "snap_warnings": [
+    {
+      "gtfs_stop_id": "13608",
+      "line": "sukhumvit",
+      "snap_m": 63.92498328970017
+    },
+    {
+      "gtfs_stop_id": "359",
+      "line": "pink",
+      "snap_m": 554.7298250815825
+    },
+    {
+      "gtfs_stop_id": "13627",
+      "line": "blue",
+      "snap_m": 109.47373318622579
+    },
+    {
+      "gtfs_stop_id": "352",
+      "line": "blue",
+      "snap_m": 61.11812032496024
+    }
+  ],
   "stations": 193
 }

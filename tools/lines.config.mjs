@@ -58,6 +58,15 @@ export const LINES = [
     gtfsRouteId: "1",
     preRevenue: false,
     osm: { relationId: 444651, match: /sukhumvit/i },
+    // Disclosed snap in the 50-150 m band (see SNAP_WARN_M in the
+    // preprocessor). GTFS stop 13608 "BTS Kheha" (this line's northern-most
+    // extension terminus) snaps 63.9 m from the fetched OSM track — a
+    // genuine terminus geometry offset, not bad data (see the MVP 2/3
+    // implementation notes in CLAUDE.md: Kheha has snapped 60-65 m since
+    // MVP 2, well under the 150 m hard limit). Measured 2026-08-04 — re-run
+    // npm run data:fetch and re-measure if the feed or track moves.
+    //   13608 BTS Kheha  63.9 m
+    snapWarnExemptStopIds: ["13608"],
   },
   {
     key: "silom",
@@ -128,6 +137,12 @@ export const LINES = [
     // (2026-07-31); allowing the large snap keeps the real terminus in
     // simulation instead of failing the whole route or dropping it.
     allowLargeSnapStopIds: ["359"],
+    // Stop 359's 554.7 m snap is already disclosed above via
+    // allowLargeSnapStopIds; classify_snap() in the preprocessor treats that
+    // list as also satisfying the 50 m warn band, so no separate
+    // snapWarnExemptStopIds entry is needed for it (one disclosure per
+    // stop — see main.rs's snap_band_defers_to_the_existing_large_snap_
+    // allowance_above_the_hard_limit test).
   },
   {
     key: "yellow",
@@ -219,6 +234,19 @@ export const LINES = [
     // a one-point delta from a way-join dedup step that only fires when all
     // ten lines are fetched together; not a discrepancy worth chasing.)
     osm: { relationId: 444659, match: /blue/i },
+    // Disclosed snaps in the 50-150 m band (see SNAP_WARN_M in the
+    // preprocessor). Blue's underground alignment is denser and more
+    // convoluted than the elevated BTS lines the 150 m limit was originally
+    // benchmarked against, so a worse snap here is the expected shape, not a
+    // red flag (see CLAUDE.md's MVP 2/3 implementation notes: Itsaraphap is
+    // already documented there as the network's single largest snap,
+    // 109.47 m, confirmed from the preprocessor's own stderr). Measured
+    // 2026-08-04 — re-run npm run data:fetch and re-measure if the feed or
+    // track moves. (Queen Sirikit NCC, stop 361, is 48.9 m — under the 50 m
+    // warn band, so it needs no entry here.)
+    //   13627 MRT Itsaraphap      109.5 m
+    //   352   MRT Chatuchak Park   61.1 m
+    snapWarnExemptStopIds: ["13627", "352"],
   },
   {
     key: "orange",
@@ -226,26 +254,47 @@ export const LINES = [
     nameTh: "สายสีส้ม",
     color: "#F57C00",
     // Default only; real per-point tunnel/bridge/layer tags on these ways
-    // give a genuine underground/elevated mix (verified 2026-08-04: 88
-    // underground / 83 elevated points across the stitched alignment, after
-    // truncateAtFold removes an out-and-back double-back the raw greedy
-    // stitch produced — see tools/trackProfile.mjs).
+    // give a genuine underground/elevated mix. Measured 2026-08-04 for the
+    // COMBINED line (both sections concatenated via fetchBranchFromWayNames,
+    // see the osm comment below): 275 track points, 192 underground / 83
+    // elevated, ~35.3 km total (western sub-fetch 105 pts / 13.5 km +
+    // eastern sub-fetch 171 pts / 21.8 km, minus the 1 shared junction
+    // point at Thailand Cultural Centre — 105 + 171 - 1 = 275, confirming a
+    // clean single splice with neither a duplicate nor a gap).
     structure: "underground",
     vehicleType: "heavy",
-    // Pre-revenue: Eastern Section projected late 2027 (SRS §2 caveat block,
-    // re-verified 2026-07-31). No trains until it has a published schedule.
+    // Pre-revenue: Eastern Section projected late 2027, Western ~2030 (SRS §2
+    // caveat block, re-verified 2026-07-31). No trains until a published
+    // schedule exists for either section.
     gtfsRouteId: null,
     preRevenue: true,
-    // No route relation exists for this line anywhere in OSM (checked
-    // operational, route=construction, and proposed:route — none, verified
-    // 2026-08-04), so there is no relationId to pin. What DOES exist: 16 real
-    // railway=construction ways named exactly "รถไฟฟ้ามหานคร สายสีส้ม" (the
-    // Eastern Section — deliberately excluded the separately-named "...
-    // ตะวันตก" (West) ways, same Eastern-only scoping the original plan
-    // called for). wayNamePattern pins that exact name so fetchBranchFromWayName
-    // can stitch them directly; see that function's own comment for why
-    // stations are intentionally empty.
-    osm: { relationId: null, wayNamePattern: "^รถไฟฟ้ามหานคร สายสีส้ม$" },
+    // No route relation exists for this line anywhere in OSM, for either
+    // section (checked operational, route=construction, and proposed:route —
+    // all empty, verified 2026-08-04). What DOES exist: two disjoint sets of
+    // real railway=construction ways, one per section, that physically meet
+    // at Thailand Cultural Centre but were never mapped as one relation:
+    // 16 ways named exactly "รถไฟฟ้ามหานคร สายสีส้ม" (Eastern Section,
+    // deliberately excluding the separately-named "...ตะวันตก" (West) ways)
+    // and 3 ways named "รถไฟฟ้าสายสีส้มตะวันตก ช่วงศูนย์วัฒนธรรมฯ-บางขุนนนท์"
+    // (Western Section, Thailand Cultural Centre <-> Bang Khun Non).
+    // wayNamePatterns (western pattern FIRST — its last point is the shared
+    // junction that the eastern pattern's ways start from) fetches both via
+    // fetchBranchFromWayNames, which concatenates them at that junction; see
+    // that function's own doc comment for the mechanism and
+    // fetchBranchFromWayName's for why stations are intentionally empty.
+    // 0 stations placed: the only construction-stage station node found in
+    // either section's own bounding box (Democracy Monument, western half)
+    // has ref "PP22" (Purple Line's prefix, not Orange's "OR") and its own
+    // fixme tag reads "update to subway stopping location when opened" —
+    // OSM's own contributors flag the position as provisional, so per the
+    // Mo Chit precedent (CLAUDE.md) it is not placed.
+    osm: {
+      relationId: null,
+      wayNamePatterns: [
+        "รถไฟฟ้าสายสีส้มตะวันตก ช่วงศูนย์วัฒนธรรมฯ-บางขุนนนท์",
+        "^รถไฟฟ้ามหานคร สายสีส้ม$",
+      ],
+    },
   },
   {
     key: "purple-ext",
@@ -334,7 +383,7 @@ export function assertRegistryValid(lines = LINES) {
       // on track that does not exist yet.
       throw new Error(`${l.key}: a preRevenue line must have gtfsRouteId: null`);
     }
-    for (const field of ["excludeGtfsStopIds", "allowLargeSnapStopIds"]) {
+    for (const field of ["excludeGtfsStopIds", "allowLargeSnapStopIds", "snapWarnExemptStopIds"]) {
       const v = l[field];
       if (v === undefined) continue;
       if (!Array.isArray(v) || !v.every((id) => typeof id === "string" && id.length > 0)) {
@@ -342,20 +391,29 @@ export function assertRegistryValid(lines = LINES) {
       }
     }
     // Exactly one OSM discovery mode: a pinned relationId (with an optional
-    // `match` only meaningful if relationId is null, for bootstrapping), or
+    // `match` only meaningful if relationId is null, for bootstrapping),
     // wayNamePattern (fetchBranchFromWayName, for a line with no route
-    // relation at all). An entry with neither silently falls into
-    // discoverRelationId and crashes on `line.osm.match.test(...)` with no
-    // match regex — catch it here instead.
+    // relation at all), or wayNamePatterns (fetchBranchFromWayNames, for a
+    // line stitched from multiple disconnected named-way branches — e.g.
+    // MRT Orange's Eastern + Western Sections). An entry with none silently
+    // falls into discoverRelationId and crashes on `line.osm.match.test(...)`
+    // with no match regex — catch it here instead.
     const hasRelation = l.osm?.relationId != null;
     const hasWayPattern = typeof l.osm?.wayNamePattern === "string" && l.osm.wayNamePattern.length > 0;
+    const hasWayPatterns = Array.isArray(l.osm?.wayNamePatterns);
     const hasMatch = l.osm?.match instanceof RegExp;
     if (hasRelation && hasWayPattern) {
       throw new Error(`${l.key}: osm.relationId and osm.wayNamePattern are mutually exclusive`);
     }
-    if (!hasRelation && !hasWayPattern && !hasMatch) {
+    if (hasRelation && hasWayPatterns) {
+      throw new Error(`${l.key}: osm.relationId and osm.wayNamePatterns are mutually exclusive`);
+    }
+    if (hasWayPattern && hasWayPatterns) {
+      throw new Error(`${l.key}: osm.wayNamePattern and osm.wayNamePatterns are mutually exclusive`);
+    }
+    if (!hasRelation && !hasWayPattern && !hasWayPatterns && !hasMatch) {
       throw new Error(
-        `${l.key}: osm must set relationId, wayNamePattern, or match (for relation discovery)`,
+        `${l.key}: osm must set relationId, wayNamePattern, wayNamePatterns, or match (for relation discovery)`,
       );
     }
     if (hasWayPattern && /["\\]/.test(l.osm.wayNamePattern)) {
@@ -363,6 +421,19 @@ export function assertRegistryValid(lines = LINES) {
       // (`["name"~"${pattern}"]`) — an unescaped quote or backslash would
       // break the query string rather than fail with a clear error.
       throw new Error(`${l.key}: osm.wayNamePattern must not contain '"' or '\\'`);
+    }
+    if (hasWayPatterns) {
+      if (
+        l.osm.wayNamePatterns.length < 2 ||
+        !l.osm.wayNamePatterns.every((p) => typeof p === "string" && p.length > 0)
+      ) {
+        throw new Error(
+          `${l.key}: osm.wayNamePatterns must be an array of at least 2 non-empty strings`,
+        );
+      }
+      if (l.osm.wayNamePatterns.some((p) => /["\\]/.test(p))) {
+        throw new Error(`${l.key}: osm.wayNamePatterns entries must not contain '"' or '\\'`);
+      }
     }
   }
 

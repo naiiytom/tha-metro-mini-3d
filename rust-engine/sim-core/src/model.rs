@@ -11,7 +11,7 @@ pub const TMB_VERSION: u16 = 3;
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CacheDoc {
     pub magic: u32,           // TMB_MAGIC
-    pub version: u16,         // 2
+    pub version: u16,         // 3 (TMB_VERSION above)
     pub feed_version: String, // "20260729"
     pub generated_unix: i64,
     pub origin_lng: f64, // MUST equal frontend ORIGIN_LNG_LAT

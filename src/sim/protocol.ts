@@ -3,6 +3,13 @@
  * These constants MUST mirror rust-engine/sim-core exactly.
  */
 
+/** Worker tick cadence, ms. 10 Hz is the MVP 3 baseline (ENGINE_CONTRACT §5). */
+export const DEFAULT_TICK_MS = 100;
+/** Eco-mode cadence, ms. ~1 Hz. Safe because engine positions are a pure
+ *  function of time — nothing integrates, so nothing drifts while throttled
+ *  and un-throttling snaps straight back to the correct pose. */
+export const ECO_TICK_MS = 1000;
+
 /** f32 lanes per vehicle record. */
 export const VEHICLE_STRIDE = 8;
 /** Must mirror `MAX_VEHICLES` in rust-engine/sim-core/src/world.rs (source of
@@ -141,6 +148,7 @@ export type MainToWorker =
   | { kind: "clock"; epochMs: number; warp: number } // set/replace clock
   | { kind: "returnBuffer"; buffer: ArrayBuffer } // recycle (transferred)
   | { kind: "query"; id: number; query: SimQuery }
+  | { kind: "tickRate"; tickMs: number } // eco mode: re-cadence the sim loop
   | { kind: "stop" };
 
 // Worker -> main.

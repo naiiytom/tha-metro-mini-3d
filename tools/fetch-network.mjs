@@ -338,6 +338,93 @@ async function fetchBranchFromWayName(namePattern, branchKey, defaultStructure) 
   };
 }
 
+/**
+ * Fetch and concatenate MULTIPLE named-way branches into one line, in the
+ * given order. Each branch is fetched via the existing, already-proven
+ * single-pattern `fetchBranchFromWayName` — this function does not touch
+ * stitching/fold-truncation logic at all, it only joins already-verified-
+ * clean polylines end to end.
+ *
+ * Used for MRT Orange, whose Eastern and Western Sections have no shared OSM
+ * route relation, so they are fetched as two separate named-way branches that
+ * happen to physically connect at Thailand Cultural Centre. Consecutive
+ * parts' track arrays are expected to share their junction point (part[i]'s
+ * last point == part[i+1]'s first point, or very close); the duplicate is
+ * dropped, not doubled.
+ *
+ * Each part arrives already gradient-limited (fetchBranchFromWayName runs
+ * limitTrackGradient on it before returning), but concatenating two parts
+ * creates a SEAM (prevLast -> nextPart[1], right after the shared junction
+ * point is dropped below) that neither part's own limiter pass ever saw. A
+ * second limitTrackGradient pass runs below on the fully merged track for
+ * exactly this reason: it's a relaxation sweep, so it's a no-op on the
+ * already-compliant interiors and only ever touches the seam. That also
+ * means the preprocessor's gradient gate's own advice ("re-run the fetch so
+ * limitTrackGradient ramps it") is now actually correct if it ever fires
+ * here — a re-fetch reproduces this same merge-then-relimit pipeline.
+ */
+async function fetchBranchFromWayNames(namePatterns, branchKey, defaultStructure) {
+  if (namePatterns.length < 2) {
+    throw new Error(`${branchKey}: wayNamePatterns needs at least 2 entries — use wayNamePattern (singular) for one`);
+  }
+  const parts = [];
+  for (const pattern of namePatterns) {
+    parts.push(await fetchBranchFromWayName(pattern, branchKey, defaultStructure));
+  }
+
+  // Haversine distance in meters — same formula used elsewhere in this repo
+  // (tools/trackProfile.mjs, the verify scripts) for consistency.
+  const R = 6371008.8;
+  const rad = (d) => (d * Math.PI) / 180;
+  const dist = (a, b) => {
+    const dLat = rad(b[1] - a[1]);
+    const dLng = rad(b[0] - a[0]);
+    const h =
+      Math.sin(dLat / 2) ** 2 + Math.cos(rad(a[1])) * Math.cos(rad(b[1])) * Math.sin(dLng / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(h));
+  };
+  // Generous but not silent: a real junction should be within a few meters
+  // (measured 0.0 m for Orange). Anything under 20 m is still plausibly the
+  // same physical point (rounding/resampling); anything over is NOT a known
+  // junction and must not be silently spliced.
+  const JUNCTION_TOLERANCE_M = 20;
+
+  let track = parts[0].track;
+  for (let i = 1; i < parts.length; i++) {
+    const prevLast = track[track.length - 1];
+    const nextFirst = parts[i].track[0];
+    const gap = dist(prevLast, nextFirst);
+    if (gap > JUNCTION_TOLERANCE_M) {
+      throw new Error(
+        `${branchKey}: part ${i - 1}->${i} junction gap is ${gap.toFixed(1)} m ` +
+          `(over the ${JUNCTION_TOLERANCE_M} m tolerance) — these two named-way ` +
+          `branches do not appear to physically connect; do not force a splice`,
+      );
+    }
+    // Drop the duplicate/near-duplicate junction point from the NEXT part,
+    // keep the previous part's copy of it (arbitrary but consistent choice).
+    track = track.concat(parts[i].track.slice(1));
+  }
+
+  track = limitTrackGradient(track);
+
+  const histogram = track.reduce((acc, p) => {
+    acc[p[3]] = (acc[p[3]] ?? 0) + 1;
+    return acc;
+  }, {});
+  console.log(
+    `${branchKey}: merged ${parts.length} named-way branches -> ${track.length} points ` +
+      `(${Object.entries(histogram).map(([k, v]) => `${k}:${v}`).join(" ")}), 0 stops`,
+  );
+
+  return {
+    relationId: null,
+    osmName: parts.map((p) => p.osmName).join(" + "),
+    track,
+    stations: [],
+  };
+}
+
 /** Resolve a relation id from `osm.match` when none is pinned. */
 async function discoverRelationId(line) {
   // Under-construction alignments (MRT Orange, Purple Phase 2) are tagged
@@ -377,9 +464,11 @@ async function main() {
   const lines = [];
   for (const line of LINES) {
     if (!selected.includes(line)) continue;
-    const geom = line.osm.wayNamePattern
-      ? await fetchBranchFromWayName(line.osm.wayNamePattern, line.key, line.structure)
-      : await fetchBranch(line.osm.relationId ?? (await discoverRelationId(line)), line.key, line.structure);
+    const geom = line.osm.wayNamePatterns
+      ? await fetchBranchFromWayNames(line.osm.wayNamePatterns, line.key, line.structure)
+      : line.osm.wayNamePattern
+        ? await fetchBranchFromWayName(line.osm.wayNamePattern, line.key, line.structure)
+        : await fetchBranch(line.osm.relationId ?? (await discoverRelationId(line)), line.key, line.structure);
     lines.push({
       key: line.key,
       name: line.name,
@@ -391,6 +480,7 @@ async function main() {
       preRevenue: line.preRevenue,
       excludeGtfsStopIds: line.excludeGtfsStopIds ?? [],
       allowLargeSnapStopIds: line.allowLargeSnapStopIds ?? [],
+      snapWarnExemptStopIds: line.snapWarnExemptStopIds ?? [],
       ...geom,
     });
   }

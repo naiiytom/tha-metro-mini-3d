@@ -8,15 +8,15 @@ Features to close parity with [nagix/mini-tokyo-3d](https://github.com/nagix/min
 
 ## Trivial / Easy
 
-### 1. Full-Screen Toggle
-- Add a fullscreen button to the map UI
-- Use the browser Fullscreen API (`document.documentElement.requestFullscreen()`)
-- Esc key to exit
+### 1. Full-Screen Toggle — ✅ delivered in MVP 7
+- ✅ Fullscreen button in `ViewControls.tsx`, targeting the app's whole-shell container (`[data-testid="map-container"]`) rather than `document.documentElement`, so every overlay stays visible in fullscreen too
+- ✅ Esc key exits natively (the browser's own Fullscreen API behaviour); the button's own pressed-state mirrors `document.fullscreenElement` via a `fullscreenchange` listener rather than app state, since Esc bypasses any click handler
+- See `npm run verify:mvp7` check 13 (asserts the element exposes `requestFullscreen` and the button calls it — headless Edge can refuse the resulting viewport change, so the check asserts the call, not the outcome)
 
-### 2. Eco Mode
-- Add a battery icon toggle button
-- When enabled, throttle rendering to ~1 FPS to save resources
-- Useful for background tabs or low-power devices
+### 2. Eco Mode — ✅ delivered in MVP 7
+- ✅ Toggle button in `ViewControls.tsx` (`ecoMode` in the store)
+- ✅ When enabled, throttles both the render loop's repaint cadence and the sim worker's own tick rate to ~1 Hz (`ECO_TICK_MS = 1000`, not literally "1 FPS" but the same intent) — measured steady-state is an exact 1 repaint/second once a brief enable-moment transient (MapLibre's own internal repaint settling, not this throttle) passes
+- ✅ Positions are a pure function of time, so nothing drifts while throttled — verified directly (`verify:mvp7` check 12: a fresh engine read immediately after disabling matches the last-rendered pose to within ~1.5 m, consistent with ordinary train speed over the elapsed tens of milliseconds, not a catch-up jump)
 
 ### 3. Station Search
 - Add a search button that opens a search panel
@@ -33,26 +33,26 @@ Features to close parity with [nagix/mini-tokyo-3d](https://github.com/nagix/min
 
 ## Medium
 
-### 4. Mobile / Responsive Layout
-- Responsive UI panels (inspector, station board, time controls) that adapt to small screens
-- Touch-optimized controls (larger tap targets, swipe-to-dismiss panels)
-- Proper viewport meta handling for mobile browsers
-- Test and fix any layout issues on phones and tablets
-- Collapsible/drawer-based panels instead of fixed overlays
+### 4. Mobile / Responsive Layout — ✅ delivered (post-MVP 6, landed alongside the on-map train tooltip)
+- ✅ Responsive UI panels (inspector, station board, time controls) restructure into a full-width bottom-sheet stack below Tailwind's `md:` (768px) breakpoint
+- ✅ Touch-optimized controls — 40px+ touch targets, a real single-finger touch drag pans the map, `devicePixelRatio` capped at 2 on coarse-pointer (touch) devices only (desktop retina displays are exempt — capping them was a measurable sharpness regression solving a problem they don't have)
+- ✅ Proper viewport handling — safe-area-inset-aware positioning (notched devices)
+- ✅ Tested against real layout math, not just visual inspection — `npm run verify:mobile` (11/11): no overlap between the line selector, `NavigationControl`, and the bottom sheet at 320-375px viewports; the 768px desktop/mobile boundary is exact
+- ✅ Collapsible line-selector card (default collapsed on phones) with a "hide UI" toggle that collapses every overlay, including the DOM-owned (non-React) train tooltip
 
-### 5. Underground Mode — ✅ mostly delivered in MVP 6
+### 5. Underground Mode — ✅ delivered (MVP 6 + MVP 7)
 - ✅ Toggle button to switch between overground and underground views (`ViewControls.tsx`)
 - ✅ When on: map darkens, overground railways/stations/trains become translucent, underground elements appear bright
-- ⬜ **Auto-switch when a tracked train enters/exits a tunnel** — not built; the only remaining piece
+- ✅ **Auto-switch when a tracked train enters/exits a tunnel — delivered in MVP 7** (`src/map/autoUnderground.ts`'s `decideAutoUnderground`). Decides on the followed vehicle's real ALTITUDE (LANE_Z), not its track segment's structure tag — a tagged-underground point can legitimately sit near the surface mid-ramp, and altitude is already in the vehicle buffer with no extra track lookup needed. Engages below −5 m, releases above −1 m (a 4 m hysteresis band so it doesn't flicker at a portal straddle); a manual toggle mid-follow overrides auto for the rest of that follow session, so auto never fights the user. Verified end-to-end against the real running app (`npm run verify:mvp7` checks 8-9). Two small, disclosed edge-case gaps in the state machine (not exercised by the acceptance checks): turning underground ON before crossing the threshold then OFF after crossing it doesn't register as an override; if the followed run vanishes from the vehicle buffer entirely mid-follow, an auto-engaged state can stick until following is explicitly cleared.
 - ✅ **Depends on:** MRT Blue line implementation (MVP 6) — delivered, with real per-segment structure from OSM tags
 - ⚠️ **Honest limitation:** the effect is **opacity-based, not depth-correct**. Surface geometry is made translucent; it is not true occlusion against MapLibre's depth buffer. Basemap fades to 0.25 opacity (SRS §F3.2 band is 0.1–0.4). Sorting is by each mesh's `userData.structure` **tag**, not its altitude — so a point mid-way up a portal ramp renders in its tag's band even where it is visually near the surface.
 
-### 6. Day/Night Lighting — ✅ delivered in MVP 6
+### 6. Day/Night Lighting — ✅ delivered (MVP 6 + MVP 7 sky dome)
 - ✅ Scenery color changes based on Bangkok sunrise/sunset times — both the Three.js scene (`sun.ts`, SRS F3.3) and the MapLibre basemap (`basemapTheme.ts`, added beyond F3.3 by request)
-- 🟡 Sunset glow effect — partial: `skyPalette` warms the light through a golden band around the horizon, but there is no sky/atmosphere glow
+- ✅ Sunset glow effect — **delivered in MVP 7**: a real horizon-clipped Three.js sky dome shipped (`src/map/skyDome.ts`, `RADIUS_M = 120_000`), not the MapLibre-sky fallback the plan also scoped. It discards every fragment below the local ENU horizon plane rather than attempting real depth interop with MapLibre's tiles — same disclosed-tradeoff shape as item 5's opacity-based underground mode. Colours come from the same `skyPalette` that lights the scene, so the horizon warms exactly when the key light warms. Its verified-clean envelope is pitch ≥70° at zoom ≤12.5 (the dome's fixed radius is smaller than MapLibre's dynamically-computed far clip plane at closer zoom — a pre-existing MapLibre v6 behaviour, not a regression); pitch 0/45° pass vacuously since nothing is drawn there to wash in the first place.
 - ✅ Smooth transition between day and night — `nightFactor` ramps across civil twilight rather than switching at 0°, so scrubbing through dusk does not pop
 - ✅ Calculated solar position (NOAA low-precision, UTC+7 fixed, no DST)
-- ⚠️ **Night legibility rests on a raised lighting floor** (`sunIntensity` 0.9, `ambientIntensity` 1.35 at night) so the network stays readable against the dark city. **No automated check asserts this** — see item 20.
+- ⚠️ **Night legibility rests on a raised lighting floor** (`sunIntensity` 0.9, `ambientIntensity` 1.35 at night) so the network stays readable against the dark city. **An automated check now exists** (MVP 7, see item 20) — and it currently fails honestly for 9 of 10 simulated lines at night, a materially bigger gap than this raised floor alone closes. Read item 20 before assuming "readable" is fully true.
 
 ### 7. Multi-Language Support (EN + TH)
 - Internationalization framework (i18n)
@@ -93,21 +93,23 @@ Concrete, already-scoped work that fell out of MVP 6. Constraints below were est
 - `LINES` grew from 10 to 12 (append-only, invariant preserved); network totals (8,193 runs, 193 stations) unchanged since both lines contribute zero of either
 - The two `verify:mvp6` acceptance checks this item's absence had caused to be deferred (a pre-revenue line renders but never simulates; a pre-revenue station's board resolves empty) are restored — harness is 8/8, up from 6/6
 - **Caught in code review, not before merge: the first version of the way-based fetch stitched MRT Orange into an out-and-back double-track loop** (43.6 km for a real ~22 km alignment — two nearly-parallel construction ways with no direction tag greedily stitched end-to-end). Fixed with a fold-detection/truncation pass (`truncateAtFold` in `tools/trackProfile.mjs`, now unit-tested with synthetic fixtures) before merge — see CLAUDE.md for the full story. Worth naming for future way-based fetches: a raw name-based way query has none of a PTv2 route relation's built-in curation (ordering, single direction, no crossovers), so this class of bug is a standing risk whenever this mechanism gets a third user.
+- **MRT Orange Western Section (Thailand Cultural Centre ↔ Bang Khun Non) — added separately, then merged into one combined `orange` entry.** The item above describes the Eastern Section fetch; the Western Section (`osm.wayNamePattern` matching `รถไฟฟ้าสายสีส้มตะวันตก ช่วงศูนย์วัฒนธรรมฯ-บางขุนนนท์`, 3 ways) landed as its own `orange-west` registry entry in a later task (105 track points, all underground, 13.5 km, 0 stations — same "no route relation, no trustworthy station node" situation as the Eastern Section). **An ad-hoc task (2026-08-04, requested mid-plan, not in any plan file) then merged `orange-west` and the original `orange` into one combined `orange` entry** via a new `fetchBranchFromWayNames` (plural — calls the existing single-pattern fetcher per part, splices at a shared junction point with a 20 m gap safety check): 105 western points + 171 eastern points − 1 shared junction at Thailand Cultural Centre = 275 points, 192 underground/83 elevated, ~35.3 km. The standalone `orange-west` key no longer exists; the registry stayed at 12 lines (the merge changed representation, not count). `npm run verify:mvp7` check 5 re-verifies the merged line is still a single clean traverse (haversine length within 15% of ~35.3 km), not a doubled-back polyline — the same class of bug item 19 already found and fixed once for the Eastern Section alone.
 
-### 20. Automated coverage for visual/perceptual regressions
+### 20. Automated coverage for visual/perceptual regressions — ✅ delivered in MVP 7
 - **All three defects found at the end of MVP 6 were spotted by a human looking at the running app** — broken portal geometry, a station ~187 m off its track, and an unreadable network at night. `verify:mvp6` (6/6), `verify:mvp4`, `verify:mvp5`, `verify:kinematics` and the full unit suite were **green throughout**.
-- Nearest concrete fixes:
-  - Night-legibility assertion: offscreen luminance readback at two clock times, asserting a minimum network-vs-basemap contrast ratio
-  - A preprocessor sanity gate on track gradient and per-stop snap distance, so a 108% ramp or a 187 m snap fails the build rather than reaching a screenshot
-- This is the single highest-value item on this list: it is the gap that let all three ship.
+- ✅ **Preprocessor sanity gates (2, both hard-fail):** `check_track_gradient` (`rust-engine/preprocessor/src/main.rs`) rejects any consecutive track-vertex pair steeper than the 4% ruling gradient — closes the "108% ramp / vertical wall at a portal" defect class directly. A closed bypass in the existing snap-distance gate (`MAX_SNAP_M`/`SNAP_WARN_M`) now also checks registry-hand-patched station positions for GTFS-simulated lines, not just GTFS's own raw coordinate — the pre-existing gate had never actually fired for Mo Chit's 187.4 m pre-fix defect, because it only ever saw GTFS's coordinate, not `network.json`'s hand-patched one (see CLAUDE.md's MVP 7 notes for the precise finding). Both gates fail the build with a clear message rather than warning and continuing.
+- ✅ **Night-legibility assertion:** `npm run verify:legibility` samples real lit deck pixels (not the unlit centerline a first attempt at this harness accidentally always hit) at noon and 02:00 for every simulated line, computing WCAG contrast against the basemap. **It currently fails, honestly and by design** — `MIN_CONTRAST` is pinned at the real WCAG floor (3.0), not weakened to pass: **14 of 20 line/time samples fail**, including **9 of 10 simulated lines at night** (only Airport Rail Link passes both times; noon failures: Sukhumvit, Yellow, Gold, Red Light, Blue). MRT Blue's failure is specifically traced to 8-bit sRGB colour quantization saturating its `#1964B7` livery near-black at night regardless of the ambient-light floor — not fixable by another `sun.ts` floor tweak; the other 8 failing lines may have more headroom. A follow-up task (not MVP 7) should fix the underlying night-lighting shortfall with a per-material minimum-brightness mechanism.
+- This was the single highest-value item on this list — it is the gap that let all three MVP 6 defects ship — and closing it surfaced a real, bigger, previously-undetected problem (network-wide night illegibility) rather than just adding a check that happened to pass.
 
-### 21. Dark / light theme toggle + basemap style cycle (satellite, terrain, …)
-- Tri-state **Auto / Light / Dark**, not a boolean — "Auto" must remain the clock-driven F3.3 behaviour already delivered
-- **Four constraints found while scoping this — read before starting:**
-  1. `map.setStyle()` **destroys every custom layer**, including the Three.js `network-3d` scene. Every `style.load` side-effect must re-run: the underground opacity snapshot, the basemap colour snapshot, `VehicleManager` wiring, click handlers, and the sun sync. A style cycle makes repeated `style.load` firing the *normal* case, where today it is an edge case guarded for React StrictMode.
-  2. Satellite and terrain are **raster** basemaps with no `fill`/`fill-extrusion`/`line` layers. Both underground dimming **and** night theming mutate vector layer colours/opacities, so **both silently become no-ops** on a raster basemap. They need `raster-opacity`/`raster-brightness-*` equivalents, or must be visibly disabled on raster styles.
-  3. **No-API-key is a standing project constraint** (why OpenFreeMap Liberty was chosen). Vector variants stay key-free; satellite needs a third-party raster source with its own attribution and ToS review, and terrain needs a DEM source. Any addition must render its attribution — ODbL/NF6 discipline.
-  4. Underground dimming owns **opacity**; night theming owns **colour**. They must never write the same paint property, and night theming must blend from the colour captured once at `style.load` — blending from the live value compounds at ~2 Hz and drives the map to black.
+### 21. Dark / light theme toggle + basemap style cycle (satellite, terrain, …) — ✅ delivered in MVP 7 (vector styles only)
+- ✅ Tri-state **Auto / Light / Dark** (`src/map/themeMode.ts`), not a boolean — "Auto" is exactly the pre-existing clock-driven F3.3 behaviour, byte-for-byte; Light/Dark pin the *palette* only (`effectiveElevationDeg`), the sun's direction stays clock-real in every mode
+- ✅ Basemap style cycle — 3 key-free vector styles (Liberty/Bright/Positron, `src/map/basemapStyles.ts`). **Satellite and terrain were NOT added** — still out of scope, per constraint 2 below.
+- **How the four constraints found while scoping this were actually resolved:**
+  1. `map.setStyle()` **destroys every custom layer**, including the Three.js `network-3d` scene. ✅ Resolved: `src/map/styleBinding.ts` isolates everything that must re-run per `style.load` (underground-opacity snapshot, basemap-colour snapshot) from everything that must NOT (SimClient, FollowCamera, TrainTooltip, the rAF loop — re-creating those on a style swap would leak a second worker). A real bug found along the way: MapLibre v6's diffed `setStyle()` never sees custom layers (`Style.serialize()` excludes `type: "custom"`), so the old `NetworkLayer` survived a swap untouched and the new `addLayer()` collided — fixed with an explicit `map.removeLayer()` before `setStyle()`.
+  2. Satellite/terrain are **raster** basemaps with no `fill`/`fill-extrusion`/`line` layers — **still true, still why they're not in the cycle.** Unaddressed; a future raster style needs `raster-opacity`/`raster-brightness-*` equivalents.
+  3. **No-API-key constraint** — ✅ satisfied; all 3 delivered styles are OpenFreeMap, key-free.
+  4. Underground dimming owns **opacity**; night theming owns **colour**, never the same paint property — ✅ resolved, `styleBinding.ts` enforces this split structurally (`applyUnderground` vs. `applyThemeElevation`, two different capture lists).
+- ⚠️ **Known disclosed gap, found during Task 12's own harness work:** on Bright/Positron, a handful of layers (`landcover-glacier`/`landcover_wood`/`landuse_residential`/`aeroway-area`) use a zoom-expression `fill-opacity` rather than a flat number; the underground-dimming capture has no type guard for that case (unlike its colour-capture code, which does guard), so `Math.min(expression, 0.25)` silently NaNs and logs a console validation error for those specific layers — every other layer still dims correctly, and the feature works overall. Small, low-risk fix mirroring the existing colour-skip pattern; not yet scheduled.
 
 ### 22. Reaching the NF1 concurrency target
 - NF1 wants sim tick < 3 ms for **≥300 concurrent vehicles**. Measured peak is **246** (was 171–172 before MRT Blue).

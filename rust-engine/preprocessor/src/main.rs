@@ -26,11 +26,74 @@ use sim_core::SimWorld;
 
 const RESAMPLE_SPACING_M: f64 = 10.0;
 const MAX_SNAP_M: f64 = 150.0;
+/// Stops snapping further than this are reported in network.report.json's
+/// `snap_warnings` and must be individually disclosed in the registry.
+///
+/// MAX_SNAP_M (150 m) catches catastrophically wrong geometry. This lower
+/// band catches the quiet case: five real stops sit between 40 m and 110 m,
+/// so before this a NEW bad snap could land at 140 m and pass in silence.
+/// Disclosure is per stop, so a genuinely-explained outlier stays explained
+/// and an unexplained new one fails.
+const SNAP_WARN_M: f64 = 50.0;
+
+#[derive(Debug)]
+enum SnapVerdict {
+    Ok,
+    /// Over SNAP_WARN_M, and named in the registry — reported, not fatal.
+    Disclosed { snap_m: f64 },
+    /// Over SNAP_WARN_M with no disclosure — fatal.
+    Undisclosed { snap_m: f64 },
+}
+
+/// Classify one stop's snap distance against the warning band.
+///
+/// `allow_large` (the pre-existing MAX_SNAP_M exemption list) also satisfies
+/// this band: a stop already disclosed as a known 554 m outlier should not
+/// need a second, redundant entry in a second list.
+fn classify_snap(
+    _line_key: &str,
+    stop_id: &str,
+    snap_m: f64,
+    warn_exempt: &[String],
+    allow_large: &[String],
+) -> SnapVerdict {
+    if snap_m <= SNAP_WARN_M {
+        return SnapVerdict::Ok;
+    }
+    let disclosed = warn_exempt.iter().any(|s| s == stop_id)
+        || allow_large.iter().any(|s| s == stop_id);
+    if disclosed {
+        SnapVerdict::Disclosed { snap_m }
+    } else {
+        SnapVerdict::Undisclosed { snap_m }
+    }
+}
+
 /// Even a disclosed `allow_large_snap_stop_ids` exception has a ceiling —
 /// it's meant for known, verified cases like the Pink terminus/interchange
 /// coordinate quirk (555 m), not an unbounded escape hatch. A future
 /// exception past this is almost certainly a real mistake, not a known one.
 const ALLOW_LARGE_SNAP_CEILING_M: f64 = 1_000.0;
+/// Maximum |altitude change| per meter of horizontal travel between two
+/// consecutive track vertices. Mirrors MAX_TRACK_GRADIENT in
+/// tools/trackProfile.mjs (0.04 — the standard heavy-rail ruling gradient).
+///
+/// tools/trackProfile.mjs's limitTrackGradient ESTABLISHES this invariant in
+/// the pipeline; this gate ASSERTS it still holds in whatever network.json
+/// actually reached the preprocessor. Without it, a hand-edited network.json,
+/// a fetch that skipped the limiter, or a future pipeline regression
+/// reintroduces the 108% portal wall a user reported in MVP 6 and nothing
+/// fails until somebody looks at a screenshot.
+const MAX_TRACK_GRADIENT: f64 = 0.04;
+/// f64 slack only. limitTrackGradient converges to exactly 4.00% on the
+/// current network (blue idx 347), so this must stay tight enough that a
+/// real regression cannot hide inside it.
+const GRADIENT_EPSILON: f64 = 1e-4;
+/// Below this horizontal separation two vertices are treated as coincident:
+/// dividing by their distance would report a meaningless (or infinite)
+/// gradient. A coincident PAIR is still rejected if its altitudes differ by
+/// more than this, which is the genuinely broken case (a vertical wall).
+const COINCIDENT_POINT_M: f64 = 0.5;
 
 /// Weekday/weekend sample dates for the peak-concurrent scan, inside the
 /// Namtang feed's 20260101-20261231 validity window (contract §0). Ordinary
@@ -93,6 +156,13 @@ struct LineGeometry {
     /// the usual proximity guarantee — logged as a warning, not an error.
     #[serde(default)]
     allow_large_snap_stop_ids: Vec<String>,
+    /// GTFS stop_ids disclosed as snapping between SNAP_WARN_M and
+    /// MAX_SNAP_M — a real, understood geometry offset (a terminus, a
+    /// convoluted underground alignment), not bad data. Every entry needs a
+    /// comment in tools/lines.config.mjs saying WHY, same discipline as
+    /// allow_large_snap_stop_ids.
+    #[serde(default)]
+    snap_warn_exempt_stop_ids: Vec<String>,
 }
 
 /// One track vertex from network.json: [lng, lat, altitude_m, structure].
@@ -309,8 +379,10 @@ fn run() -> Result<(), String> {
     // undisclosed regression would still show up here.
     let mut max_snap_m = 0.0f64;
     let mut large_snap_exceptions: Vec<serde_json::Value> = Vec::new();
+    let mut snap_warnings: Vec<serde_json::Value> = Vec::new();
 
     for line in &track_file.lines {
+        check_track_gradient(&line.key, &line.track, &proj)?;
         let ctrl: Vec<[f64; 3]> = line
             .track
             .iter()
@@ -388,6 +460,31 @@ fn run() -> Result<(), String> {
                     if !large_snap_allowed {
                         max_snap_m = max_snap_m.max(snap_d);
                     }
+                    match classify_snap(
+                        &line.key,
+                        stop_id,
+                        snap_d,
+                        &line.snap_warn_exempt_stop_ids,
+                        &line.allow_large_snap_stop_ids,
+                    ) {
+                        SnapVerdict::Ok => {}
+                        SnapVerdict::Disclosed { snap_m } => {
+                            snap_warnings.push(serde_json::json!({
+                                "line": line.key, "gtfs_stop_id": stop_id, "snap_m": snap_m,
+                            }));
+                        }
+                        SnapVerdict::Undisclosed { snap_m } => {
+                            return Err(format!(
+                                "stop {stop_id} on line '{}' snaps {snap_m:.1} m from track \
+                                 (warn limit {SNAP_WARN_M} m). If this is real, understood \
+                                 geometry, add it to that line's snapWarnExemptStopIds in \
+                                 tools/lines.config.mjs WITH a comment saying why, then \
+                                 re-run npm run data:fetch. If it is not, the stop position \
+                                 or the track is wrong — fix that, do not exempt it.",
+                                line.key
+                            ));
+                        }
+                    }
                     // OSM candidates only win if they actually carry a name:
                     // route-relation `role=stop` members are usually bare
                     // stop_position nodes with no name tag at all (the name
@@ -448,6 +545,69 @@ fn run() -> Result<(), String> {
                         },
                     ));
                 }
+
+                // Finding (Step 1): the loop above validates each GTFS stop's
+                // OWN coordinate (stops.txt row.lon/row.lat) against the
+                // track — it never reads network.json's `station.position`
+                // field for a GTFS-simulated line at all. That field is what
+                // src/map/trackGeometry.ts's buildStationMarkers actually
+                // renders as the on-map station dot, and what the id-based
+                // enrichment lookup above keys off. A hand-patched registry
+                // entry can therefore carry a badly wrong position that the
+                // MAX_SNAP_M/SNAP_WARN_M gates above never see, because they
+                // never look at it — exactly the historical Mo Chit defect
+                // (187.4 m, pre-b4c1cb9): its GTFS stop (37) had an accurate
+                // coordinate that always passed the loop above, while the
+                // separately hand-authored network.json entry citing an
+                // untagged OSM node sat 187 m from the real track and was
+                // never checked by anything. Verified by direct experiment
+                // (see task-2-report.md Step 1): re-running this
+                // preprocessor against Mo Chit's pre-fix network.json entry
+                // produced zero snap warning/error from the loop above.
+                //
+                // Close that gap here: validate every registry-declared
+                // station position for this line too, independent of its
+                // GTFS stop's own snap result.
+                for s in &line.stations {
+                    let p = proj.project(s.position[0], s.position[1], 0.0);
+                    let (_, snap_d) = spline::snap_to_polyline(&poly, &arcs, [p[0], p[1]]);
+                    if snap_d > MAX_SNAP_M {
+                        return Err(format!(
+                            "station {} ({}) on line '{}' snaps {snap_d:.1} m from track \
+                             (limit {MAX_SNAP_M} m) — this is network.json's own station \
+                             position (used for the map marker), independent of its GTFS \
+                             stop's own snap distance",
+                            s.id, s.name, line.key
+                        ));
+                    }
+                    match classify_snap(
+                        &line.key,
+                        &s.id,
+                        snap_d,
+                        &line.snap_warn_exempt_stop_ids,
+                        &line.allow_large_snap_stop_ids,
+                    ) {
+                        SnapVerdict::Ok => {}
+                        SnapVerdict::Disclosed { snap_m } => {
+                            snap_warnings.push(serde_json::json!({
+                                "line": line.key, "gtfs_stop_id": s.id, "snap_m": snap_m,
+                                "source": "registry_position",
+                            }));
+                        }
+                        SnapVerdict::Undisclosed { snap_m } => {
+                            return Err(format!(
+                                "station {} ({}) on line '{}' registry position snaps \
+                                 {snap_m:.1} m from track (warn limit {SNAP_WARN_M} m). If \
+                                 this is real, understood geometry, add it to that line's \
+                                 snapWarnExemptStopIds in tools/lines.config.mjs WITH a \
+                                 comment saying why, then re-run npm run data:fetch. If it \
+                                 is not, the station's hand-authored/fetched position is \
+                                 wrong — fix that, do not exempt it.",
+                                s.id, s.name, line.key
+                            ));
+                        }
+                    }
+                }
             }
             None => {
                 // Track-only line (no gtfsRouteId): there are no GTFS trips to
@@ -464,6 +624,31 @@ fn run() -> Result<(), String> {
                         ));
                     }
                     max_snap_m = max_snap_m.max(snap_d);
+                    match classify_snap(
+                        &line.key,
+                        &s.id,
+                        snap_d,
+                        &line.snap_warn_exempt_stop_ids,
+                        &line.allow_large_snap_stop_ids,
+                    ) {
+                        SnapVerdict::Ok => {}
+                        SnapVerdict::Disclosed { snap_m } => {
+                            snap_warnings.push(serde_json::json!({
+                                "line": line.key, "gtfs_stop_id": s.id, "snap_m": snap_m,
+                            }));
+                        }
+                        SnapVerdict::Undisclosed { snap_m } => {
+                            return Err(format!(
+                                "stop {} on line '{}' snaps {snap_m:.1} m from track \
+                                 (warn limit {SNAP_WARN_M} m). If this is real, understood \
+                                 geometry, add it to that line's snapWarnExemptStopIds in \
+                                 tools/lines.config.mjs WITH a comment saying why, then \
+                                 re-run npm run data:fetch. If it is not, the stop position \
+                                 or the track is wrong — fix that, do not exempt it.",
+                                s.id, line.key
+                            ));
+                        }
+                    }
                     snapped.push((
                         s.id.clone(),
                         snap_d,
@@ -805,6 +990,7 @@ fn run() -> Result<(), String> {
         // elsewhere behind an already-large "normal" baseline.
         "max_snap_m": max_snap_m,
         "large_snap_exceptions": large_snap_exceptions,
+        "snap_warnings": snap_warnings,
         // Finding 1d: count of per-stop pattern-arc resolutions that could
         // not stay consistent with their pattern's running arc and fell
         // back to a plain-nearest position (previously stderr-only warnings,
@@ -1139,6 +1325,44 @@ fn resolve_pattern_arcs_full(candidate_lists: &[Vec<(f64, f64)>]) -> (Vec<f64>, 
         fallback.reverse();
         (arcs, dists, fallback)
     }
+}
+
+/// Reject any consecutive track-vertex pair steeper than the ruling gradient.
+/// Returns the FIRST violation with enough context to find it in
+/// src/data/network.json (line key + vertex index + the measured grade).
+fn check_track_gradient(
+    key: &str,
+    track: &[TrackVertex],
+    proj: &EnuProjector,
+) -> Result<(), String> {
+    for i in 1..track.len() {
+        let a = proj.project(track[i - 1].0, track[i - 1].1, track[i - 1].2);
+        let b = proj.project(track[i].0, track[i].1, track[i].2);
+        let horiz = ((b[0] - a[0]).powi(2) + (b[1] - a[1]).powi(2)).sqrt();
+        let rise = (b[2] - a[2]).abs();
+        if horiz < COINCIDENT_POINT_M {
+            if rise > COINCIDENT_POINT_M {
+                return Err(format!(
+                    "line '{key}' vertex {i}: {rise:.1} m altitude step across only \
+                     {horiz:.2} m of track — a vertical wall. Re-run the fetch so \
+                     tools/trackProfile.mjs's limitTrackGradient ramps it."
+                ));
+            }
+            continue;
+        }
+        let grade = rise / horiz;
+        if grade > MAX_TRACK_GRADIENT + GRADIENT_EPSILON {
+            return Err(format!(
+                "line '{key}' vertex {i}: track gradient {:.1}% exceeds the \
+                 {:.0}% ruling limit ({rise:.1} m rise over {horiz:.1} m). \
+                 Re-run the fetch so tools/trackProfile.mjs's limitTrackGradient \
+                 ramps it.",
+                grade * 100.0,
+                MAX_TRACK_GRADIENT * 100.0
+            ));
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1537,5 +1761,93 @@ mod tests {
         let (arcs, fallback) = resolve_pattern_arcs(&lists);
         assert_eq!(arcs, vec![100.0, 50.0, 300.0], "fallback still uses the real (only) position");
         assert_eq!(fallback, vec![false, true, false], "only the inconsistent stop is flagged");
+    }
+
+    #[test]
+    fn gradient_gate_rejects_a_portal_wall() {
+        let proj = EnuProjector::new(ORIGIN_LNG_LAT.0, ORIGIN_LNG_LAT.1);
+        // Two points ~13.4 m apart horizontally with a 14.5 m altitude step —
+        // the real red-dark idx 103 defect, a 108% grade.
+        let track = vec![
+            TrackVertex(100.5000000, 13.8000000, -3.0, "underground".into()),
+            TrackVertex(100.5001235, 13.8000000, 11.5, "elevated".into()),
+        ];
+        let err = check_track_gradient("red-dark", &track, &proj)
+            .expect_err("a 108% grade must fail the gate");
+        assert!(err.contains("red-dark"), "error names the line: {err}");
+        assert!(err.contains("gradient"), "error names the failure: {err}");
+    }
+
+    #[test]
+    fn gradient_gate_accepts_a_ruling_grade_ramp() {
+        let proj = EnuProjector::new(ORIGIN_LNG_LAT.0, ORIGIN_LNG_LAT.1);
+        // ~107 m apart horizontally, 4.0 m rise = exactly the 4% ruling gradient
+        // limitTrackGradient converges to (blue idx 347 is exactly 4.00% today).
+        let track = vec![
+            TrackVertex(100.5000000, 13.8000000, -18.0, "underground".into()),
+            TrackVertex(100.5009880, 13.8000000, -14.0, "underground".into()),
+        ];
+        assert!(check_track_gradient("blue", &track, &proj).is_ok());
+    }
+
+    #[test]
+    fn gradient_gate_rejects_a_vertical_step_at_a_duplicated_point() {
+        let proj = EnuProjector::new(ORIGIN_LNG_LAT.0, ORIGIN_LNG_LAT.1);
+        // Coincident lng/lat with a real altitude jump: an infinite gradient that
+        // a naive delta/distance would divide by zero on.
+        let track = vec![
+            TrackVertex(100.5000000, 13.8000000, -18.0, "underground".into()),
+            TrackVertex(100.5000000, 13.8000000, 12.0, "elevated".into()),
+        ];
+        assert!(check_track_gradient("blue", &track, &proj).is_err());
+    }
+
+    #[test]
+    fn gradient_gate_tolerates_a_duplicated_point_at_the_same_altitude() {
+        let proj = EnuProjector::new(ORIGIN_LNG_LAT.0, ORIGIN_LNG_LAT.1);
+        let track = vec![
+            TrackVertex(100.5000000, 13.8000000, 12.0, "elevated".into()),
+            TrackVertex(100.5000000, 13.8000000, 12.0, "elevated".into()),
+        ];
+        assert!(check_track_gradient("blue", &track, &proj).is_ok());
+    }
+
+    #[test]
+    fn snap_band_flags_an_undisclosed_stop_over_the_warn_limit() {
+        let exempt: Vec<String> = vec![];
+        let verdict = classify_snap("blue", "99999", 88.0, &exempt, &[]);
+        assert!(
+            matches!(verdict, SnapVerdict::Undisclosed { .. }),
+            "an 88 m snap with no exemption must be undisclosed, got {verdict:?}"
+        );
+    }
+
+    #[test]
+    fn snap_band_accepts_a_disclosed_stop_over_the_warn_limit() {
+        let exempt = vec!["13627".to_string()];
+        let verdict = classify_snap("blue", "13627", 109.5, &exempt, &[]);
+        assert!(
+            matches!(verdict, SnapVerdict::Disclosed { .. }),
+            "a disclosed 109.5 m snap must pass, got {verdict:?}"
+        );
+    }
+
+    #[test]
+    fn snap_band_ignores_a_stop_under_the_warn_limit() {
+        let exempt: Vec<String> = vec![];
+        assert!(matches!(classify_snap("blue", "1", 12.0, &exempt, &[]), SnapVerdict::Ok));
+    }
+
+    #[test]
+    fn snap_band_defers_to_the_existing_large_snap_allowance_above_the_hard_limit() {
+        // Pink stop 359: 554.7 m, already disclosed via allowLargeSnapStopIds.
+        // It must not ALSO need a snapWarnExemptStopIds entry — one disclosure
+        // mechanism per stop, or every future exemption has to be written twice.
+        let allow = vec!["359".to_string()];
+        let verdict = classify_snap("pink", "359", 554.7, &[], &allow);
+        assert!(
+            matches!(verdict, SnapVerdict::Disclosed { .. }),
+            "allowLargeSnapStopIds must also satisfy the warn band, got {verdict:?}"
+        );
     }
 }

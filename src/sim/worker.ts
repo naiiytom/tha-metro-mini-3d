@@ -1,5 +1,7 @@
 import init, { Engine } from "./pkg/metro_sim_wasm";
 import {
+  DEFAULT_TICK_MS,
+  ECO_TICK_MS,
   FRAME_BYTES,
   type MainToWorker,
   type RunDetail,
@@ -21,13 +23,15 @@ import {
  * thread interpolates between frames at render time (SRS §3A.7).
  */
 
-const TICK_MS = 100; // 10 Hz
 const POOL_SIZE = 3;
 /** Asia/Bangkok is fixed UTC+7, no DST — a constant offset is exact. */
 const BANGKOK_OFFSET_MS = 7 * 3_600_000;
 
 let engine: Engine | null = null;
 let timer: number | null = null;
+/** Mutable worker tick cadence (ms), re-armable via a "tickRate" message
+ *  (eco mode). Starts at the MVP 3 baseline, 10 Hz. */
+let tickMs: number = DEFAULT_TICK_MS;
 const pool: ArrayBuffer[] = [];
 
 // Sim clock: simEpochMs = clockEpochMs + (performance.now() - clockSetAt) * warp.
@@ -113,7 +117,7 @@ async function handleInit(cache: ArrayBuffer): Promise<void> {
       services: raw.services,
     };
     for (let i = 0; i < POOL_SIZE; i++) pool.push(new ArrayBuffer(FRAME_BYTES));
-    timer = setInterval(tick, TICK_MS);
+    timer = setInterval(tick, tickMs);
     post({ kind: "ready", validation });
   } catch (err) {
     post({ kind: "error", message: err instanceof Error ? err.message : String(err) });
@@ -145,6 +149,20 @@ self.onmessage = (event: MessageEvent<MainToWorker>) => {
         });
       }
       break;
+    case "tickRate": {
+      // Clamp: a zero or negative interval would spin the worker, and an
+      // absurd one would look like a hang.
+      const next = Math.max(DEFAULT_TICK_MS, Math.min(msg.tickMs, ECO_TICK_MS));
+      if (next === tickMs) break;
+      tickMs = next;
+      // Only re-arm if the loop is actually running — a tickRate message
+      // before init must not start it early.
+      if (timer !== null) {
+        clearInterval(timer);
+        timer = setInterval(tick, tickMs);
+      }
+      break;
+    }
     case "stop":
       if (timer !== null) clearInterval(timer);
       timer = null;

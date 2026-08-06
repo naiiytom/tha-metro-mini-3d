@@ -9,38 +9,25 @@ import "maplibre-gl/dist/maplibre-gl.css";
 // `?worker&url` suffix bundles the worker together with its shared chunk.
 import maplibreWorkerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 import { NetworkLayer } from "../map/ThreeLayer";
+import { decideAutoUnderground, initialAutoState } from "../map/autoUnderground";
+import { styleUrl } from "../map/basemapStyles";
 import { installCameraControls } from "../map/cameraControls";
 import { FollowCamera } from "../map/followCamera";
 import { pickAt } from "../map/selection";
 import { skyPalette, sunDirection } from "../map/sun";
-import {
-  NIGHT_THEME,
-  mixColor,
-  nightFactor,
-  parseColor,
-  type BasemapTheme,
-} from "../map/basemapTheme";
+import { bindStyle, type StyleBinding } from "../map/styleBinding";
 import { TrainTooltip } from "../map/trainTooltip";
+import { effectiveElevationDeg } from "../map/themeMode";
 import { VehicleManager } from "../map/VehicleManager";
-import { localToLngLat, ORIGIN_LNG_LAT } from "../map/coordinates";
+import { lngLatToLocal, localToLngLat, ORIGIN_LNG_LAT } from "../map/coordinates";
 import { SimClient, activeSimClient } from "../sim/SimClient";
+import { DEFAULT_TICK_MS, ECO_TICK_MS, LANE_RUN_IDX, LANE_Z, VEHICLE_STRIDE } from "../sim/protocol";
 import { formatCountdown } from "../sim/time";
 import { useAppStore } from "../stores/useAppStore";
 import network from "../data/network.json";
 import type { NetworkData } from "../types";
 
 setWorkerUrl(maplibreWorkerUrl);
-
-// `skyPalette`'s day/golden blend saturates to fully daytime at any
-// elevation this far from the horizon (`day` clamps to 1 at +12°, `golden`
-// clamps to 0 this far from its +4° peak) — so calling it here reuses the
-// exact daytime output (DAY_SUN/DAY_AMBIENT, intensities 2.2/1.6) without
-// widening `skyPalette`'s own signature or duplicating its constants. Used
-// when the night-theme opt-out is off so the Three.js scene's *palette*
-// (never its sun *direction* — see updateSun) stays daytime regardless of
-// simulated clock time.
-const DAY_ELEVATION_DEG = 90;
-const dayPalette = () => skyPalette(DAY_ELEVATION_DEG);
 
 export function MapContainer() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -89,15 +76,14 @@ export function MapContainer() {
     const removeCameraControls = installCameraControls(map);
 
     let sim: SimClient | null = null;
-    let unsubscribeVisibility: (() => void) | null = null;
     let unsubscribeTooltipSelection: (() => void) | null = null;
     let tooltipTimer: ReturnType<typeof setInterval> | null = null;
     let rafId = 0;
     // style.load fires asynchronously; if effect cleanup runs first (a React
     // StrictMode double-invoke, or a fast unmount before tiles finish
-    // loading), sim/unsubscribeVisibility/rafId below are created after
-    // cleanup already ran with them still null, so nothing would ever tear
-    // them down. Guarded at the end of the style.load handler.
+    // loading), sim/rafId below are created after cleanup already ran with
+    // them still null, so nothing would ever tear them down. Guarded at the
+    // end of the style.load handler.
     let disposed = false;
     const follow = new FollowCamera();
     // On-map label tracking whichever train is selected — see its own doc
@@ -107,55 +93,145 @@ export function MapContainer() {
     // render path — never copied into React state (§3A.7).
     let lastVehicles: Float32Array<ArrayBufferLike> = new Float32Array(0);
     let lastCount = 0;
+    // Followed train's altitude, captured on the frame path (below) and acted
+    // on in the rAF loop — see decideAutoUnderground's own doc comment for
+    // why this decides on altitude rather than the track's structure tag.
+    let followedAltitudeM: number | null = null;
+    let autoUnderground = initialAutoState();
+    const net = network as unknown as NetworkData;
+
+    // Everything below is RE-CREATED on every style.load (map.setStyle()
+    // destroys every custom layer). SimClient/FollowCamera/TrainTooltip and
+    // the rAF loop are per-MAP, not per-style — see styleBinding.ts's own
+    // doc comment for why re-creating SimClient on a style swap would leak a
+    // second worker holding a second copy of the timetable cache.
+    let layer: NetworkLayer | null = null;
+    let vehicleManager: VehicleManager | null = null;
+    let binding: StyleBinding | null = null;
+    // True after the first style.load. A style SWAP must rebuild the Three
+    // layer and re-capture the paint snapshots, but must NOT create a second
+    // SimClient — that would spawn a second worker holding a second copy of
+    // the timetable cache, and the rAF loop/click handlers/tooltip are all
+    // per-map, not per-style.
+    let simInitialised = false;
+
+    // Per-frame path: interpolate + pose instances inside the layer's
+    // render(), entirely outside React. Declared once, re-attached to each
+    // new NetworkLayer instance on every style swap (see style.load below).
+    const beforeRender = () => {
+      const client = activeSimClient.current;
+      if (!client) return;
+      const { vehicles, count } = client.getInterpolated(performance.now());
+      const { selectedRunIdx, following } = useAppStore.getState();
+      vehicleManager?.update(vehicles, count, selectedRunIdx);
+      // Read the follow target here (the buffer is already in hand) but move
+      // the camera in the rAF loop — jumpTo() inside render() re-enters
+      // MapLibre's render path.
+      follow.capture(vehicles, count, following ? selectedRunIdx : null);
+      // Unlike follow.capture above, this is NOT gated on `following` — the
+      // tooltip tracks whichever train is selected regardless of camera lock.
+      trainTooltip.capture(vehicles, count, selectedRunIdx);
+      // Followed train's altitude, for the auto-underground decision made in
+      // the rAF loop below. Reading it here is free (the buffer is in hand);
+      // acting on it here is not — setUndergroundMode goes through Zustand,
+      // which must never be written from the render path (§3A.7).
+      followedAltitudeM = null;
+      if (following && selectedRunIdx !== null) {
+        for (let i = 0; i < count; i++) {
+          if (vehicles[i * VEHICLE_STRIDE + LANE_RUN_IDX] === selectedRunIdx) {
+            followedAltitudeM = vehicles[i * VEHICLE_STRIDE + LANE_Z];
+            break;
+          }
+        }
+      }
+      lastVehicles = vehicles;
+      lastCount = count;
+    };
+
+    // Visibility/underground/shadows/theme/basemap are all UI state, so they
+    // drive the scene through a subscription rather than the per-frame path.
+    // Registered ONCE per map mount — NOT inside style.load, or a style swap
+    // would register a second copy of this on every swap.
+    const unsubscribeVisibility = useAppStore.subscribe((state, prev) => {
+      if (state.hiddenRoutes !== prev.hiddenRoutes) {
+        for (let i = 0; i < net.lines.length; i++) {
+          const visible = !state.hiddenRoutes.includes(i);
+          layer?.setLineVisible(i, visible);
+          vehicleManager?.setRouteVisible(i, visible);
+        }
+        map.triggerRepaint();
+      }
+      if (state.undergroundMode !== prev.undergroundMode) {
+        binding?.applyUnderground(state.undergroundMode);
+      }
+      if (state.shadowsEnabled !== prev.shadowsEnabled) {
+        layer?.setShadowsEnabled(state.shadowsEnabled);
+        map.triggerRepaint();
+      }
+      if (state.themeMode !== prev.themeMode) {
+        const client = activeSimClient.current;
+        if (client && layer) {
+          const dir = sunDirection(client.getSimNow());
+          const eff = effectiveElevationDeg(state.themeMode, dir.elevationDeg);
+          layer.setSun(dir, skyPalette(eff));
+          layer.setSkyElevation(eff);
+        }
+        // Force the next tick to recompute: `lastApplied` still holds the
+        // previous mode's blended values, so without this the redundant-
+        // write skip would keep them.
+        binding?.resetThemeCache();
+        map.triggerRepaint();
+      }
+      if (state.basemapStyle !== prev.basemapStyle) {
+        // setStyle's default diffing (`options.diff !== false`) can never see
+        // our custom layer: Style.serialize() explicitly excludes `type:
+        // "custom"` layers (CustomStyleLayer.serialize() even throws if
+        // called), so the diff between old and new style JSON never emits a
+        // removeLayer for it — the OLD NetworkLayer instance survives the
+        // swap untouched, and the style.load handler below's map.addLayer()
+        // then throws "Layer ... already exists on this map." (verified live
+        // against a real dev server while implementing this). `{diff:
+        // false}` avoids that collision but is worse: it tears the whole
+        // Style object down without ever calling removeLayer() per layer, so
+        // NetworkLayer.onRemove() — which disposes Three.js geometry,
+        // materials and the WebGLRenderer wrapper — never fires, leaking
+        // real GPU resources on every swap. Removing the layer ourselves
+        // first runs the genuine removeLayer path (same one an unmount
+        // already exercises), so disposal is real either way.
+        if (layer && map.getLayer(layer.id)) {
+          map.removeLayer(layer.id);
+        }
+        map.setStyle(styleUrl(state.basemapStyle));
+      }
+      if (state.ecoMode !== prev.ecoMode) {
+        activeSimClient.current?.setTickMs(state.ecoMode ? ECO_TICK_MS : DEFAULT_TICK_MS);
+        map.triggerRepaint(); // repaint once immediately on exit
+      }
+    });
 
     map.on("style.load", () => {
       const store = useAppStore.getState();
-      const net = network as unknown as NetworkData;
-      const vehicleManager = new VehicleManager(
+      vehicleManager = new VehicleManager(
         net.lines.map((l) => ({ color: l.color, vehicleType: l.vehicleType })),
       );
-      const layer = new NetworkLayer(net, vehicleManager);
+      layer = new NetworkLayer(net, vehicleManager);
       map.addLayer(layer);
       setMapReady(true);
       store.setRoutes(net.lines);
-      // MapLibre side of the underground mode. Layer IDs are discovered from
-      // the loaded style rather than hardcoded: this is OpenFreeMap's Liberty
-      // style today, and hardcoded ids would break silently if it changes or
-      // is swapped. `fill-extrusion` is the 3D buildings; `fill` is landuse
-      // and water. SRS §F3.2 specifies the 0.1–0.4 opacity band.
-      const UNDERGROUND_BASEMAP_OPACITY = 0.25;
-      const dimmable = map
-        .getStyle()
-        .layers.filter((l) => l.type === "fill-extrusion" || l.type === "fill")
-        .map((l) => {
-          const prop = (
-            l.type === "fill-extrusion" ? "fill-extrusion-opacity" : "fill-opacity"
-          ) as "fill-extrusion-opacity" | "fill-opacity";
-          return {
-            id: l.id,
-            prop,
-            original: (map.getPaintProperty(l.id, prop) as number | undefined) ?? 1,
-          };
-        });
-
-      const applyUnderground = (on: boolean) => {
-        layer.setUndergroundMode(on);
-        for (const d of dimmable) {
-          map.setPaintProperty(
-            d.id,
-            d.prop,
-            on ? Math.min(d.original, UNDERGROUND_BASEMAP_OPACITY) : d.original,
-          );
-        }
-        map.triggerRepaint();
-      };
-      applyUnderground(useAppStore.getState().undergroundMode);
+      binding = bindStyle(map, layer);
+      if (import.meta.env.DEV) {
+        console.info(
+          `[styleBinding] ${binding.themeableCount} layer paint properties themeable, ` +
+            `${binding.skippedCount} skipped (expression/stop-function/unsupported colour syntax)`,
+        );
+      }
+      binding.applyUnderground(useAppStore.getState().undergroundMode);
       layer.setShadowsEnabled(useAppStore.getState().shadowsEnabled);
       // Seed line visibility from any hiddenRoutes already in the store at
-      // mount — the subscription below only reacts to CHANGES, so without
-      // this a remount with pre-existing hidden routes (a React StrictMode
-      // double-invoke, or future persistence) would render every line
-      // visible until the next toggle (finding 6c).
+      // mount — the subscription above only reacts to CHANGES, so without
+      // this a remount (or a style swap) with pre-existing hidden routes (a
+      // React StrictMode double-invoke, or future persistence) would render
+      // every line visible until the next toggle (finding 6c).
       {
         const initialHidden = useAppStore.getState().hiddenRoutes;
         for (let i = 0; i < net.lines.length; i++) {
@@ -164,142 +240,18 @@ export function MapContainer() {
           vehicleManager.setRouteVisible(i, visible);
         }
       }
+      // Re-attach the per-frame hook to the NEW layer instance.
+      layer.beforeRender = beforeRender;
 
-      // Basemap day/night theming (Task 10b, human-added scope beyond
-      // SRS F3.3): `skyPalette` already re-lights the Three.js layer from
-      // the sim clock, but the MapLibre basemap itself kept its daytime
-      // colours at 02:00. This snapshots each themeable layer's *original*
-      // colour once — same discipline as `dimmable` above — and every
-      // later tick blends from that original toward the night target, never
-      // from the layer's current (already-blended) value, or the blend
-      // would compound every tick and drift the whole map to black.
-      // Colours only: this never touches a `*-opacity` paint property —
-      // that stays `dimmable`'s and `applyUnderground`'s alone.
-      type ThemeRole = keyof BasemapTheme;
-      type ColorProp =
-        | "background-color"
-        | "fill-color"
-        | "fill-extrusion-color"
-        | "line-color"
-        | "text-color"
-        | "text-halo-color";
-      // `lastApplied` tracks the most recent value actually written to this
-      // layer (starts at `original`, i.e. nothing written yet) so a tick
-      // whose blended colour hasn't actually changed since the last write
-      // can skip the setPaintProperty call entirely — near full day/night
-      // the blend saturates for many layers well before `t` itself stops
-      // moving, and Liberty has 100+ themeable layers, so at up to 2 Hz
-      // (more at high time-warp, where the bucket can change nearly every
-      // tick) that redundant-write elimination cuts most of the property
-      // writes (perf note on finding 7).
-      const themeable: { id: string; prop: ColorProp; role: ThemeRole; original: string; lastApplied: string }[] =
-        [];
-      let skippedExpressionLayers = 0;
-      const captureThemeable = (id: string, prop: ColorProp, role: ThemeRole) => {
-        const raw = map.getPaintProperty(id, prop);
-        if (raw === undefined) return; // no override on this layer; nothing to theme
-        if (typeof raw !== "string" || parseColor(raw) === null) {
-          // MapLibre expression (array) or stop-function (object), or a CSS
-          // colour syntax outside what parseColor supports (e.g. a named
-          // colour) — cannot be interpolated this way, so leave it alone.
-          skippedExpressionLayers++;
-          return;
-        }
-        themeable.push({ id, prop, role, original: raw, lastApplied: raw });
-      };
-      for (const l of map.getStyle().layers) {
-        if (l.type === "background") captureThemeable(l.id, "background-color", "background");
-        else if (l.type === "fill")
-          captureThemeable(l.id, "fill-color", l.id.includes("water") ? "water" : "land");
-        else if (l.type === "fill-extrusion")
-          captureThemeable(l.id, "fill-extrusion-color", "building");
-        else if (l.type === "line") captureThemeable(l.id, "line-color", "road");
-        else if (l.type === "symbol") {
-          captureThemeable(l.id, "text-color", "labelText");
-          captureThemeable(l.id, "text-halo-color", "labelHalo");
-        }
+      if (simInitialised) {
+        // Style swap: the Three layer and paint snapshots are rebuilt above;
+        // everything else (SimClient, tooltip, follow, rAF, handlers,
+        // subscriptions) survived and still points at the right objects
+        // through the hoisted layer/vehicleManager/binding variables.
+        map.triggerRepaint();
+        return;
       }
-      if (import.meta.env.DEV) {
-        console.info(
-          `[basemapTheme] ${themeable.length} layer paint properties themeable, ` +
-            `${skippedExpressionLayers} skipped (expression/stop-function/unsupported colour syntax)`,
-        );
-      }
-
-      let lastNightBucket = -1;
-      const applyBasemapTheme = (elevationDeg: number) => {
-        const t = nightFactor(elevationDeg);
-        // Quantised to avoid dozens of no-op setPaintProperty calls a
-        // second while the sun barely moves (e.g. deep night or midday).
-        const bucket = Math.round(t * 200);
-        if (bucket === lastNightBucket) return;
-        lastNightBucket = bucket;
-        // Blend each layer's captured original directly to the fixed night
-        // target — `t` applied exactly once. (An earlier version blended
-        // through an elevation-dependent `basemapTheme(elevationDeg)`,
-        // which was itself already a day/night blend by `t`; composing the
-        // two applied `t` twice, pulling mid-transition colours toward a
-        // generic hardcoded reference that should never reach the map —
-        // see basemapTheme.ts's NIGHT_THEME doc comment.)
-        for (const entry of themeable) {
-          const next = mixColor(entry.original, NIGHT_THEME[entry.role], t);
-          if (next === entry.lastApplied) continue; // saturated already — skip the redundant write
-          entry.lastApplied = next;
-          map.setPaintProperty(entry.id, entry.prop, next);
-        }
-      };
-
-      // Finding 7: an escape hatch for the basemap night theme — it is the
-      // mechanism behind a previously reported night-legibility defect, and
-      // without this a user hitting a variant on some display combination
-      // has no way out short of scrubbing the clock to noon. Restores every
-      // themed layer to its captured original colour and resets the bucket
-      // so re-enabling recomputes from a clean slate rather than skipping a
-      // write because `lastApplied` still holds a stale blended value.
-      const restoreBasemapTheme = () => {
-        for (const entry of themeable) {
-          map.setPaintProperty(entry.id, entry.prop, entry.original);
-          entry.lastApplied = entry.original;
-        }
-        lastNightBucket = -1;
-      };
-      if (!useAppStore.getState().nightThemeEnabled) restoreBasemapTheme();
-
-      // Visibility is UI state, so it drives the scene through a subscription
-      // rather than the per-frame path.
-      unsubscribeVisibility = useAppStore.subscribe((state, prev) => {
-        if (state.hiddenRoutes !== prev.hiddenRoutes) {
-          for (let i = 0; i < net.lines.length; i++) {
-            const visible = !state.hiddenRoutes.includes(i);
-            layer.setLineVisible(i, visible);
-            vehicleManager.setRouteVisible(i, visible);
-          }
-          map.triggerRepaint();
-        }
-        if (state.undergroundMode !== prev.undergroundMode) {
-          applyUnderground(state.undergroundMode);
-        }
-        if (state.shadowsEnabled !== prev.shadowsEnabled) {
-          layer.setShadowsEnabled(state.shadowsEnabled);
-          map.triggerRepaint();
-        }
-        if (state.nightThemeEnabled !== prev.nightThemeEnabled) {
-          // Apply the scene-lighting side immediately rather than waiting up
-          // to 500 ms for the next updateSun tick — same immediacy
-          // restoreBasemapTheme() already gives the basemap side below.
-          const client = activeSimClient.current;
-          if (client) {
-            const dir = sunDirection(client.getSimNow());
-            layer.setSun(dir, state.nightThemeEnabled ? skyPalette(dir.elevationDeg) : dayPalette());
-          }
-          if (state.nightThemeEnabled) {
-            lastNightBucket = -1; // force the next updateSun tick to recompute and apply
-          } else {
-            restoreBasemapTheme();
-          }
-          map.triggerRepaint();
-        }
-      });
+      simInitialised = true;
 
       store.setEngineStatus("loading");
       let lastCountUpdate = 0;
@@ -327,25 +279,6 @@ export function MapContainer() {
         },
       });
       activeSimClient.current = sim;
-
-      // Per-frame path: interpolate + pose instances inside the layer's
-      // render(), entirely outside React.
-      layer.beforeRender = () => {
-        const client = activeSimClient.current;
-        if (!client) return;
-        const { vehicles, count } = client.getInterpolated(performance.now());
-        const { selectedRunIdx, following } = useAppStore.getState();
-        vehicleManager.update(vehicles, count, selectedRunIdx);
-        // Read the follow target here (the buffer is already in hand) but move
-        // the camera in the rAF loop — jumpTo() inside render() re-enters
-        // MapLibre's render path.
-        follow.capture(vehicles, count, following ? selectedRunIdx : null);
-        // Unlike follow.capture above, this is NOT gated on `following` — the
-        // tooltip tracks whichever train is selected regardless of camera lock.
-        trainTooltip.capture(vehicles, count, selectedRunIdx);
-        lastVehicles = vehicles;
-        lastCount = count;
-      };
 
       // Tooltip content (headsign/next-stop) is UI-rate, not per-frame, so a
       // plain 1 Hz poll is fine — the same query and cadence TrainInspector.tsx
@@ -401,27 +334,48 @@ export function MapContainer() {
         const client = activeSimClient.current;
         if (!client) return;
         const dir = sunDirection(client.getSimNow());
-        const nightThemeEnabled = useAppStore.getState().nightThemeEnabled;
-        // The opt-out (finding 7) means "no night appearance anywhere," not
-        // "basemap only" — it originally gated only applyBasemapTheme below,
-        // leaving the Three.js scene clock-lit while the basemap reverted to
-        // day, i.e. a bright day map over a dark night-lit track/train scene
-        // (user report: "when night disable the track color does not return
-        // to normal"). The sun *direction* (`dir`, and therefore the light's
-        // position/shadow direction — what verify:mvp6 check 6 reads) stays
-        // clock-driven either way; only the *palette* freezes to daytime.
-        layer.setSun(dir, nightThemeEnabled ? skyPalette(dir.elevationDeg) : dayPalette());
-        if (nightThemeEnabled) applyBasemapTheme(dir.elevationDeg);
+        const mode = useAppStore.getState().themeMode;
+        // Direction stays REAL in every mode (verify:mvp6 check 5 reads the
+        // light position); only the palette and the basemap blend use the
+        // mode-effective elevation.
+        const eff = effectiveElevationDeg(mode, dir.elevationDeg);
+        layer?.setSun(dir, skyPalette(eff));
+        layer?.setSkyElevation(eff);
+        binding?.applyThemeElevation(eff);
       };
 
       // MapLibre only repaints on demand — keep frames coming while the
       // engine is running.
+      let lastEcoFrame = 0;
       const loop = () => {
-        if (useAppStore.getState().engineStatus === "ready") {
-          updateSun(performance.now());
-          follow.apply(map);
-          trainTooltip.apply(map, useAppStore.getState().uiHidden);
-          map.triggerRepaint();
+        const s = useAppStore.getState();
+        if (s.engineStatus === "ready") {
+          const now = performance.now();
+          // Eco mode still runs the rAF callback every frame (that is how it
+          // stays alive to notice being switched off) but only does the
+          // actual paint work at ECO_TICK_MS — the roadmap-item-2 power save.
+          const paint = !s.ecoMode || now - lastEcoFrame >= ECO_TICK_MS;
+          if (paint) {
+            lastEcoFrame = now;
+            updateSun(now);
+            follow.apply(map);
+            {
+              const c = map.getCenter();
+              const [e, n] = lngLatToLocal(c.lng, c.lat);
+              layer?.setSkyCenter(e, n);
+            }
+            {
+              const d = decideAutoUnderground(autoUnderground, {
+                following: s.following,
+                altitudeM: followedAltitudeM,
+                undergroundMode: s.undergroundMode,
+              });
+              autoUnderground = d.next;
+              if (d.setUndergroundTo !== null) s.setUndergroundMode(d.setUndergroundTo);
+            }
+            trainTooltip.apply(map, s.uiHidden);
+            map.triggerRepaint();
+          }
         }
         rafId = requestAnimationFrame(loop);
       };
@@ -430,8 +384,10 @@ export function MapContainer() {
       if (disposed) {
         // Cleanup already ran before this fired — tear down what it missed
         // instead of leaking a running rAF loop, worker and subscription.
+        // (unsubscribeVisibility is registered synchronously above, outside
+        // style.load, so effect cleanup already unsubscribed it — nothing to
+        // do for it here.)
         cancelAnimationFrame(rafId);
-        unsubscribeVisibility?.();
         if (tooltipTimer !== null) clearInterval(tooltipTimer);
         unsubscribeTooltipSelection?.();
         sim?.dispose();
@@ -515,7 +471,7 @@ export function MapContainer() {
       cancelAnimationFrame(rafId);
       removeCameraControls();
       unsubscribeFollow();
-      unsubscribeVisibility?.();
+      unsubscribeVisibility();
       if (tooltipTimer !== null) clearInterval(tooltipTimer);
       unsubscribeTooltipSelection?.();
       trainTooltip.dispose();

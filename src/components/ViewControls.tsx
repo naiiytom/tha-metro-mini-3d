@@ -1,3 +1,6 @@
+import { useEffect, useState } from "react";
+import { BASEMAP_STYLES } from "../map/basemapStyles";
+import { THEME_MODES } from "../map/themeMode";
 import { useAppStore } from "../stores/useAppStore";
 
 /**
@@ -10,8 +13,38 @@ export function ViewControls() {
   const setUndergroundMode = useAppStore((s) => s.setUndergroundMode);
   const shadowsEnabled = useAppStore((s) => s.shadowsEnabled);
   const setShadowsEnabled = useAppStore((s) => s.setShadowsEnabled);
-  const nightThemeEnabled = useAppStore((s) => s.nightThemeEnabled);
-  const setNightThemeEnabled = useAppStore((s) => s.setNightThemeEnabled);
+  const themeMode = useAppStore((s) => s.themeMode);
+  const setThemeMode = useAppStore((s) => s.setThemeMode);
+  const basemapStyle = useAppStore((s) => s.basemapStyle);
+  const setBasemapStyle = useAppStore((s) => s.setBasemapStyle);
+  const ecoMode = useAppStore((s) => s.ecoMode);
+  const setEcoMode = useAppStore((s) => s.setEcoMode);
+
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  // The DOM owns this state, not the store: Esc exits fullscreen without
+  // going through our handler, so a store boolean would go stale.
+  useEffect(() => {
+    const sync = () => setIsFullscreen(document.fullscreenElement !== null);
+    sync();
+    document.addEventListener("fullscreenchange", sync);
+    return () => document.removeEventListener("fullscreenchange", sync);
+  }, []);
+
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement) {
+      void document.exitFullscreen();
+      return;
+    }
+    // Not documentElement: `[data-testid="map-container"]` is App.tsx's own
+    // top-level wrapper div, NOT a child of MapContainer.tsx despite the
+    // testid's name — App and MapContainer are siblings. See App.tsx's own
+    // comment on this element for why: it's the real common ancestor of
+    // MapContainer, LineSelector, and the bottom-sheet stack, so fullscreening
+    // it keeps every React-rendered overlay visible in fullscreen.
+    const target = document.querySelector<HTMLElement>('[data-testid="map-container"]');
+    void target?.requestFullscreen();
+  };
 
   const row = (label: string, hint: string, on: boolean, set: (v: boolean) => void) => (
     <button
@@ -58,11 +91,72 @@ export function ViewControls() {
         setShadowsEnabled,
       )}
       {row(
-        "Night theme",
-        "Darken the basemap after dusk; turn off if a variant reads poorly on your display",
-        nightThemeEnabled,
-        setNightThemeEnabled,
+        "Eco mode",
+        "Drop to about 1 frame per second to save battery — trains stay on schedule",
+        ecoMode,
+        setEcoMode,
       )}
+      {row(
+        "Fullscreen",
+        "Fill the screen — press Esc to leave",
+        isFullscreen,
+        () => toggleFullscreen(),
+      )}
+      <div className="mt-1 px-3 py-2 md:px-1.5 md:py-1">
+        <div className="mb-1 text-sm text-slate-500 md:text-xs">Theme</div>
+        <div
+          role="radiogroup"
+          aria-label="Theme"
+          className="flex gap-1 rounded-md bg-slate-200/60 p-0.5"
+        >
+          {THEME_MODES.map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              role="radio"
+              aria-checked={themeMode === mode}
+              data-theme-mode={mode}
+              onClick={() => setThemeMode(mode)}
+              title={
+                mode === "auto"
+                  ? "Follow the simulated clock — dusk and dawn fade smoothly"
+                  : mode === "light"
+                    ? "Pinned to full-day lighting, whatever the clock says"
+                    : "Always night colours, whatever the clock says"
+              }
+              className={`flex-1 rounded px-2 py-1.5 text-sm capitalize transition-colors md:py-0.5 md:text-xs ${
+                themeMode === mode
+                  ? "bg-white text-slate-800 shadow-sm"
+                  : "text-slate-500 hover:text-slate-700"
+              }`}
+            >
+              {mode}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="mt-1 px-3 py-2 md:px-1.5 md:py-1">
+        <div className="mb-1 text-sm text-slate-500 md:text-xs">Basemap</div>
+        <div role="radiogroup" aria-label="Basemap" className="flex gap-1 rounded-md bg-slate-200/60 p-0.5">
+          {BASEMAP_STYLES.map((s) => (
+            <button
+              key={s.key}
+              type="button"
+              role="radio"
+              aria-checked={basemapStyle === s.key}
+              data-basemap-style={s.key}
+              onClick={() => setBasemapStyle(s.key)}
+              className={`flex-1 rounded px-2 py-1.5 text-sm transition-colors md:py-0.5 md:text-xs ${
+                basemapStyle === s.key
+                  ? "bg-white text-slate-800 shadow-sm"
+                  : "text-slate-500 hover:text-slate-700"
+              }`}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

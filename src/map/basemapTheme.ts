@@ -15,8 +15,8 @@ const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
 // Above this solar elevation the map is full day (nightFactor = 0); below
 // this it is full night (nightFactor = 1); smoothstep between, so scrubbing
 // the clock through dusk/dawn is a continuous fade, not a pop.
-const DAY_ELEVATION_DEG = 3;
-const NIGHT_ELEVATION_DEG = -8;
+export const DAY_ELEVATION_DEG = 3;
+export const NIGHT_ELEVATION_DEG = -8;
 
 /** 0 = full day, 1 = full night. Monotonic non-increasing in elevation. */
 export function nightFactor(elevationDeg: number): number {
