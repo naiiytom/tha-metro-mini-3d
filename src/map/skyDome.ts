@@ -18,6 +18,32 @@ import { skyPalette } from "./sun";
  * Colours come from `skyPalette`, the same function that lights the scene, so
  * the horizon warms at exactly the elevations the key light warms at — they
  * cannot drift apart.
+ *
+ * WHY THE HORIZON-PLANE DISCARD DOESN'T OVERPAINT BUILDINGS (checked, not
+ * assumed, 2026-08-06 PR review): the discard test is purely geometric (an
+ * ENU z<=0 plane), not aware of what MapLibre actually drew, so in principle
+ * a nearby fill-extrusion rooftop projecting above that plane could get
+ * painted over — depthTest is off, so nothing would stop it. Verified this
+ * does NOT happen in practice, by recolouring the material solid opaque and
+ * sweeping zoom x pitch (10-15 x 60/70/80, maxPitch is 80) at a real dense
+ * downtown pose (MahaNakhon, one of Bangkok's tallest towers): the dome
+ * never renders a single fragment at zoom > ~12, because MapLibre v6's
+ * dynamic far-clip-plane (computed from visible horizon distance) shrinks
+ * below RADIUS_M at closer zoom and clips the whole sphere before the
+ * fragment shader ever runs — independent of this shader's own discard
+ * logic, and the same clip-plane interaction already noted in CLAUDE.md's
+ * MVP 7 sky-dome section. This app's style only starts extruding 3D
+ * buildings around z14-15 (confirmed in the same sweep: no visible
+ * extrusions at z13, clearly extruded by z15.5). So the dome's visible range
+ * (zoom <= ~12, no building extrusions there) and the building-extrusion
+ * range (zoom >= ~14, dome fully clipped there) do not overlap — there is
+ * currently no camera pose in this app where a fragment this shader would
+ * actually draw could land on a tall building's rooftop. This is a property
+ * of today's style + maxPitch, not a guarantee of the discard test itself:
+ * raising maxPitch, lowering the style's building-extrusion zoom threshold,
+ * or a MapLibre version that stops shrinking the far clip plane this way
+ * could reopen the gap. Re-check with the same sweep technique if any of
+ * those change.
  */
 
 /** Big enough to sit outside anything the user can see from a city-scale

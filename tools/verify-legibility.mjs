@@ -64,6 +64,11 @@
 // day stop reading as visually distinct at all).
 //
 // Usage: npm run verify:legibility   (dev server must be running on :5173)
+//
+// Depends on @napi-rs/canvas (screenshotPixels() below) for pixel readback,
+// same shape as puppeteer-core: not in package.json/package-lock.json, only
+// documented — see CLAUDE.md's verify:legibility bullet. `npm install
+// @napi-rs/canvas --no-save` before running this if it's missing.
 import puppeteer from "puppeteer-core";
 import { LINES } from "./lines.config.mjs";
 

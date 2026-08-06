@@ -26,11 +26,24 @@ export interface AutoUndergroundState {
   /** The user toggled it by hand during this follow session. Stand down
    *  until follow ends — auto must never fight the user. */
   overridden: boolean;
+  /** What this module currently believes `undergroundMode` is — the value
+   *  it last observed or itself wrote. `null` only before the first
+   *  observation of a follow session (no belief yet, so nothing to diff
+   *  against). Any observed value that disagrees with this belief, in
+   *  either direction, is a manual toggle: turning it OFF is the case the
+   *  override guard exists for, but turning it ON is just as much a
+   *  deliberate user action and must latch the same stand-down — otherwise
+   *  a manual ON followed by a manual OFF (with auto never having engaged
+   *  in between, so `prev.auto` was never true to key the old guard off of)
+   *  re-engages auto on the very next tick, undoing the user's OFF within
+   *  one frame. */
+  known: boolean | null;
 }
 
 export const initialAutoState = (): AutoUndergroundState => ({
   auto: false,
   overridden: false,
+  known: null,
 });
 
 export function decideAutoUnderground(
@@ -46,20 +59,24 @@ export function decideAutoUnderground(
     return { next: initialAutoState(), setUndergroundTo: null };
   }
 
-  // The user changed it out from under us — that is the end of auto for this
-  // session, whichever direction they moved it.
-  if (prev.auto && !input.undergroundMode) {
-    return { next: { auto: false, overridden: true }, setUndergroundTo: null };
-  }
-  if (prev.overridden) return { next: prev, setUndergroundTo: null };
+  // No belief yet this session: adopt whatever's already there as the
+  // baseline. Not itself a diff, so it can't be mistaken for a user action.
+  const known = prev.known ?? input.undergroundMode;
 
-  if (input.altitudeM === null) return { next: prev, setUndergroundTo: null };
+  // The observed value disagrees with our belief — the user changed it,
+  // whichever direction. That is the end of auto for this session.
+  if (input.undergroundMode !== known) {
+    return { next: { auto: false, overridden: true, known: input.undergroundMode }, setUndergroundTo: null };
+  }
+  if (prev.overridden) return { next: { ...prev, known }, setUndergroundTo: null };
+
+  if (input.altitudeM === null) return { next: { ...prev, known }, setUndergroundTo: null };
 
   if (!prev.auto && input.altitudeM < ENGAGE_BELOW_M && !input.undergroundMode) {
-    return { next: { ...prev, auto: true }, setUndergroundTo: true };
+    return { next: { auto: true, overridden: false, known: true }, setUndergroundTo: true };
   }
   if (prev.auto && input.altitudeM > RELEASE_ABOVE_M) {
-    return { next: { ...prev, auto: false }, setUndergroundTo: false };
+    return { next: { auto: false, overridden: false, known: false }, setUndergroundTo: false };
   }
-  return { next: prev, setUndergroundTo: null };
+  return { next: { ...prev, known }, setUndergroundTo: null };
 }

@@ -85,4 +85,27 @@ describe("decideAutoUnderground", () => {
   it("does nothing with no altitude sample", () => {
     expect(decideAutoUnderground(initialAutoState(), follow(null)).setUndergroundTo).toBe(null);
   });
+
+  it("does not revert a manual OFF when auto never got the chance to engage", () => {
+    // Regression for: user turns underground ON by hand while surfaced (auto
+    // never engages, so `auto` stays false throughout), the train then goes
+    // deep with no engage needed (already on), then the user turns it OFF by
+    // hand. Auto must not spring back on next tick just because altitude is
+    // still below the engage threshold and `auto` was never `true`.
+    let s = initialAutoState();
+    s = decideAutoUnderground(s, follow(10, true)).next; // 1: manual ON, surfaced
+    expect(s.auto).toBe(false);
+
+    const step2 = decideAutoUnderground(s, follow(-18, true)); // 2: now deep, still on
+    expect(step2.setUndergroundTo).toBe(null);
+    expect(step2.next.auto).toBe(false);
+    s = step2.next;
+
+    const step3 = decideAutoUnderground(s, follow(-18, false)); // 3: manual OFF, still deep
+    expect(step3.setUndergroundTo).toBe(null); // must NOT re-engage
+    expect(step3.next.auto).toBe(false);
+
+    const step4 = decideAutoUnderground(step3.next, follow(-20, false));
+    expect(step4.setUndergroundTo).toBe(null);
+  });
 });
