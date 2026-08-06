@@ -108,7 +108,11 @@ impl SimWorld {
             .iter()
             .map(|p| p.stops.last().map(|s| s.arrival_s as f64).unwrap_or(0.0))
             .collect();
-        Ok(Self { doc, pattern_dur, truncated: std::cell::Cell::new(false) })
+        Ok(Self {
+            doc,
+            pattern_dur,
+            truncated: std::cell::Cell::new(false),
+        })
     }
 
     pub fn doc(&self) -> &CacheDoc {
@@ -131,7 +135,10 @@ impl SimWorld {
     /// to catch post-midnight spillover. Writes stride-8 records into `out`,
     /// returns the vehicle count.
     pub fn evaluate(&self, date_yyyymmdd: u32, sec_of_day: f64, out: &mut [f32]) -> usize {
-        assert!(out.len() >= MAX_VEHICLES * VEHICLE_STRIDE, "out buffer too small");
+        assert!(
+            out.len() >= MAX_VEHICLES * VEHICLE_STRIDE,
+            "out buffer too small"
+        );
         self.truncated.set(false);
         let prev = previous_date(date_yyyymmdd);
         let active_today: Vec<bool> = self
@@ -230,13 +237,22 @@ fn eval_pattern(pattern: &PatternDoc, t: f64) -> Option<Pose> {
         } else {
             false
         };
-        return Some(Pose { arc: a.arc_m, reverse, state: STATE_DWELL, progress: 0.0 });
+        return Some(Pose {
+            arc: a.arc_m,
+            reverse,
+            state: STATE_DWELL,
+            progress: 0.0,
+        });
     }
 
     // In transit toward stop cur+1 (must exist: t <= last arrival).
     let b = stops.get(cur + 1)?;
     let denom = b.arrival_s as f64 - a.departure_s as f64;
-    let p = if denom > 0.0 { (t - a.departure_s as f64) / denom } else { 1.0 };
+    let p = if denom > 0.0 {
+        (t - a.departure_s as f64) / denom
+    } else {
+        1.0
+    };
     let s = smoothstep(p);
     let arc = a.arc_m as f64 + (b.arc_m as f64 - a.arc_m as f64) * s;
     Some(Pose {
@@ -268,7 +284,11 @@ fn sample_track(route: &RouteDoc, arc: f32, reverse: bool) -> ([f32; 3], f32) {
     };
     let j = k.saturating_sub(1).min(arcs.len() - 2);
     let seg = arcs[j + 1] - arcs[j];
-    let u = if seg > 0.0 { (arc - arcs[j]) / seg } else { 0.0 };
+    let u = if seg > 0.0 {
+        (arc - arcs[j]) / seg
+    } else {
+        0.0
+    };
     let p0 = pts[j];
     let p1 = pts[j + 1];
     let pos = [
@@ -311,16 +331,33 @@ pub(crate) mod tests_support {
             simulated: true,
             name_en: "Test".into(),
             color_rgb: 0x65B724,
-            track_xyz: vec![
-                [0.0, 0.0, 15.0],
-                [100.0, 0.0, 15.0],
-                [100.0, 100.0, 15.0],
-            ],
+            track_xyz: vec![[0.0, 0.0, 15.0], [100.0, 0.0, 15.0], [100.0, 100.0, 15.0]],
             track_arc_m: vec![0.0, 100.0, 200.0],
             stations: vec![
-                StationDoc { gtfs_stop_id: "A".into(), code: "".into(), name_en: "A".into(), name_th: "".into(), arc_m: 0.0, interchanges: Vec::new() },
-                StationDoc { gtfs_stop_id: "B".into(), code: "".into(), name_en: "B".into(), name_th: "".into(), arc_m: 100.0, interchanges: Vec::new() },
-                StationDoc { gtfs_stop_id: "C".into(), code: "".into(), name_en: "C".into(), name_th: "".into(), arc_m: 200.0, interchanges: Vec::new() },
+                StationDoc {
+                    gtfs_stop_id: "A".into(),
+                    code: "".into(),
+                    name_en: "A".into(),
+                    name_th: "".into(),
+                    arc_m: 0.0,
+                    interchanges: Vec::new(),
+                },
+                StationDoc {
+                    gtfs_stop_id: "B".into(),
+                    code: "".into(),
+                    name_en: "B".into(),
+                    name_th: "".into(),
+                    arc_m: 100.0,
+                    interchanges: Vec::new(),
+                },
+                StationDoc {
+                    gtfs_stop_id: "C".into(),
+                    code: "".into(),
+                    name_en: "C".into(),
+                    name_th: "".into(),
+                    arc_m: 200.0,
+                    interchanges: Vec::new(),
+                },
             ],
         };
         // Pattern 0 (direction 0, increasing arc): A(0,30) -> B(100,130) -> C(200,200)
@@ -330,9 +367,24 @@ pub(crate) mod tests_support {
             direction: 0,
             headsign_en: "C".into(),
             stops: vec![
-                PatternStop { station_idx: 0, arrival_s: 0, departure_s: 30, arc_m: 0.0 },
-                PatternStop { station_idx: 1, arrival_s: 100, departure_s: 130, arc_m: 100.0 },
-                PatternStop { station_idx: 2, arrival_s: 200, departure_s: 200, arc_m: 200.0 },
+                PatternStop {
+                    station_idx: 0,
+                    arrival_s: 0,
+                    departure_s: 30,
+                    arc_m: 0.0,
+                },
+                PatternStop {
+                    station_idx: 1,
+                    arrival_s: 100,
+                    departure_s: 130,
+                    arc_m: 100.0,
+                },
+                PatternStop {
+                    station_idx: 2,
+                    arrival_s: 200,
+                    departure_s: 200,
+                    arc_m: 200.0,
+                },
             ],
         };
         // Pattern 1 (direction_id 1, DEcreasing arc): B(0,10) -> A(100,100)
@@ -342,8 +394,18 @@ pub(crate) mod tests_support {
             direction: 1,
             headsign_en: "A".into(),
             stops: vec![
-                PatternStop { station_idx: 1, arrival_s: 0, departure_s: 10, arc_m: 100.0 },
-                PatternStop { station_idx: 0, arrival_s: 100, departure_s: 100, arc_m: 0.0 },
+                PatternStop {
+                    station_idx: 1,
+                    arrival_s: 0,
+                    departure_s: 10,
+                    arc_m: 100.0,
+                },
+                PatternStop {
+                    station_idx: 0,
+                    arrival_s: 100,
+                    departure_s: 100,
+                    arc_m: 0.0,
+                },
             ],
         };
         let weekday = ServiceDoc {
@@ -365,9 +427,21 @@ pub(crate) mod tests_support {
             services: vec![weekday],
             patterns: vec![pat0, pat1],
             runs: vec![
-                RunDoc { pattern_idx: 0, service_idx: 0, start_sec: 36_000 },  // 10:00
-                RunDoc { pattern_idx: 1, service_idx: 0, start_sec: 36_000 },
-                RunDoc { pattern_idx: 0, service_idx: 0, start_sec: 86_350 },  // 23:59:10, spills past midnight
+                RunDoc {
+                    pattern_idx: 0,
+                    service_idx: 0,
+                    start_sec: 36_000,
+                }, // 10:00
+                RunDoc {
+                    pattern_idx: 1,
+                    service_idx: 0,
+                    start_sec: 36_000,
+                },
+                RunDoc {
+                    pattern_idx: 0,
+                    service_idx: 0,
+                    start_sec: 86_350,
+                }, // 23:59:10, spills past midnight
             ],
         }
     }
@@ -386,8 +460,22 @@ pub(crate) mod tests_support {
             track_xyz: vec![[0.0, 0.0, 15.0], [1000.0, 0.0, 15.0]],
             track_arc_m: vec![0.0, 1000.0],
             stations: vec![
-                StationDoc { gtfs_stop_id: "A".into(), code: "".into(), name_en: "A".into(), name_th: "".into(), arc_m: 0.0, interchanges: Vec::new() },
-                StationDoc { gtfs_stop_id: "B".into(), code: "".into(), name_en: "B".into(), name_th: "".into(), arc_m: 1000.0, interchanges: Vec::new() },
+                StationDoc {
+                    gtfs_stop_id: "A".into(),
+                    code: "".into(),
+                    name_en: "A".into(),
+                    name_th: "".into(),
+                    arc_m: 0.0,
+                    interchanges: Vec::new(),
+                },
+                StationDoc {
+                    gtfs_stop_id: "B".into(),
+                    code: "".into(),
+                    name_en: "B".into(),
+                    name_th: "".into(),
+                    arc_m: 1000.0,
+                    interchanges: Vec::new(),
+                },
             ],
         };
         let pattern = PatternDoc {
@@ -396,8 +484,18 @@ pub(crate) mod tests_support {
             direction: 0,
             headsign_en: "B".into(),
             stops: vec![
-                PatternStop { station_idx: 0, arrival_s: 0, departure_s: 0, arc_m: 0.0 },
-                PatternStop { station_idx: 1, arrival_s: 100_000, departure_s: 100_000, arc_m: 1000.0 },
+                PatternStop {
+                    station_idx: 0,
+                    arrival_s: 0,
+                    departure_s: 0,
+                    arc_m: 0.0,
+                },
+                PatternStop {
+                    station_idx: 1,
+                    arrival_s: 100_000,
+                    departure_s: 100_000,
+                    arc_m: 1000.0,
+                },
             ],
         };
         let service = ServiceDoc {
@@ -408,7 +506,13 @@ pub(crate) mod tests_support {
             added_dates: vec![],
             removed_dates: vec![],
         };
-        let runs = (0..=n).map(|_| RunDoc { pattern_idx: 0, service_idx: 0, start_sec: 0 }).collect();
+        let runs = (0..=n)
+            .map(|_| RunDoc {
+                pattern_idx: 0,
+                service_idx: 0,
+                start_sec: 0,
+            })
+            .collect();
         let doc = CacheDoc {
             magic: TMB_MAGIC,
             version: TMB_VERSION,
@@ -472,10 +576,10 @@ mod tests {
             (30.0, STATE_DWELL),   // exactly at departure -> still dwell
             (30.5, STATE_TRANSIT), // just departed
             (99.5, STATE_TRANSIT),
-            (100.0, STATE_DWELL),  // exactly at arrival -> dwell
+            (100.0, STATE_DWELL), // exactly at arrival -> dwell
             (130.0, STATE_DWELL),
             (131.0, STATE_TRANSIT),
-            (200.0, STATE_DWELL),  // final arrival instant (arr==dep)
+            (200.0, STATE_DWELL), // final arrival instant (arr==dep)
         ] {
             let v = eval(&w, WED, 36_000.0 + dt);
             let r = find_run(&v, 0).unwrap_or_else(|| panic!("no vehicle at dt={dt}"));
@@ -483,7 +587,10 @@ mod tests {
             if want_state == STATE_DWELL {
                 assert_eq!(r[7], 0.0, "progress must be 0 while dwelling (dt={dt})");
             } else {
-                assert!(r[7] > 0.0 && r[7] < 1.0, "transit progress in (0,1) at dt={dt}");
+                assert!(
+                    r[7] > 0.0 && r[7] < 1.0,
+                    "transit progress in (0,1) at dt={dt}"
+                );
             }
         }
         // Mid-leg position: dt=65 -> p=0.5 -> s=0.5 -> arc 50 -> x=50.
@@ -518,7 +625,11 @@ mod tests {
         // Run 1 (direction_id 1, arc decreasing) mid leg (dt=55 -> p=0.5, arc 50):
         // same track segment, opposite travel -> yaw ~ pi.
         let r1 = find_run(&v, 1).unwrap();
-        assert!((r1[3].abs() - std::f32::consts::PI).abs() < 1e-3, "dir1 yaw={} expected ±pi", r1[3]);
+        assert!(
+            (r1[3].abs() - std::f32::consts::PI).abs() < 1e-3,
+            "dir1 yaw={} expected ±pi",
+            r1[3]
+        );
         // While dwelling the yaw also faces direction of travel.
         let v = eval(&w, WED, 36_005.0);
         let r1 = find_run(&v, 1).unwrap();
@@ -537,14 +648,22 @@ mod tests {
             (150.0, [100.0, 50.0, 15.0], std::f32::consts::FRAC_PI_2),
             (200.0, [100.0, 100.0, 15.0], std::f32::consts::FRAC_PI_2),
             (250.0, [100.0, 100.0, 15.0], std::f32::consts::FRAC_PI_2), // clamped past end
-            (-10.0, [0.0, 0.0, 15.0], 0.0),                            // clamped before start
+            (-10.0, [0.0, 0.0, 15.0], 0.0),                             // clamped before start
         ];
         for (arc, want_pos, want_yaw) in cases {
             let (pos, yaw) = sample_track(route, arc, false);
             for k in 0..3 {
-                assert!((pos[k] - want_pos[k]).abs() < 1e-4, "arc={arc} lane{k} {} vs {}", pos[k], want_pos[k]);
+                assert!(
+                    (pos[k] - want_pos[k]).abs() < 1e-4,
+                    "arc={arc} lane{k} {} vs {}",
+                    pos[k],
+                    want_pos[k]
+                );
             }
-            assert!((yaw - want_yaw).abs() < 1e-5, "arc={arc} yaw {yaw} vs {want_yaw}");
+            assert!(
+                (yaw - want_yaw).abs() < 1e-5,
+                "arc={arc} yaw {yaw} vs {want_yaw}"
+            );
         }
         // Vertex tangent is direction-aware: at arc=100 travelling in reverse,
         // the preceding (east) segment applies.
@@ -608,6 +727,9 @@ mod tests {
         let mut bad = synthetic_doc();
         bad.magic = 0xDEAD_BEEF;
         let bytes = bincode::serde::encode_to_vec(&bad, bincode::config::standard()).unwrap();
-        assert!(matches!(SimWorld::from_bytes(&bytes), Err(CacheError::BadMagic(_))));
+        assert!(matches!(
+            SimWorld::from_bytes(&bytes),
+            Err(CacheError::BadMagic(_))
+        ));
     }
 }

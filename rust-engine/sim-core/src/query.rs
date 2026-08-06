@@ -12,7 +12,7 @@ use serde::Serialize;
 
 use crate::calendar::{previous_date, service_active_on};
 use crate::model::{InterchangeRef, PatternDoc, RouteDoc};
-use crate::world::{SimWorld, STATE_DWELL, STATE_TRANSIT};
+use crate::world::{STATE_DWELL, STATE_TRANSIT, SimWorld};
 
 /// One scheduled call, in seconds since the run's own service-day midnight.
 #[derive(Debug, Clone, Serialize)]
@@ -112,7 +112,10 @@ struct Frame {
 /// Returned as a fixed array so per-run lookups never allocate.
 fn frames(active_today: bool, active_prev: bool, sec_of_day: f64) -> [Option<Frame>; 2] {
     [
-        active_today.then_some(Frame { t_abs: sec_of_day, to_query_frame: 0 }),
+        active_today.then_some(Frame {
+            t_abs: sec_of_day,
+            to_query_frame: 0,
+        }),
         active_prev.then_some(Frame {
             t_abs: sec_of_day + 86_400.0,
             to_query_frame: -86_400,
@@ -122,7 +125,12 @@ fn frames(active_today: bool, active_prev: bool, sec_of_day: f64) -> [Option<Fra
 
 impl SimWorld {
     /// Service-activity flags for one run's calendar, for both frames.
-    fn run_frames(&self, run_idx: usize, date_yyyymmdd: u32, sec_of_day: f64) -> [Option<Frame>; 2] {
+    fn run_frames(
+        &self,
+        run_idx: usize,
+        date_yyyymmdd: u32,
+        sec_of_day: f64,
+    ) -> [Option<Frame>; 2] {
         let run = &self.doc().runs[run_idx];
         let svc = &self.doc().services[run.service_idx as usize];
         frames(
@@ -190,8 +198,16 @@ impl SimWorld {
         let (at_station, prev_station, next_stop_ordinal, current_stop_ordinal) = if dwelling {
             (
                 Some(name_of(cur)),
-                if cur > 0 { Some(name_of(cur - 1)) } else { None },
-                if cur + 1 < stops.len() { Some(cur + 1) } else { None },
+                if cur > 0 {
+                    Some(name_of(cur - 1))
+                } else {
+                    None
+                },
+                if cur + 1 < stops.len() {
+                    Some(cur + 1)
+                } else {
+                    None
+                },
                 Some(cur),
             )
         } else {
@@ -215,7 +231,11 @@ impl SimWorld {
             direction: pattern.direction,
             origin: stops.first().map(|s| s.name_en.clone()).unwrap_or_default(),
             destination: stops.last().map(|s| s.name_en.clone()).unwrap_or_default(),
-            state: if dwelling { STATE_DWELL as u8 } else { STATE_TRANSIT as u8 },
+            state: if dwelling {
+                STATE_DWELL as u8
+            } else {
+                STATE_TRANSIT as u8
+            },
             at_station,
             prev_station,
             next_station: next_stop_ordinal.map(name_of),
@@ -259,7 +279,12 @@ impl SimWorld {
         let active: Vec<[bool; 2]> = doc
             .services
             .iter()
-            .map(|s| [service_active_on(s, date_yyyymmdd), service_active_on(s, prev)])
+            .map(|s| {
+                [
+                    service_active_on(s, date_yyyymmdd),
+                    service_active_on(s, prev),
+                ]
+            })
             .collect();
 
         let now = sec_of_day as i64;
@@ -396,7 +421,10 @@ mod tests {
     fn a_track_only_route_still_reports_its_stations() {
         let world = world_with_track_only_route();
         let stations = world.stations();
-        assert!(stations.iter().any(|s| s.route_idx == 1), "stations feed click picking");
+        assert!(
+            stations.iter().any(|s| s.route_idx == 1),
+            "stations feed click picking"
+        );
     }
 
     const WED: u32 = 20260722;
@@ -500,7 +528,10 @@ mod tests {
         // Run 0 arrives B at 36100, departs 36130. Query at 36120: still shown
         // (in_s = -20, inside the grace window) because it is sitting there.
         let b = w.station_board(0, 1, WED, 36_120.0, 10).unwrap();
-        assert!(b.entries.iter().any(|e| e.run_idx == 0), "dwelling train kept");
+        assert!(
+            b.entries.iter().any(|e| e.run_idx == 0),
+            "dwelling train kept"
+        );
         // Long past: gone.
         let b = w.station_board(0, 1, WED, 40_000.0, 10).unwrap();
         assert!(!b.entries.iter().any(|e| e.run_idx == 0));

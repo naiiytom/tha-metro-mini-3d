@@ -239,7 +239,11 @@ mod tests {
         let poly = vec![[0.0, 0.0, 0.0], [100.0, 0.0, 0.0], [100.0, 100.0, 0.0]];
         let arc = cumulative_arc(&poly);
         let cands = snap_candidates(&poly, &arc, [30.0, 4.0]);
-        assert_eq!(cands.len(), 1, "a single-dip point must yield exactly one candidate");
+        assert_eq!(
+            cands.len(),
+            1,
+            "a single-dip point must yield exactly one candidate"
+        );
         let (old_a, old_d) = snap_to_polyline(&poly, &arc, [30.0, 4.0]);
         assert!((cands[0].0 - old_a).abs() < 1e-6);
         assert!((cands[0].1 - old_d).abs() < 1e-6);
@@ -268,7 +272,10 @@ mod tests {
         );
         // One candidate near arc 0 (the start), one near the end of the polyline.
         let total = *arc.last().unwrap();
-        assert!(cands.iter().any(|&(a, d)| a < 50.0 && d < 1.0), "expected a near-start candidate");
+        assert!(
+            cands.iter().any(|&(a, d)| a < 50.0 && d < 1.0),
+            "expected a near-start candidate"
+        );
         assert!(
             cands.iter().any(|&(a, d)| a > total - 50.0 && d < 10.0),
             "expected a near-end candidate"

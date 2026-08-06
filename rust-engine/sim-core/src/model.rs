@@ -14,8 +14,8 @@ pub struct CacheDoc {
     pub version: u16,         // 3 (TMB_VERSION above)
     pub feed_version: String, // "20260729"
     pub generated_unix: i64,
-    pub origin_lng: f64, // MUST equal frontend ORIGIN_LNG_LAT
-    pub origin_lat: f64, // (100.5332, 13.7456)
+    pub origin_lng: f64,       // MUST equal frontend ORIGIN_LNG_LAT
+    pub origin_lat: f64,       // (100.5332, 13.7456)
     pub routes: Vec<RouteDoc>, // order == src/data/network.json `lines` order
     pub services: Vec<ServiceDoc>,
     pub patterns: Vec<PatternDoc>,
@@ -82,9 +82,9 @@ pub struct InterchangeRef {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ServiceDoc {
     pub gtfs_service_id: String,
-    pub weekday_mask: u8, // bit0=Monday … bit6=Sunday
-    pub start_date: u32,  // YYYYMMDD inclusive
-    pub end_date: u32,    // YYYYMMDD inclusive
+    pub weekday_mask: u8,        // bit0=Monday … bit6=Sunday
+    pub start_date: u32,         // YYYYMMDD inclusive
+    pub end_date: u32,           // YYYYMMDD inclusive
     pub added_dates: Vec<u32>,   // calendar_dates exception_type 1
     pub removed_dates: Vec<u32>, // calendar_dates exception_type 2
 }
