@@ -444,6 +444,18 @@ export function MapContainer() {
       }
     });
 
+    // Station search / nearest-station selection requests a one-shot camera
+    // jump (see useAppStore's flyToRequest doc comment). Not per-frame —
+    // §3A.7 doesn't apply — a UI action fired at most once per selection,
+    // cleared immediately after MapLibre picks it up.
+    const unsubscribeFlyTo = useAppStore.subscribe((state, prev) => {
+      if (state.flyToRequest && state.flyToRequest !== prev.flyToRequest) {
+        const { lng, lat } = state.flyToRequest;
+        map.easeTo({ center: [lng, lat], zoom: 16, duration: 800 });
+        useAppStore.getState().clearFlyToRequest();
+      }
+    });
+
     // Dev builds always expose these; a production build (tools/verify-perf.mjs
     // runs against `npm run preview`, i.e. a real prod bundle — dev-mode React
     // and unminified Three would make the NF1 numbers meaningless) exposes them
@@ -471,6 +483,7 @@ export function MapContainer() {
       cancelAnimationFrame(rafId);
       removeCameraControls();
       unsubscribeFollow();
+      unsubscribeFlyTo();
       unsubscribeVisibility();
       if (tooltipTimer !== null) clearInterval(tooltipTimer);
       unsubscribeTooltipSelection?.();
