@@ -104,6 +104,19 @@ interface AppState {
    *  power (roadmap item 2). Off by default. */
   ecoMode: boolean;
   setEcoMode: (on: boolean) => void;
+
+  /** Station search panel (roadmap item 3). */
+  searchOpen: boolean;
+  setSearchOpen: (open: boolean) => void;
+
+  /** One-shot camera-jump request from station search / nearest-station
+   *  selection. `window.__map` is dev/debug-only, so this store field is how
+   *  a UI action reaches MapContainer.tsx's real MapLibre instance. Cleared
+   *  immediately after MapContainer's subscribe handler consumes it — this
+   *  is a UI-rate one-shot event, not per-frame state (§3A.7 doesn't apply). */
+  flyToRequest: { lng: number; lat: number } | null;
+  requestFlyTo: (target: { lng: number; lat: number }) => void;
+  clearFlyToRequest: () => void;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -176,4 +189,11 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   ecoMode: false,
   setEcoMode: (on) => set({ ecoMode: on }),
+
+  searchOpen: false,
+  setSearchOpen: (open) => set({ searchOpen: open }),
+
+  flyToRequest: null,
+  requestFlyTo: (target) => set({ flyToRequest: target }),
+  clearFlyToRequest: () => set({ flyToRequest: null }),
 }));

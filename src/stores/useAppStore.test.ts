@@ -51,3 +51,26 @@ describe("theme mode", () => {
     }
   });
 });
+
+describe("station search", () => {
+  beforeEach(() => useAppStore.setState({ searchOpen: false, flyToRequest: null }));
+
+  it("defaults to closed with no pending fly-to request", () => {
+    expect(useAppStore.getState().searchOpen).toBe(false);
+    expect(useAppStore.getState().flyToRequest).toBeNull();
+  });
+
+  it("opens and closes the search panel", () => {
+    useAppStore.getState().setSearchOpen(true);
+    expect(useAppStore.getState().searchOpen).toBe(true);
+    useAppStore.getState().setSearchOpen(false);
+    expect(useAppStore.getState().searchOpen).toBe(false);
+  });
+
+  it("sets and clears a fly-to request", () => {
+    useAppStore.getState().requestFlyTo({ lng: 100.5, lat: 13.75 });
+    expect(useAppStore.getState().flyToRequest).toEqual({ lng: 100.5, lat: 13.75 });
+    useAppStore.getState().clearFlyToRequest();
+    expect(useAppStore.getState().flyToRequest).toBeNull();
+  });
+});
