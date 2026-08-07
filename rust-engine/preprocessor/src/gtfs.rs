@@ -276,17 +276,19 @@ pub fn read_calendar(
 }
 
 /// service_id -> (added_dates, removed_dates).
+type CalendarExceptions = HashMap<String, (Vec<u32>, Vec<u32>)>;
+
 pub fn read_calendar_dates(
     dir: &Path,
     service_ids: &HashSet<String>,
-) -> Result<HashMap<String, (Vec<u32>, Vec<u32>)>, String> {
+) -> Result<CalendarExceptions, String> {
     let mut t = Table::open(dir, "calendar_dates.txt")?;
     let (c_id, c_date, c_type) = (
         t.col("service_id")?,
         t.col("date")?,
         t.col("exception_type")?,
     );
-    let mut out: HashMap<String, (Vec<u32>, Vec<u32>)> = HashMap::new();
+    let mut out: CalendarExceptions = HashMap::new();
     for rec in t.rows() {
         let rec = rec.map_err(|e| format!("calendar_dates.txt: {e}"))?;
         let id = rec.get(c_id).unwrap_or("");
@@ -309,20 +311,16 @@ pub fn read_calendar_dates(
     Ok(out)
 }
 
-pub struct RouteRow {
-    pub short_name: String,
-    pub color_rgb: u32,
-}
-
-pub fn read_routes(dir: &Path, route_ids: &[&str]) -> Result<HashMap<String, RouteRow>, String> {
+/// Confirms every wanted route_id is present in routes.txt (with a
+/// parseable route_color, a real feed-integrity check) and returns the
+/// route_ids actually found. Colour and short-name are sourced from
+/// network.json's line registry, not GTFS, so this is presence/validation
+/// only — callers never need the row contents themselves.
+pub fn read_routes(dir: &Path, route_ids: &[&str]) -> Result<HashSet<String>, String> {
     let mut t = Table::open(dir, "routes.txt")?;
-    let (c_id, c_short, c_color) = (
-        t.col("route_id")?,
-        t.col("route_short_name")?,
-        t.col("route_color")?,
-    );
+    let (c_id, c_color) = (t.col("route_id")?, t.col("route_color")?);
     let wanted: HashSet<&str> = route_ids.iter().copied().collect();
-    let mut out = HashMap::new();
+    let mut found = HashSet::new();
     for rec in t.rows() {
         let rec = rec.map_err(|e| format!("routes.txt: {e}"))?;
         let id = rec.get(c_id).unwrap_or("");
@@ -330,22 +328,17 @@ pub fn read_routes(dir: &Path, route_ids: &[&str]) -> Result<HashMap<String, Rou
             continue;
         }
         let color = rec.get(c_color).unwrap_or("").trim();
-        out.insert(
-            id.to_string(),
-            RouteRow {
-                short_name: rec.get(c_short).unwrap_or("").trim().to_string(),
-                color_rgb: u32::from_str_radix(color, 16)
-                    .map_err(|_| format!("routes.txt: bad route_color '{color}'"))?,
-            },
-        );
+        u32::from_str_radix(color, 16)
+            .map_err(|_| format!("routes.txt: bad route_color '{color}'"))?;
+        found.insert(id.to_string());
     }
-    Ok(out)
+    Ok(found)
 }
 
 pub fn read_feed_version(dir: &Path) -> Result<String, String> {
     let mut t = Table::open(dir, "feed_info.txt")?;
     let c = t.col("feed_version")?;
-    for rec in t.rows() {
+    if let Some(rec) = t.rows().next() {
         let rec = rec.map_err(|e| format!("feed_info.txt: {e}"))?;
         return Ok(rec.get(c).unwrap_or("").trim().to_string());
     }

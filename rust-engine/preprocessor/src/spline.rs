@@ -34,7 +34,7 @@ pub fn catmull_rom_resample(pts: &[P3], spacing: f64) -> Result<Vec<P3>, String>
     // Drop consecutive duplicates (would produce zero knot intervals).
     let mut ctrl: Vec<P3> = Vec::with_capacity(pts.len());
     for &p in pts {
-        if ctrl.last().map_or(true, |&q| dist(p, q) > 1e-9) {
+        if ctrl.last().is_none_or(|&q| dist(p, q) > 1e-9) {
             ctrl.push(p);
         }
     }

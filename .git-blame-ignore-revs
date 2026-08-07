@@ -1,0 +1,10 @@
+# Commits listed here are skipped by `git blame` when it's configured to
+# read this file (see below). Only whitespace/formatting-only commits
+# belong here — anything that changes logic must stay visible in blame.
+#
+# To use: git config blame.ignoreRevsFile .git-blame-ignore-revs
+# (GitHub's own blame view reads this file automatically, no config needed.)
+
+# ran fmt and linting (PR #12) — whitespace-only `cargo fmt --all` pass over
+# rust-engine/, byte-for-byte reproducible from `main` at this point.
+98c7902d590196a144240520517f9a300f3aeb96

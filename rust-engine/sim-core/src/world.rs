@@ -699,7 +699,7 @@ mod tests {
     fn max_vehicles_has_headroom_over_the_nf1_target() {
         // SRS NF1 targets 300 concurrent; the buffer must not be the thing
         // that clips a network peak.
-        assert!(MAX_VEHICLES >= 1024);
+        const { assert!(MAX_VEHICLES >= 1024) };
     }
 
     #[test]
@@ -714,7 +714,7 @@ mod tests {
     #[test]
     fn from_bytes_roundtrip_and_magic_check() {
         let bytes =
-            bincode::serde::encode_to_vec(&synthetic_doc(), bincode::config::standard()).unwrap();
+            bincode::serde::encode_to_vec(synthetic_doc(), bincode::config::standard()).unwrap();
         let w = SimWorld::from_bytes(&bytes).unwrap();
         let v = w.validation();
         assert_eq!(v.routes, 1);

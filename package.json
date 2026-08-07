@@ -16,6 +16,8 @@
     "data:preprocess": "cargo run --manifest-path rust-engine/Cargo.toml -p preprocessor --release -- --track src/data/network.json --out public/data/network.tmb --report public/data/network.report.json",
     "wasm:build": "wasm-pack build rust-engine/wasm --release --target web --out-dir ../../src/sim/pkg",
     "rust:test": "cargo test --manifest-path rust-engine/Cargo.toml",
+    "rust:fmt": "cargo fmt --manifest-path rust-engine/Cargo.toml --all",
+    "rust:lint": "cargo clippy --manifest-path rust-engine/Cargo.toml --workspace --all-targets",
     "verify:camera": "node tools/verify-camera.mjs",
     "verify:mvp4": "node tools/verify-mvp4.mjs",
     "verify:kinematics": "node tools/verify-kinematics.mjs",

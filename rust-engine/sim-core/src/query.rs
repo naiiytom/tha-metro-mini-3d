@@ -306,7 +306,7 @@ impl SimWorld {
                 // Into the queried day's frame so times are comparable.
                 let arrival = (run.start_sec + stop.arrival_s) as i64 + frame.to_query_frame;
                 let in_s = arrival - now;
-                if in_s < -GRACE_S || in_s > HORIZON_S {
+                if !(-GRACE_S..=HORIZON_S).contains(&in_s) {
                     continue;
                 }
                 let departure = (run.start_sec + stop.departure_s) as i64 + frame.to_query_frame;

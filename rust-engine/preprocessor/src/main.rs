@@ -172,7 +172,9 @@ struct LineGeometry {
 /// One track vertex from network.json: [lng, lat, altitude_m, structure].
 /// The structure tag is a rendering concern (src/map/structure.ts); the
 /// preprocessor needs only the altitude, but must tolerate the 4th element.
+// Field 3 is tolerated so serde accepts 4-element arrays; never read outside tests.
 #[derive(Deserialize)]
+#[allow(dead_code)]
 struct TrackVertex(f64, f64, f64, #[serde(default)] String);
 
 #[derive(Deserialize)]
@@ -276,9 +278,9 @@ fn run() -> Result<(), String> {
     }
 
     let feed_version = gtfs::read_feed_version(gtfs_dir)?;
-    let route_rows = gtfs::read_routes(gtfs_dir, &simulated_route_ids)?;
+    let route_ids_found = gtfs::read_routes(gtfs_dir, &simulated_route_ids)?;
     for id in &simulated_route_ids {
-        if !route_rows.contains_key(*id) {
+        if !route_ids_found.contains(*id) {
             return Err(format!("route_id '{id}' not found in routes.txt"));
         }
     }

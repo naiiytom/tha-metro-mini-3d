@@ -70,6 +70,9 @@ mod tests {
     /// Cross-check against the TS implementation (src/map/coordinates.ts).
     /// Expected values computed by executing MapLibre 4.7.1's exact formulas
     /// (earthRadius 6371008.8) in Node for real Green Line stop coordinates.
+    // These are MapLibre ENU parity constants (see CLAUDE.md: don't "fix"
+    // this to fewer digits — sub-millimeter TS<->Rust parity is load-bearing).
+    #[allow(clippy::excessive_precision)]
     #[test]
     fn enu_projection_matches_maplibre_ts() {
         let p = EnuProjector::new(ORIGIN_LNG_LAT.0, ORIGIN_LNG_LAT.1);
