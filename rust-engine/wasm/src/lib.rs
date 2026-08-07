@@ -3,7 +3,7 @@
 //! Regenerate the committed pkg with:
 //!   wasm-pack build rust-engine/wasm --release --target web --out-dir ../../src/sim/pkg
 
-use sim_core::{SimWorld, MAX_VEHICLES, VEHICLE_STRIDE};
+use sim_core::{MAX_VEHICLES, SimWorld, VEHICLE_STRIDE};
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
@@ -17,7 +17,10 @@ impl Engine {
     #[wasm_bindgen(constructor)]
     pub fn new(cache_bytes: &[u8]) -> Result<Engine, JsError> {
         let world = SimWorld::from_bytes(cache_bytes).map_err(|e| JsError::new(&e.to_string()))?;
-        Ok(Engine { world, buf: vec![0.0; MAX_VEHICLES * VEHICLE_STRIDE] })
+        Ok(Engine {
+            world,
+            buf: vec![0.0; MAX_VEHICLES * VEHICLE_STRIDE],
+        })
     }
 
     /// ValidationSummary as JSON (stations/patterns/runs/services/feed_version).
@@ -28,7 +31,9 @@ impl Engine {
     /// Evaluates into the internal buffer and copies into `out` (a JS-owned
     /// Float32Array view of length >= MAX_VEHICLES*8). Returns vehicle count.
     pub fn evaluate(&mut self, date_yyyymmdd: u32, sec_of_day: f64, out: &mut [f32]) -> usize {
-        let count = self.world.evaluate(date_yyyymmdd, sec_of_day, &mut self.buf);
+        let count = self
+            .world
+            .evaluate(date_yyyymmdd, sec_of_day, &mut self.buf);
         let n = count * VEHICLE_STRIDE;
         out[..n].copy_from_slice(&self.buf[..n]);
         count

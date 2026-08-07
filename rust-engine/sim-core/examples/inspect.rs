@@ -1,11 +1,13 @@
 //! Debug helper: evaluate a .tmb cache at a Bangkok-local date/time.
 //! Usage: cargo run -p sim-core --example inspect -- <path.tmb> <YYYYMMDD> <sec_of_day>
 
-use sim_core::{SimWorld, MAX_VEHICLES, VEHICLE_STRIDE};
+use sim_core::{MAX_VEHICLES, SimWorld, VEHICLE_STRIDE};
 
 fn main() {
     let mut args = std::env::args().skip(1);
-    let path = args.next().expect("usage: inspect <path.tmb> <YYYYMMDD> <sec_of_day>");
+    let path = args
+        .next()
+        .expect("usage: inspect <path.tmb> <YYYYMMDD> <sec_of_day>");
     let date: u32 = args.next().expect("date").parse().unwrap();
     let sec: f64 = args.next().expect("sec").parse().unwrap();
 

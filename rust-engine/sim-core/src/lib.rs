@@ -12,6 +12,4 @@ pub use model::{
     TMB_VERSION,
 };
 pub use query::{BoardEntry, RunDetail, StationBoard, StationInfo, StopCall};
-pub use world::{
-    CacheError, SimWorld, ValidationSummary, MAX_VEHICLES, VEHICLE_STRIDE,
-};
+pub use world::{CacheError, MAX_VEHICLES, SimWorld, VEHICLE_STRIDE, ValidationSummary};

@@ -1,0 +1,5 @@
+# Pins the style edition so `cargo fmt` reproduces the same output on any
+# toolchain, rather than relying on rustfmt's own default (2015). All three
+# crates in this workspace are `edition = "2024"`; this file exists mainly
+# to make that explicit for rustfmt too — see PR #12's review.
+style_edition = "2024"

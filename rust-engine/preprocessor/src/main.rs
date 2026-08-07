@@ -19,10 +19,10 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use serde::Deserialize;
+use sim_core::SimWorld;
 use sim_core::calendar::expand_frequency;
 use sim_core::geo::{EnuProjector, ORIGIN_LNG_LAT};
 use sim_core::model::*;
-use sim_core::SimWorld;
 
 const RESAMPLE_SPACING_M: f64 = 10.0;
 const MAX_SNAP_M: f64 = 150.0;
@@ -40,9 +40,13 @@ const SNAP_WARN_M: f64 = 50.0;
 enum SnapVerdict {
     Ok,
     /// Over SNAP_WARN_M, and named in the registry — reported, not fatal.
-    Disclosed { snap_m: f64 },
+    Disclosed {
+        snap_m: f64,
+    },
     /// Over SNAP_WARN_M with no disclosure — fatal.
-    Undisclosed { snap_m: f64 },
+    Undisclosed {
+        snap_m: f64,
+    },
 }
 
 /// Classify one stop's snap distance against the warning band.
@@ -60,8 +64,8 @@ fn classify_snap(
     if snap_m <= SNAP_WARN_M {
         return SnapVerdict::Ok;
     }
-    let disclosed = warn_exempt.iter().any(|s| s == stop_id)
-        || allow_large.iter().any(|s| s == stop_id);
+    let disclosed =
+        warn_exempt.iter().any(|s| s == stop_id) || allow_large.iter().any(|s| s == stop_id);
     if disclosed {
         SnapVerdict::Disclosed { snap_m }
     } else {
@@ -168,7 +172,9 @@ struct LineGeometry {
 /// One track vertex from network.json: [lng, lat, altitude_m, structure].
 /// The structure tag is a rendering concern (src/map/structure.ts); the
 /// preprocessor needs only the altitude, but must tolerate the 4th element.
+// Field 3 is tolerated so serde accepts 4-element arrays; never read outside tests.
 #[derive(Deserialize)]
+#[allow(dead_code)]
 struct TrackVertex(f64, f64, f64, #[serde(default)] String);
 
 #[derive(Deserialize)]
@@ -272,9 +278,9 @@ fn run() -> Result<(), String> {
     }
 
     let feed_version = gtfs::read_feed_version(gtfs_dir)?;
-    let route_rows = gtfs::read_routes(gtfs_dir, &simulated_route_ids)?;
+    let route_ids_found = gtfs::read_routes(gtfs_dir, &simulated_route_ids)?;
     for id in &simulated_route_ids {
-        if !route_rows.contains_key(*id) {
+        if !route_ids_found.contains(*id) {
             return Err(format!("route_id '{id}' not found in routes.txt"));
         }
     }
@@ -302,7 +308,10 @@ fn run() -> Result<(), String> {
                 return None;
             }
             l.gtfs_route_id.as_deref().map(|id| {
-                (id, l.exclude_gtfs_stop_ids.iter().map(String::as_str).collect())
+                (
+                    id,
+                    l.exclude_gtfs_stop_ids.iter().map(String::as_str).collect(),
+                )
             })
         })
         .collect();
@@ -346,7 +355,13 @@ fn run() -> Result<(), String> {
                 return None;
             }
             l.gtfs_route_id.as_deref().map(|id| {
-                (id, l.allow_large_snap_stop_ids.iter().map(String::as_str).collect())
+                (
+                    id,
+                    l.allow_large_snap_stop_ids
+                        .iter()
+                        .map(String::as_str)
+                        .collect(),
+                )
             })
         })
         .collect();
@@ -358,7 +373,9 @@ fn run() -> Result<(), String> {
     let stop_rows = gtfs::read_stops(gtfs_dir, &all_stop_ids)?;
     for id in &all_stop_ids {
         if !stop_rows.contains_key(id) {
-            return Err(format!("unknown stop id '{id}' (in stop_times but not stops.txt)"));
+            return Err(format!(
+                "unknown stop id '{id}' (in stop_times but not stops.txt)"
+            ));
         }
     }
 
@@ -695,7 +712,10 @@ fn run() -> Result<(), String> {
             simulated: line.gtfs_route_id.is_some(),
             name_en,
             color_rgb,
-            track_xyz: poly.iter().map(|p| [p[0] as f32, p[1] as f32, p[2] as f32]).collect(),
+            track_xyz: poly
+                .iter()
+                .map(|p| [p[0] as f32, p[1] as f32, p[2] as f32])
+                .collect(),
             track_arc_m: arcs.iter().map(|&a| a as f32).collect(),
             stations: snapped.into_iter().map(|(_, _, s)| s).collect(),
         });
@@ -703,7 +723,11 @@ fn run() -> Result<(), String> {
         candidate_maps.push(stop_candidates);
     }
 
-    link_interchanges(&mut routes, INTERCHANGE_RADIUS_M, &track_file.interchange_overrides)?;
+    link_interchanges(
+        &mut routes,
+        INTERCHANGE_RADIUS_M,
+        &track_file.interchange_overrides,
+    )?;
 
     // ---- Services ----------------------------------------------------------
     let mut service_id_list: Vec<String> = service_ids.iter().cloned().collect();
@@ -758,19 +782,17 @@ fn run() -> Result<(), String> {
         let mut station_idxs = Vec::with_capacity(rows.len());
         let mut candidate_lists = Vec::with_capacity(rows.len());
         for row in rows {
-            let station_idx = *station_maps[route_idx]
-                .get(&row.stop_id)
-                .ok_or(format!("trip {}: unknown stop id {}", trip.trip_id, row.stop_id))?;
+            let station_idx = *station_maps[route_idx].get(&row.stop_id).ok_or(format!(
+                "trip {}: unknown stop id {}",
+                trip.trip_id, row.stop_id
+            ))?;
             station_idxs.push(station_idx);
-            candidate_lists.push(
-                candidate_maps[route_idx]
-                    .get(&row.stop_id)
-                    .cloned()
-                    .ok_or(format!(
-                        "trip {}: stop {} has no snap candidates recorded",
-                        trip.trip_id, row.stop_id
-                    ))?,
-            );
+            candidate_lists.push(candidate_maps[route_idx].get(&row.stop_id).cloned().ok_or(
+                format!(
+                    "trip {}: stop {} has no snap candidates recorded",
+                    trip.trip_id, row.stop_id
+                ),
+            )?);
         }
         let (resolved_arcs, resolved_dists, used_fallback) =
             resolve_pattern_arcs_full(&candidate_lists);
@@ -850,7 +872,10 @@ fn run() -> Result<(), String> {
     for trip in &trips {
         let pattern_idx = pattern_idx_by_trip[&trip.trip_id];
         let service_idx = service_idx_by_id[&trip.service_id];
-        let first_arrival_s = stop_times[&trip.trip_id].first().map(|r| r.arrival_s).unwrap_or(0);
+        let first_arrival_s = stop_times[&trip.trip_id]
+            .first()
+            .map(|r| r.arrival_s)
+            .unwrap_or(0);
         runs.extend(runs_for_pattern(
             &trip.trip_id,
             &frequencies,
@@ -868,7 +893,9 @@ fn run() -> Result<(), String> {
         if !route.simulated {
             continue;
         }
-        let has_runs = runs.iter().any(|r| patterns[r.pattern_idx as usize].route_idx as usize == idx);
+        let has_runs = runs
+            .iter()
+            .any(|r| patterns[r.pattern_idx as usize].route_idx as usize == idx);
         if !has_runs {
             return Err(format!(
                 "route '{}' ({}) is marked simulated but expanded to zero runs — \
@@ -899,12 +926,10 @@ fn run() -> Result<(), String> {
     if let Some(dir) = args.out.parent() {
         std::fs::create_dir_all(dir).map_err(|e| format!("mkdir {}: {e}", dir.display()))?;
     }
-    std::fs::write(&args.out, &bytes)
-        .map_err(|e| format!("write {}: {e}", args.out.display()))?;
+    std::fs::write(&args.out, &bytes).map_err(|e| format!("write {}: {e}", args.out.display()))?;
 
     let gzip_bytes = {
-        let mut gz =
-            flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
         gz.write_all(&bytes).map_err(|e| e.to_string())?;
         gz.finish().map_err(|e| e.to_string())?.len()
     };
@@ -953,7 +978,9 @@ fn run() -> Result<(), String> {
             r.stations.iter().enumerate().flat_map(move |(si, st)| {
                 st.interchanges
                     .iter()
-                    .filter(move |link| (ri, si) < (link.route_idx as usize, link.station_idx as usize))
+                    .filter(move |link| {
+                        (ri, si) < (link.route_idx as usize, link.station_idx as usize)
+                    })
                     .map(move |link| (ri, si, link))
             })
         })
@@ -1014,8 +1041,7 @@ fn run() -> Result<(), String> {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir).map_err(|e| format!("mkdir {}: {e}", dir.display()))?;
         }
-        std::fs::write(path, &report_str)
-            .map_err(|e| format!("write {}: {e}", path.display()))?;
+        std::fs::write(path, &report_str).map_err(|e| format!("write {}: {e}", path.display()))?;
     }
     println!("{report_str}");
     Ok(())
@@ -1046,7 +1072,14 @@ fn link_interchanges(
     for (ri, route) in routes.iter().enumerate() {
         for (si, st) in route.stations.iter().enumerate() {
             let [x, y, _z] = sim_core::world::position_at_arc(route, st.arc_m);
-            pts.push((ri, si, x, y, route.line_key.clone(), st.gtfs_stop_id.clone()));
+            pts.push((
+                ri,
+                si,
+                x,
+                y,
+                route.line_key.clone(),
+                st.gtfs_stop_id.clone(),
+            ));
         }
     }
 
@@ -1055,15 +1088,20 @@ fn link_interchanges(
     let mut override_matched = vec![false; overrides.len()];
     for i in 0..pts.len() {
         for j in (i + 1)..pts.len() {
-            let (ri, si, xi, yi, li, idi) = (pts[i].0, pts[i].1, pts[i].2, pts[i].3, &pts[i].4, &pts[i].5);
-            let (rj, sj, xj, yj, lj, idj) = (pts[j].0, pts[j].1, pts[j].2, pts[j].3, &pts[j].4, &pts[j].5);
+            let (ri, si, xi, yi, li, idi) =
+                (pts[i].0, pts[i].1, pts[i].2, pts[i].3, &pts[i].4, &pts[i].5);
+            let (rj, sj, xj, yj, lj, idj) =
+                (pts[j].0, pts[j].1, pts[j].2, pts[j].3, &pts[j].4, &pts[j].5);
             if ri == rj {
                 continue; // same line: adjacent stations are not an interchange
             }
             let near = (xi - xj).powi(2) + (yi - yj).powi(2) <= r2;
             let mut forced = false;
             for (oi, o) in overrides.iter().enumerate() {
-                let hit = (o.a_line == *li && o.a_stop == *idi && o.b_line == *lj && o.b_stop == *idj)
+                let hit = (o.a_line == *li
+                    && o.a_stop == *idi
+                    && o.b_line == *lj
+                    && o.b_stop == *idj)
                     || (o.a_line == *lj && o.a_stop == *idj && o.b_line == *li && o.b_stop == *idi);
                 if hit {
                     override_matched[oi] = true;
@@ -1091,12 +1129,14 @@ fn link_interchanges(
     }
 
     for (ri, si, rj, sj) in links {
-        routes[ri].stations[si]
-            .interchanges
-            .push(InterchangeRef { route_idx: rj as u16, station_idx: sj as u16 });
-        routes[rj].stations[sj]
-            .interchanges
-            .push(InterchangeRef { route_idx: ri as u16, station_idx: si as u16 });
+        routes[ri].stations[si].interchanges.push(InterchangeRef {
+            route_idx: rj as u16,
+            station_idx: sj as u16,
+        });
+        routes[rj].stations[sj].interchanges.push(InterchangeRef {
+            route_idx: ri as u16,
+            station_idx: si as u16,
+        });
     }
     Ok(())
 }
@@ -1138,11 +1178,19 @@ fn runs_for_pattern(
     for f in freqs.iter().filter(|f| f.trip_id == trip_id) {
         had_freq = true;
         for start_sec in expand_frequency(f.start_sec, f.end_sec, f.headway_secs) {
-            runs.push(RunDoc { pattern_idx, service_idx, start_sec });
+            runs.push(RunDoc {
+                pattern_idx,
+                service_idx,
+                start_sec,
+            });
         }
     }
     if !had_freq {
-        runs.push(RunDoc { pattern_idx, service_idx, start_sec: first_arrival_s });
+        runs.push(RunDoc {
+            pattern_idx,
+            service_idx,
+            start_sec: first_arrival_s,
+        });
     }
     runs
 }
@@ -1229,7 +1277,9 @@ fn resolve_pattern_arcs(candidate_lists: &[Vec<(f64, f64)>]) -> (Vec<f64>, Vec<b
 /// the station-snapping loop only ever validated each stop's
 /// globally-nearest candidate, not whichever candidate a specific pattern
 /// goes on to choose.
-fn resolve_pattern_arcs_full(candidate_lists: &[Vec<(f64, f64)>]) -> (Vec<f64>, Vec<f64>, Vec<bool>) {
+fn resolve_pattern_arcs_full(
+    candidate_lists: &[Vec<(f64, f64)>],
+) -> (Vec<f64>, Vec<f64>, Vec<bool>) {
     fn nearest(cands: &[(f64, f64)]) -> (f64, f64) {
         *cands
             .iter()
@@ -1416,9 +1466,15 @@ mod tests {
     fn parse_hex_color_accepts_six_digits_and_rejects_short_forms() {
         assert_eq!(parse_hex_color("#00FF80").unwrap(), 0x00FF80);
         assert_eq!(parse_hex_color("112233").unwrap(), 0x112233);
-        assert!(parse_hex_color("#FFF").is_err(), "3-digit shorthand must not silently parse");
+        assert!(
+            parse_hex_color("#FFF").is_err(),
+            "3-digit shorthand must not silently parse"
+        );
         assert!(parse_hex_color("#GGGGGG").is_err());
-        assert!(parse_hex_color("#1234567").is_err(), "7 digits must not silently truncate");
+        assert!(
+            parse_hex_color("#1234567").is_err(),
+            "7 digits must not silently truncate"
+        );
     }
 
     #[test]
@@ -1427,7 +1483,11 @@ mod tests {
         assert_eq!(file.lines[0].key, "a");
         assert_eq!(file.lines[1].key, "b");
         // The invariant the whole plan rests on: routes[i] is lines[i].
-        let ids: Vec<&str> = file.lines.iter().map(|l| l.gtfs_route_id.as_deref().unwrap()).collect();
+        let ids: Vec<&str> = file
+            .lines
+            .iter()
+            .map(|l| l.gtfs_route_id.as_deref().unwrap())
+            .collect();
         assert_eq!(ids, vec!["1", "9"]);
     }
 
@@ -1443,7 +1503,10 @@ mod tests {
     #[test]
     fn rejects_a_network_file_with_no_lines() {
         let file: TrackFile = serde_json::from_str(r#"{"lines":[]}"#).unwrap();
-        assert!(file.lines.is_empty(), "empty networks must be caught by run(), not silently encoded");
+        assert!(
+            file.lines.is_empty(),
+            "empty networks must be caught by run(), not silently encoded"
+        );
     }
 
     #[test]
@@ -1465,7 +1528,10 @@ mod tests {
         // No frequencies row: the trip's own stop_times ARE the schedule.
         let runs = runs_for_pattern("t2", &[], 25_200, 7, 1);
         assert_eq!(runs.len(), 1);
-        assert_eq!(runs[0].start_sec, 25_200, "07:00 departure keeps its absolute time");
+        assert_eq!(
+            runs[0].start_sec, 25_200,
+            "07:00 departure keeps its absolute time"
+        );
         assert_eq!(runs[0].pattern_idx, 7);
         assert_eq!(runs[0].service_idx, 1);
     }
@@ -1514,11 +1580,23 @@ mod tests {
             route_with_stations("b", &[("b1", 1050.0)]),
         ];
         link_interchanges(&mut routes, 300.0, &[]).unwrap();
-        assert_eq!(routes[0].stations[1].interchanges.len(), 1, "a2 <-> b1 is 50 m");
+        assert_eq!(
+            routes[0].stations[1].interchanges.len(),
+            1,
+            "a2 <-> b1 is 50 m"
+        );
         assert_eq!(routes[0].stations[1].interchanges[0].route_idx, 1);
-        assert!(routes[1].stations[0].interchanges.iter().any(|i| i.route_idx == 0),
-                "the link must be symmetric");
-        assert!(routes[0].stations[0].interchanges.is_empty(), "a1 is 1050 m away");
+        assert!(
+            routes[1].stations[0]
+                .interchanges
+                .iter()
+                .any(|i| i.route_idx == 0),
+            "the link must be symmetric"
+        );
+        assert!(
+            routes[0].stations[0].interchanges.is_empty(),
+            "a1 is 1050 m away"
+        );
     }
 
     #[test]
@@ -1663,11 +1741,11 @@ mod tests {
     /// underdetermined and isn't representative).
     fn tao_poon_to_tha_phra_pattern() -> Vec<Vec<(f64, f64)>> {
         vec![
-            vec![(1_000.0, 2.0)],  // Tao Poon
-            vec![(5_000.0, 2.0)],  // Bang Pho
-            vec![(15_000.0, 2.0)], // ...several ordinary stops...
-            vec![(30_000.0, 2.0)], // Fai Chai
-            vec![(45_000.0, 5.0)], // Charan 13: one pass only
+            vec![(1_000.0, 2.0)],                    // Tao Poon
+            vec![(5_000.0, 2.0)],                    // Bang Pho
+            vec![(15_000.0, 2.0)],                   // ...several ordinary stops...
+            vec![(30_000.0, 2.0)],                   // Fai Chai
+            vec![(45_000.0, 5.0)],                   // Charan 13: one pass only
             vec![(7_400.0, 38.9), (46_900.0, 45.0)], // Tha Phra: two passes
         ]
     }
@@ -1713,7 +1791,11 @@ mod tests {
         let lists = vec![vec![(100.0, 1.0)], vec![(100.0, 1.0)], vec![(200.0, 1.0)]];
         let (arcs, fallback) = resolve_pattern_arcs(&lists);
         assert_eq!(arcs, vec![100.0, 100.0, 200.0]);
-        assert_eq!(fallback, vec![false, false, false], "single-candidate stops never fall back");
+        assert_eq!(
+            fallback,
+            vec![false, false, false],
+            "single-candidate stops never fall back"
+        );
     }
 
     #[test]
@@ -1747,7 +1829,11 @@ mod tests {
              merely-nearest-by-distance one (46,900), because only 7,400 keeps stop 15,000 \
              (which the greedy walk couldn't see coming) monotonic"
         );
-        assert_eq!(fallback, vec![false; 4], "the correct resolution needs no fallback at all");
+        assert_eq!(
+            fallback,
+            vec![false; 4],
+            "the correct resolution needs no fallback at all"
+        );
     }
 
     #[test]
@@ -1759,8 +1845,16 @@ mod tests {
         // only one) and flag it, then resume the constrained walk normally.
         let lists = vec![vec![(100.0, 1.0)], vec![(50.0, 1.0)], vec![(300.0, 1.0)]];
         let (arcs, fallback) = resolve_pattern_arcs(&lists);
-        assert_eq!(arcs, vec![100.0, 50.0, 300.0], "fallback still uses the real (only) position");
-        assert_eq!(fallback, vec![false, true, false], "only the inconsistent stop is flagged");
+        assert_eq!(
+            arcs,
+            vec![100.0, 50.0, 300.0],
+            "fallback still uses the real (only) position"
+        );
+        assert_eq!(
+            fallback,
+            vec![false, true, false],
+            "only the inconsistent stop is flagged"
+        );
     }
 
     #[test]
@@ -1835,7 +1929,10 @@ mod tests {
     #[test]
     fn snap_band_ignores_a_stop_under_the_warn_limit() {
         let exempt: Vec<String> = vec![];
-        assert!(matches!(classify_snap("blue", "1", 12.0, &exempt, &[]), SnapVerdict::Ok));
+        assert!(matches!(
+            classify_snap("blue", "1", 12.0, &exempt, &[]),
+            SnapVerdict::Ok
+        ));
     }
 
     #[test]

@@ -29,7 +29,8 @@ Node.js is required but **not on the system PATH** on this machine — a portabl
 
 Rust toolchain (`stable-x86_64-pc-windows-gnu` — chosen because no MSVC build tools exist on this machine; plus `wasm32-unknown-unknown`, wasm-pack 0.13.1) lives at `%USERPROFILE%\.cargo\bin`, also **not on PATH**:
 
-- `cargo test` (in `rust-engine/`) — 48 sim-core/preprocessor unit tests (26 + 22, as of MVP 6; was 36 = 26 + 10 through MVP 5)
+- `cargo test` (in `rust-engine/`) — 59 sim-core/preprocessor unit tests (26 + 33, as of PR #12's lint pass; was 48 = 26 + 22 through MVP 6, 36 = 26 + 10 through MVP 5)
+- `npm run rust:fmt` / `npm run rust:lint` — `cargo fmt --all` / `cargo clippy --workspace --all-targets` scoped to `rust-engine/` via `--manifest-path`; `rust-engine/rustfmt.toml` pins `style_edition = "2024"` so output is reproducible across toolchains. Run `rust:lint` clean before committing hand-written Rust — clippy drifted to a hard failure (a `never_loop` deny) plus ~13 warnings before PR #12 caught it, entirely unenforced until these scripts existed.
 - `cargo run --manifest-path rust-engine/Cargo.toml -p preprocessor --release -- --gtfs <extracted-gtfs-dir> --track src/data/network.json --out public/data/network.tmb --report public/data/network.report.json` — regenerate the binary timetable cache for the whole registry (equivalently `npm run data:preprocess -- --gtfs <extracted-gtfs-dir>`); route identity comes entirely from `network.json`'s line order, not a hardcoded route-id list
 - `wasm-pack build rust-engine/wasm --release --target web --out-dir ../../src/sim/pkg` — rebuild the Wasm engine (the built `src/sim/pkg/` and `public/data/network.tmb` are **committed**, so plain `npm run dev` works without a Rust toolchain; delete wasm-pack's generated `src/sim/pkg/.gitignore` if it reappears — it contains `*`)
 - `node tools/verify-kinematics.mjs` / `node tools/verify-closeup.mjs` — data-level motion assertions / camera-on-a-train screenshot against the dev server (dev exposes `window.__map`, `window.__sim`, `window.__store` and `window.__localToLngLat` for these)
@@ -46,6 +47,7 @@ Rust toolchain (`stable-x86_64-pc-windows-gnu` — chosen because no MSVC build 
 ## Git conventions
 
 - Do **not** add a `Co-Authored-By: Claude` (or any AI co-author) trailer to commit messages.
+- Whitespace/formatting-only commits (e.g. a `cargo fmt` pass) go in `.git-blame-ignore-revs` at the repo root so they don't obscure `git blame` for the many commits this project cites by SHA as the record of *why* something is the way it is (see e.g. the Mo Chit notes below). GitHub's web blame view reads this file automatically; locally, run `git config blame.ignoreRevsFile .git-blame-ignore-revs` once per clone (this is a local, not committed, git config — there is no repo-wide way to force it for `git blame` on the command line).
 
 ## Implementation notes (learned in MVP 1 — read before touching the map/3D code)
 

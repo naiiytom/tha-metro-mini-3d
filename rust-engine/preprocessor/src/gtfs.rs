@@ -121,17 +121,19 @@ pub fn read_stop_times(
         if !trip_ids.contains(trip_id) {
             continue;
         }
-        out.entry(trip_id.to_string()).or_default().push(StopTimeRow {
-            arrival_s: parse_gtfs_time(rec.get(c_arr).unwrap_or(""))?,
-            departure_s: parse_gtfs_time(rec.get(c_dep).unwrap_or(""))?,
-            stop_id: rec.get(c_stop).unwrap_or("").to_string(),
-            stop_sequence: rec
-                .get(c_seq)
-                .unwrap_or("0")
-                .trim()
-                .parse()
-                .map_err(|_| "bad stop_sequence".to_string())?,
-        });
+        out.entry(trip_id.to_string())
+            .or_default()
+            .push(StopTimeRow {
+                arrival_s: parse_gtfs_time(rec.get(c_arr).unwrap_or(""))?,
+                departure_s: parse_gtfs_time(rec.get(c_dep).unwrap_or(""))?,
+                stop_id: rec.get(c_stop).unwrap_or("").to_string(),
+                stop_sequence: rec
+                    .get(c_seq)
+                    .unwrap_or("0")
+                    .trim()
+                    .parse()
+                    .map_err(|_| "bad stop_sequence".to_string())?,
+            });
     }
     for v in out.values_mut() {
         v.sort_by_key(|r| r.stop_sequence);
@@ -204,7 +206,9 @@ pub fn read_stops(
             continue;
         }
         let parse = |s: &str, what: &str| -> Result<f64, String> {
-            s.trim().parse::<f64>().map_err(|_| format!("stop {id}: bad {what} '{s}'"))
+            s.trim()
+                .parse::<f64>()
+                .map_err(|_| format!("stop {id}: bad {what} '{s}'"))
         };
         out.insert(
             id.to_string(),
@@ -229,12 +233,17 @@ pub fn read_calendar(
     service_ids: &HashSet<String>,
 ) -> Result<HashMap<String, CalendarRow>, String> {
     let mut t = Table::open(dir, "calendar.txt")?;
-    let days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+    let days = [
+        "monday",
+        "tuesday",
+        "wednesday",
+        "thursday",
+        "friday",
+        "saturday",
+        "sunday",
+    ];
     let c_id = t.col("service_id")?;
-    let c_days: Vec<usize> = days
-        .iter()
-        .map(|d| t.col(d))
-        .collect::<Result<_, _>>()?;
+    let c_days: Vec<usize> = days.iter().map(|d| t.col(d)).collect::<Result<_, _>>()?;
     let (c_start, c_end) = (t.col("start_date")?, t.col("end_date")?);
     let mut out = HashMap::new();
     for rec in t.rows() {
@@ -250,7 +259,9 @@ pub fn read_calendar(
             }
         }
         let pd = |s: &str| -> Result<u32, String> {
-            s.trim().parse().map_err(|_| format!("calendar.txt: bad date '{s}'"))
+            s.trim()
+                .parse()
+                .map_err(|_| format!("calendar.txt: bad date '{s}'"))
         };
         out.insert(
             id.to_string(),
@@ -265,14 +276,19 @@ pub fn read_calendar(
 }
 
 /// service_id -> (added_dates, removed_dates).
+type CalendarExceptions = HashMap<String, (Vec<u32>, Vec<u32>)>;
+
 pub fn read_calendar_dates(
     dir: &Path,
     service_ids: &HashSet<String>,
-) -> Result<HashMap<String, (Vec<u32>, Vec<u32>)>, String> {
+) -> Result<CalendarExceptions, String> {
     let mut t = Table::open(dir, "calendar_dates.txt")?;
-    let (c_id, c_date, c_type) =
-        (t.col("service_id")?, t.col("date")?, t.col("exception_type")?);
-    let mut out: HashMap<String, (Vec<u32>, Vec<u32>)> = HashMap::new();
+    let (c_id, c_date, c_type) = (
+        t.col("service_id")?,
+        t.col("date")?,
+        t.col("exception_type")?,
+    );
+    let mut out: CalendarExceptions = HashMap::new();
     for rec in t.rows() {
         let rec = rec.map_err(|e| format!("calendar_dates.txt: {e}"))?;
         let id = rec.get(c_id).unwrap_or("");
@@ -295,20 +311,16 @@ pub fn read_calendar_dates(
     Ok(out)
 }
 
-pub struct RouteRow {
-    pub short_name: String,
-    pub color_rgb: u32,
-}
-
-pub fn read_routes(
-    dir: &Path,
-    route_ids: &[&str],
-) -> Result<HashMap<String, RouteRow>, String> {
+/// Confirms every wanted route_id is present in routes.txt (with a
+/// parseable route_color, a real feed-integrity check) and returns the
+/// route_ids actually found. Colour and short-name are sourced from
+/// network.json's line registry, not GTFS, so this is presence/validation
+/// only — callers never need the row contents themselves.
+pub fn read_routes(dir: &Path, route_ids: &[&str]) -> Result<HashSet<String>, String> {
     let mut t = Table::open(dir, "routes.txt")?;
-    let (c_id, c_short, c_color) =
-        (t.col("route_id")?, t.col("route_short_name")?, t.col("route_color")?);
+    let (c_id, c_color) = (t.col("route_id")?, t.col("route_color")?);
     let wanted: HashSet<&str> = route_ids.iter().copied().collect();
-    let mut out = HashMap::new();
+    let mut found = HashSet::new();
     for rec in t.rows() {
         let rec = rec.map_err(|e| format!("routes.txt: {e}"))?;
         let id = rec.get(c_id).unwrap_or("");
@@ -316,22 +328,17 @@ pub fn read_routes(
             continue;
         }
         let color = rec.get(c_color).unwrap_or("").trim();
-        out.insert(
-            id.to_string(),
-            RouteRow {
-                short_name: rec.get(c_short).unwrap_or("").trim().to_string(),
-                color_rgb: u32::from_str_radix(color, 16)
-                    .map_err(|_| format!("routes.txt: bad route_color '{color}'"))?,
-            },
-        );
+        u32::from_str_radix(color, 16)
+            .map_err(|_| format!("routes.txt: bad route_color '{color}'"))?;
+        found.insert(id.to_string());
     }
-    Ok(out)
+    Ok(found)
 }
 
 pub fn read_feed_version(dir: &Path) -> Result<String, String> {
     let mut t = Table::open(dir, "feed_info.txt")?;
     let c = t.col("feed_version")?;
-    for rec in t.rows() {
+    if let Some(rec) = t.rows().next() {
         let rec = rec.map_err(|e| format!("feed_info.txt: {e}"))?;
         return Ok(rec.get(c).unwrap_or("").trim().to_string());
     }
