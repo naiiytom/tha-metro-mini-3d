@@ -21,6 +21,8 @@ use std::process::ExitCode;
 use serde::Deserialize;
 use sim_core::SimWorld;
 use sim_core::calendar::expand_frequency;
+#[cfg(test)]
+use sim_core::calendar::service_active_on;
 use sim_core::geo::{EnuProjector, ORIGIN_LNG_LAT};
 use sim_core::model::*;
 
@@ -206,6 +208,71 @@ fn build_route_idx_by_gtfs_id(
         }
     }
     Ok(map)
+}
+
+/// Sorts `network.report.json`'s `snap_warnings` by (line, gtfs_stop_id) so
+/// the committed file is reproducible across regenerations, independent of
+/// HashSet iteration order (see the call site's own comment).
+fn sort_snap_warnings(warnings: &mut [serde_json::Value]) {
+    let key = |v: &serde_json::Value| {
+        (
+            v["line"].as_str().unwrap_or("").to_string(),
+            v["gtfs_stop_id"].as_str().unwrap_or("").to_string(),
+        )
+    };
+    warnings.sort_by_key(|a| key(a));
+}
+
+/// The known MRT Blue day-qualifier headsign suffixes (English, post
+/// gtfs::split_th_en), the single weekday bit each one means (per
+/// ServiceDoc's own bit0=Monday..bit6=Sunday convention), and whether that
+/// variant keeps the shared service's `added_dates` (calendar_dates
+/// exception_type=1 rows). The real feed's added_dates on this shared
+/// service are almost entirely Thai public holidays that fall on a WEEKDAY
+/// (19 of 21, verified against the feed) — `service_active_on()` checks
+/// added_dates before weekday_mask, so cloning them into a split that has no
+/// real claim to them would make it active on every one of those holidays
+/// too, reproducing the exact reported bug on holiday dates instead of every
+/// weekend. Only the headsign that says "and Public Holiday" has a stated
+/// claim to them.
+const DAY_QUALIFIERS: [(&str, u8, bool); 2] = [
+    (" (Saturday)", 1 << 5, false),
+    (" (Sunday and Public Holiday)", 1 << 6, true),
+];
+
+/// The Namtang feed has no Saturday-only or Sunday-only calendar anywhere
+/// (verified against the whole feed, 2026-08) — every service is weekday,
+/// all-7-days, or one combined Saturday+Sunday block. MRT Blue nonetheless
+/// publishes genuinely different Saturday vs. Sunday trip variants (distinct
+/// headsigns, sometimes distinct destinations — see CLAUDE.md's "MRT Blue
+/// weekend calendar split" note), all sharing that one combined calendar, so
+/// by strict GTFS semantics both variants are "scheduled" on every weekend
+/// day. This synthesizes a single-day ServiceDoc from the trip's own
+/// headsign when — and only when — its underlying service is exactly that
+/// ambiguous Saturday+Sunday combination; every other trip (including one
+/// with a day-qualified headsign on an unrelated calendar — the feed has two
+/// of those, real trips 5272/7865, most likely a separate upstream labelling
+/// slip) is left untouched rather than guessed at.
+fn day_qualified_service_split(headsign_en: &str, original: &ServiceDoc) -> Option<ServiceDoc> {
+    const WEEKEND_MASK: u8 = (1 << 5) | (1 << 6); // Saturday | Sunday
+    if original.weekday_mask & WEEKEND_MASK != WEEKEND_MASK {
+        return None;
+    }
+    let (_, bit, keep_added_dates) = DAY_QUALIFIERS
+        .iter()
+        .find(|(suffix, _, _)| headsign_en.ends_with(suffix))?;
+    Some(ServiceDoc {
+        gtfs_service_id: format!("{}+{bit:#04x}", original.gtfs_service_id),
+        weekday_mask: *bit,
+        start_date: original.start_date,
+        end_date: original.end_date,
+        added_dates: if *keep_added_dates {
+            original.added_dates.clone()
+        } else {
+            Vec::new()
+        },
+        removed_dates: original.removed_dates.clone(),
+    })
 }
 
 /// `#RRGGBB` from the registry -> the u32 the cache and UI use.
@@ -868,10 +935,24 @@ fn run() -> Result<(), String> {
     }
 
     // ---- Runs (frequency expansion, or one run per scheduled trip) --------
+    // (original_service_idx, single-day bit) -> synthetic service_idx, so
+    // every trip sharing the same split (e.g. all of MRT Blue's Saturday
+    // variants) reuses one ServiceDoc instead of minting a duplicate per trip.
+    let mut synthetic_service_idx: HashMap<(u8, u8), u8> = HashMap::new();
     let mut runs = Vec::new();
     for trip in &trips {
         let pattern_idx = pattern_idx_by_trip[&trip.trip_id];
-        let service_idx = service_idx_by_id[&trip.service_id];
+        let mut service_idx = service_idx_by_id[&trip.service_id];
+        let headsign_en = &patterns[pattern_idx as usize].headsign_en;
+        if let Some(split) =
+            day_qualified_service_split(headsign_en, &services[service_idx as usize])
+        {
+            let key = (service_idx, split.weekday_mask);
+            service_idx = *synthetic_service_idx.entry(key).or_insert_with(|| {
+                services.push(split);
+                (services.len() - 1) as u8
+            });
+        }
         let first_arrival_s = stop_times[&trip.trip_id]
             .first()
             .map(|r| r.arrival_s)
@@ -1001,6 +1082,13 @@ fn run() -> Result<(), String> {
         } else {
             (weekend_peak, weekend_peak_sec, PEAK_SAMPLE_WEEKEND)
         };
+
+    // Deterministic order for a committed data file: the loop above sources
+    // stop ids from a HashSet, whose default RandomState is seeded per
+    // process, so unsorted output churns this line in `git diff` on every
+    // regeneration even when nothing actually changed (found reviewing
+    // PR #14 — it was undermining that PR's own "byte-identical" diff claim).
+    sort_snap_warnings(&mut snap_warnings);
 
     let report = serde_json::json!({
         "feed_version": v.feed_version,
@@ -1534,6 +1622,127 @@ mod tests {
         );
         assert_eq!(runs[0].pattern_idx, 7);
         assert_eq!(runs[0].service_idx, 1);
+    }
+
+    #[test]
+    fn sort_snap_warnings_orders_by_line_then_stop_id_regardless_of_input_order() {
+        let mut warnings = vec![
+            serde_json::json!({"gtfs_stop_id": "13627", "line": "blue", "snap_m": 109.5}),
+            serde_json::json!({"gtfs_stop_id": "359", "line": "pink", "snap_m": 554.7}),
+            serde_json::json!({"gtfs_stop_id": "352", "line": "blue", "snap_m": 61.1}),
+        ];
+        sort_snap_warnings(&mut warnings);
+        let order: Vec<(&str, &str)> = warnings
+            .iter()
+            .map(|w| {
+                (
+                    w["line"].as_str().unwrap(),
+                    w["gtfs_stop_id"].as_str().unwrap(),
+                )
+            })
+            .collect();
+        // Lexicographic string comparison, not numeric: "13627" < "352"
+        // (as strings) since '1' < '3'. The point is determinism, not a
+        // numerically-sorted stop id.
+        assert_eq!(
+            order,
+            vec![("blue", "13627"), ("blue", "352"), ("pink", "359")]
+        );
+    }
+
+    fn weekend_service() -> ServiceDoc {
+        // Mirrors the real Namtang feed's service_id "2": Saturday+Sunday
+        // combined, nothing else — the exact shape that makes MRT Blue's
+        // day-qualified headsigns ambiguous (see day_qualified_service_split's
+        // own doc comment).
+        ServiceDoc {
+            gtfs_service_id: "2".into(),
+            weekday_mask: 0b0110_0000, // bit5=Saturday, bit6=Sunday
+            start_date: 20230101,
+            end_date: 20261231,
+            added_dates: vec![20260101],
+            removed_dates: vec![],
+        }
+    }
+
+    #[test]
+    fn splits_a_saturday_qualified_headsign_off_an_ambiguous_weekend_service() {
+        let split = day_qualified_service_split("Tao Poon (Saturday)", &weekend_service())
+            .expect("a Saturday-qualified headsign on a Sat+Sun service must split");
+        assert_eq!(split.weekday_mask, 0b0010_0000, "Saturday bit only");
+        assert_eq!(split.start_date, 20230101);
+        assert_eq!(split.end_date, 20261231);
+        // NOT carried over: the real feed's added_dates on this shared
+        // service are almost entirely Thai public holidays that fall on a
+        // WEEKDAY (verified: 19 of 21, e.g. 20260101 is a Thursday).
+        // service_active_on() checks added_dates before weekday_mask, so
+        // cloning them into the Saturday split would make it active on
+        // every one of those weekday holidays too — the exact reported bug,
+        // just narrowed to holiday dates instead of every weekend. Only the
+        // "(Sunday and Public Holiday)" variant has a real claim to them;
+        // any date that's genuinely a Saturday is already covered by
+        // weekday_mask, so dropping added_dates here loses nothing.
+        assert!(
+            split.added_dates.is_empty(),
+            "Saturday split must not inherit the shared service's (mostly weekday) holiday exceptions"
+        );
+    }
+
+    #[test]
+    fn splits_a_sunday_qualified_headsign_off_an_ambiguous_weekend_service() {
+        let split =
+            day_qualified_service_split("Tao Poon (Sunday and Public Holiday)", &weekend_service())
+                .expect("a Sunday-qualified headsign on a Sat+Sun service must split");
+        assert_eq!(split.weekday_mask, 0b0100_0000, "Sunday bit only");
+        assert_eq!(
+            split.added_dates,
+            vec![20260101],
+            "the headsign's own \"and Public Holiday\" names this as the holiday variant — keep the exceptions"
+        );
+    }
+
+    #[test]
+    fn a_weekday_holiday_exception_activates_only_the_sunday_split_not_the_saturday_one() {
+        // Regression test for the bug found in PR #14 review: exercises the
+        // split through the real resolver (sim_core::calendar::service_active_on),
+        // not just field inspection, on 20260101 — a Thursday that's one of
+        // the shared service's real added_dates.
+        let original = weekend_service();
+        let sat_split = day_qualified_service_split("Tao Poon (Saturday)", &original).unwrap();
+        let sun_split =
+            day_qualified_service_split("Tao Poon (Sunday and Public Holiday)", &original).unwrap();
+        assert!(
+            !service_active_on(&sat_split, 20260101),
+            "Saturday split must stay inactive on a Thursday holiday it has no claim to"
+        );
+        assert!(
+            service_active_on(&sun_split, 20260101),
+            "Sunday split must stay active on its own stated public-holiday exception"
+        );
+    }
+
+    #[test]
+    fn leaves_an_unqualified_headsign_on_the_shared_weekend_service() {
+        assert!(
+            day_qualified_service_split("Tao Poon", &weekend_service()).is_none(),
+            "no day qualifier — nothing to disambiguate"
+        );
+    }
+
+    #[test]
+    fn ignores_a_day_qualified_headsign_whose_service_is_not_the_ambiguous_weekend_combo() {
+        // The real feed's trips 5272/7865: a headsign literally saying
+        // "(Saturday)" but assigned to a plain Mon-Fri service. Rewriting it
+        // would be guessing intent the data doesn't support — leave it be.
+        let weekday_only = ServiceDoc {
+            gtfs_service_id: "1".into(),
+            weekday_mask: 0b0001_1111, // Mon-Fri only
+            start_date: 20230101,
+            end_date: 20261231,
+            added_dates: vec![],
+            removed_dates: vec![],
+        };
+        assert!(day_qualified_service_split("MRT Tha Phra (Saturday)", &weekday_only).is_none());
     }
 
     #[test]

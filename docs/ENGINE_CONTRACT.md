@@ -122,6 +122,11 @@ pub struct InterchangeRef {
 
 #[derive(Serialize, Deserialize)]
 pub struct ServiceDoc {
+    // Not always a real feed service id: the preprocessor's
+    // day_qualified_service_split (MRT Blue's ambiguous weekend calendar
+    // fix) synthesizes single-weekday services from headsign text, tagged
+    // "<original>+0x20"/"+0x40" rather than a GTFS-sourced id. The binary
+    // layout is unchanged (still a String), so no TMB_VERSION bump.
     pub gtfs_service_id: String,
     pub weekday_mask: u8,        // bit0=Monday … bit6=Sunday
     pub start_date: u32,         // YYYYMMDD inclusive
