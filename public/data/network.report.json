@@ -1,7 +1,7 @@
 {
-  "bytes": 586826,
-  "feed_version": "20260803",
-  "gzip_bytes": 343417,
+  "bytes": 587076,
+  "feed_version": "20260807",
+  "gzip_bytes": 343317,
   "interchanges": [
     {
       "a": "sukhumvit/Samrong",
@@ -88,7 +88,7 @@
   },
   "peak_concurrent_weekend": {
     "date": 20260725,
-    "peak": 212,
+    "peak": 173,
     "time": 67200
   },
   "per_route": [
@@ -202,7 +202,7 @@
     }
   ],
   "runs": 8193,
-  "services": 3,
+  "services": 5,
   "snap_warnings": [
     {
       "gtfs_stop_id": "13608",
@@ -215,14 +215,14 @@
       "snap_m": 554.7298250815825
     },
     {
-      "gtfs_stop_id": "13627",
-      "line": "blue",
-      "snap_m": 109.47373318622579
-    },
-    {
       "gtfs_stop_id": "352",
       "line": "blue",
       "snap_m": 61.11812032496024
+    },
+    {
+      "gtfs_stop_id": "13627",
+      "line": "blue",
+      "snap_m": 109.47373318622579
     }
   ],
   "stations": 193

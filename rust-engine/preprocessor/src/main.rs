@@ -208,6 +208,45 @@ fn build_route_idx_by_gtfs_id(
     Ok(map)
 }
 
+/// The known MRT Blue day-qualifier headsign suffixes (English, post
+/// gtfs::split_th_en) and the single weekday bit each one means, per
+/// ServiceDoc's own bit0=Monday..bit6=Sunday convention.
+const DAY_QUALIFIERS: [(&str, u8); 2] = [
+    (" (Saturday)", 1 << 5),
+    (" (Sunday and Public Holiday)", 1 << 6),
+];
+
+/// The Namtang feed has no Saturday-only or Sunday-only calendar anywhere
+/// (verified against the whole feed, 2026-08) — every service is weekday,
+/// all-7-days, or one combined Saturday+Sunday block. MRT Blue nonetheless
+/// publishes genuinely different Saturday vs. Sunday trip variants (distinct
+/// headsigns, sometimes distinct destinations — see CLAUDE.md's "MRT Blue
+/// weekend calendar split" note), all sharing that one combined calendar, so
+/// by strict GTFS semantics both variants are "scheduled" on every weekend
+/// day. This synthesizes a single-day ServiceDoc from the trip's own
+/// headsign when — and only when — its underlying service is exactly that
+/// ambiguous Saturday+Sunday combination; every other trip (including one
+/// with a day-qualified headsign on an unrelated calendar — the feed has two
+/// of those, real trips 5272/7865, most likely a separate upstream labelling
+/// slip) is left untouched rather than guessed at.
+fn day_qualified_service_split(headsign_en: &str, original: &ServiceDoc) -> Option<ServiceDoc> {
+    const WEEKEND_MASK: u8 = (1 << 5) | (1 << 6); // Saturday | Sunday
+    if original.weekday_mask & WEEKEND_MASK != WEEKEND_MASK {
+        return None;
+    }
+    let (_, bit) = DAY_QUALIFIERS
+        .iter()
+        .find(|(suffix, _)| headsign_en.ends_with(suffix))?;
+    Some(ServiceDoc {
+        gtfs_service_id: format!("{}+{bit:#04x}", original.gtfs_service_id),
+        weekday_mask: *bit,
+        start_date: original.start_date,
+        end_date: original.end_date,
+        added_dates: original.added_dates.clone(),
+        removed_dates: original.removed_dates.clone(),
+    })
+}
+
 /// `#RRGGBB` from the registry -> the u32 the cache and UI use.
 fn parse_hex_color(s: &str) -> Result<u32, String> {
     let digits = s.trim_start_matches('#');
@@ -868,10 +907,24 @@ fn run() -> Result<(), String> {
     }
 
     // ---- Runs (frequency expansion, or one run per scheduled trip) --------
+    // (original_service_idx, single-day bit) -> synthetic service_idx, so
+    // every trip sharing the same split (e.g. all of MRT Blue's Saturday
+    // variants) reuses one ServiceDoc instead of minting a duplicate per trip.
+    let mut synthetic_service_idx: HashMap<(u8, u8), u8> = HashMap::new();
     let mut runs = Vec::new();
     for trip in &trips {
         let pattern_idx = pattern_idx_by_trip[&trip.trip_id];
-        let service_idx = service_idx_by_id[&trip.service_id];
+        let mut service_idx = service_idx_by_id[&trip.service_id];
+        let headsign_en = &patterns[pattern_idx as usize].headsign_en;
+        if let Some(split) =
+            day_qualified_service_split(headsign_en, &services[service_idx as usize])
+        {
+            let key = (service_idx, split.weekday_mask);
+            service_idx = *synthetic_service_idx.entry(key).or_insert_with(|| {
+                services.push(split);
+                (services.len() - 1) as u8
+            });
+        }
         let first_arrival_s = stop_times[&trip.trip_id]
             .first()
             .map(|r| r.arrival_s)
@@ -1534,6 +1587,67 @@ mod tests {
         );
         assert_eq!(runs[0].pattern_idx, 7);
         assert_eq!(runs[0].service_idx, 1);
+    }
+
+    fn weekend_service() -> ServiceDoc {
+        // Mirrors the real Namtang feed's service_id "2": Saturday+Sunday
+        // combined, nothing else — the exact shape that makes MRT Blue's
+        // day-qualified headsigns ambiguous (see day_qualified_service_split's
+        // own doc comment).
+        ServiceDoc {
+            gtfs_service_id: "2".into(),
+            weekday_mask: 0b0110_0000, // bit5=Saturday, bit6=Sunday
+            start_date: 20230101,
+            end_date: 20261231,
+            added_dates: vec![20260101],
+            removed_dates: vec![],
+        }
+    }
+
+    #[test]
+    fn splits_a_saturday_qualified_headsign_off_an_ambiguous_weekend_service() {
+        let split = day_qualified_service_split("Tao Poon (Saturday)", &weekend_service())
+            .expect("a Saturday-qualified headsign on a Sat+Sun service must split");
+        assert_eq!(split.weekday_mask, 0b0010_0000, "Saturday bit only");
+        assert_eq!(split.start_date, 20230101);
+        assert_eq!(split.end_date, 20261231);
+        assert_eq!(
+            split.added_dates,
+            vec![20260101],
+            "calendar_dates carried over verbatim"
+        );
+    }
+
+    #[test]
+    fn splits_a_sunday_qualified_headsign_off_an_ambiguous_weekend_service() {
+        let split =
+            day_qualified_service_split("Tao Poon (Sunday and Public Holiday)", &weekend_service())
+                .expect("a Sunday-qualified headsign on a Sat+Sun service must split");
+        assert_eq!(split.weekday_mask, 0b0100_0000, "Sunday bit only");
+    }
+
+    #[test]
+    fn leaves_an_unqualified_headsign_on_the_shared_weekend_service() {
+        assert!(
+            day_qualified_service_split("Tao Poon", &weekend_service()).is_none(),
+            "no day qualifier — nothing to disambiguate"
+        );
+    }
+
+    #[test]
+    fn ignores_a_day_qualified_headsign_whose_service_is_not_the_ambiguous_weekend_combo() {
+        // The real feed's trips 5272/7865: a headsign literally saying
+        // "(Saturday)" but assigned to a plain Mon-Fri service. Rewriting it
+        // would be guessing intent the data doesn't support — leave it be.
+        let weekday_only = ServiceDoc {
+            gtfs_service_id: "1".into(),
+            weekday_mask: 0b0001_1111, // Mon-Fri only
+            start_date: 20230101,
+            end_date: 20261231,
+            added_dates: vec![],
+            removed_dates: vec![],
+        };
+        assert!(day_qualified_service_split("MRT Tha Phra (Saturday)", &weekday_only).is_none());
     }
 
     #[test]
