@@ -46,7 +46,9 @@ interface AppState {
   /** Third-person camera locked to the selected train (F3.2). */
   following: boolean;
 
-  /** Selecting a train clears any station selection, and vice versa. */
+  /** Selecting a train clears any station selection, and vice versa; either
+   *  also closes an open search panel — see `setSearchOpen`'s own comment
+   *  for why these three are kept mutually exclusive. */
   selectRun: (runIdx: number | null) => void;
   selectStation: (station: { routeIdx: number; stationIdx: number } | null) => void;
   setFollowing: (following: boolean) => void;
@@ -105,7 +107,13 @@ interface AppState {
   ecoMode: boolean;
   setEcoMode: (on: boolean) => void;
 
-  /** Station search panel (roadmap item 3). */
+  /** Station search panel (roadmap item 3). Kept mutually exclusive with a
+   *  train/station selection, the same way `selectRun`/`selectStation`
+   *  already exclude each other: opening search clears any existing
+   *  selection (and drops `following`), and selecting a train or station
+   *  closes an open search panel. Without this, `StationSearch` could stack
+   *  on top of an already-open `TrainInspector`/`StationBoard` and overflow
+   *  the mobile bottom-sheet stack. */
   searchOpen: boolean;
   setSearchOpen: (open: boolean) => void;
 
@@ -147,13 +155,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     set(
       runIdx === null
         ? { selectedRunIdx: null, following: false }
-        : { selectedRunIdx: runIdx, selectedStation: null },
+        : { selectedRunIdx: runIdx, selectedStation: null, searchOpen: false },
     ),
   selectStation: (station) =>
     set(
       station === null
         ? { selectedStation: null }
-        : { selectedStation: station, selectedRunIdx: null, following: false },
+        : { selectedStation: station, selectedRunIdx: null, following: false, searchOpen: false },
     ),
   setFollowing: (following) => set({ following }),
 
@@ -191,7 +199,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   setEcoMode: (on) => set({ ecoMode: on }),
 
   searchOpen: false,
-  setSearchOpen: (open) => set({ searchOpen: open }),
+  setSearchOpen: (open) =>
+    set(
+      open
+        ? { searchOpen: true, selectedStation: null, selectedRunIdx: null, following: false }
+        : { searchOpen: false },
+    ),
 
   flyToRequest: null,
   requestFlyTo: (target) => set({ flyToRequest: target }),
