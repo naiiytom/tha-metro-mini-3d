@@ -39,4 +39,10 @@ describe("LineSelector search button", () => {
     fireEvent.click(screen.getByRole("button", { name: /close station search/i }));
     expect(useAppStore.getState().searchOpen).toBe(false);
   });
+
+  it("hides the search button while uiHidden is true", () => {
+    useAppStore.setState({ uiHidden: true });
+    render(<LineSelector />);
+    expect(screen.queryByRole("button", { name: /search stations/i })).toBeNull();
+  });
 });

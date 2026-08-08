@@ -91,16 +91,23 @@ export function LineSelector() {
             {mapReady ? "Click a train or station to inspect it." : "Loading map…"}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => setSearchOpen(!searchOpen)}
-          aria-pressed={searchOpen}
-          aria-label={searchOpen ? "Close station search" : "Search stations"}
-          title={searchOpen ? "Close station search" : "Search stations"}
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-base leading-none text-slate-600 hover:bg-slate-200/60 md:h-8 md:w-8 md:text-sm"
-        >
-          🔍
-        </button>
+        {/* Hidden rather than merely disabled while uiHidden, matching the ▲
+         * button below: the panel itself is already hidden by its
+         * CSS-ancestor while uiHidden, so a tappable button here would
+         * silently flip searchOpen/aria-pressed/its own label with no
+         * visible effect — a dead-looking control. */}
+        {!uiHidden && (
+          <button
+            type="button"
+            onClick={() => setSearchOpen(!searchOpen)}
+            aria-pressed={searchOpen}
+            aria-label={searchOpen ? "Close station search" : "Search stations"}
+            title={searchOpen ? "Close station search" : "Search stations"}
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-base leading-none text-slate-600 hover:bg-slate-200/60 md:h-8 md:w-8 md:text-sm"
+          >
+            🔍
+          </button>
+        )}
         <button
           type="button"
           onClick={() => setUiHidden(!uiHidden)}
