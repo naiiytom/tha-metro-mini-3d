@@ -46,7 +46,9 @@ interface AppState {
   /** Third-person camera locked to the selected train (F3.2). */
   following: boolean;
 
-  /** Selecting a train clears any station selection, and vice versa. */
+  /** Selecting a train clears any station selection, and vice versa; either
+   *  also closes an open search panel — see `setSearchOpen`'s own comment
+   *  for why these three are kept mutually exclusive. */
   selectRun: (runIdx: number | null) => void;
   selectStation: (station: { routeIdx: number; stationIdx: number } | null) => void;
   setFollowing: (following: boolean) => void;
@@ -104,6 +106,25 @@ interface AppState {
    *  power (roadmap item 2). Off by default. */
   ecoMode: boolean;
   setEcoMode: (on: boolean) => void;
+
+  /** Station search panel (roadmap item 3). Kept mutually exclusive with a
+   *  train/station selection, the same way `selectRun`/`selectStation`
+   *  already exclude each other: opening search clears any existing
+   *  selection (and drops `following`), and selecting a train or station
+   *  closes an open search panel. Without this, `StationSearch` could stack
+   *  on top of an already-open `TrainInspector`/`StationBoard` and overflow
+   *  the mobile bottom-sheet stack. */
+  searchOpen: boolean;
+  setSearchOpen: (open: boolean) => void;
+
+  /** One-shot camera-jump request from station search / nearest-station
+   *  selection. `window.__map` is dev/debug-only, so this store field is how
+   *  a UI action reaches MapContainer.tsx's real MapLibre instance. Cleared
+   *  immediately after MapContainer's subscribe handler consumes it — this
+   *  is a UI-rate one-shot event, not per-frame state (§3A.7 doesn't apply). */
+  flyToRequest: { lng: number; lat: number } | null;
+  requestFlyTo: (target: { lng: number; lat: number }) => void;
+  clearFlyToRequest: () => void;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -134,13 +155,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     set(
       runIdx === null
         ? { selectedRunIdx: null, following: false }
-        : { selectedRunIdx: runIdx, selectedStation: null },
+        : { selectedRunIdx: runIdx, selectedStation: null, searchOpen: false },
     ),
   selectStation: (station) =>
     set(
       station === null
         ? { selectedStation: null }
-        : { selectedStation: station, selectedRunIdx: null, following: false },
+        : { selectedStation: station, selectedRunIdx: null, following: false, searchOpen: false },
     ),
   setFollowing: (following) => set({ following }),
 
@@ -176,4 +197,16 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   ecoMode: false,
   setEcoMode: (on) => set({ ecoMode: on }),
+
+  searchOpen: false,
+  setSearchOpen: (open) =>
+    set(
+      open
+        ? { searchOpen: true, selectedStation: null, selectedRunIdx: null, following: false }
+        : { searchOpen: false },
+    ),
+
+  flyToRequest: null,
+  requestFlyTo: (target) => set({ flyToRequest: target }),
+  clearFlyToRequest: () => set({ flyToRequest: null }),
 }));

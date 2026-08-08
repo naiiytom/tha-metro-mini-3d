@@ -18,11 +18,12 @@ Features to close parity with [nagix/mini-tokyo-3d](https://github.com/nagix/min
 - ✅ When enabled, throttles both the render loop's repaint cadence and the sim worker's own tick rate to ~1 Hz (`ECO_TICK_MS = 1000`, not literally "1 FPS" but the same intent) — measured steady-state is an exact 1 repaint/second once a brief enable-moment transient (MapLibre's own internal repaint settling, not this throttle) passes
 - ✅ Positions are a pure function of time, so nothing drifts while throttled — verified directly (`verify:mvp7` check 12: a fresh engine read immediately after disabling matches the last-rendered pose to within ~1.5 m, consistent with ordinary train speed over the elapsed tens of milliseconds, not a catch-up jump)
 
-### 3. Station Search
-- Add a search button that opens a search panel
-- Text input with autocomplete over all 155+ stations
-- Selecting a station flies the camera to it and opens the station board
-- Filter results as the user types
+### 3. Station Search — ✅ delivered
+- ✅ Search button in `LineSelector.tsx`'s header opens a panel (`StationSearch.tsx`)
+- ✅ Text input matches both English and Thai station names, case-insensitive substring, capped at 8 results
+- ✅ Selecting a result flies the camera to the station (`map.easeTo`, zoom 16) and opens the existing `StationBoard` — no new timetable UI needed, this reuses the live next-departures board that already existed
+- ✅ **Extended beyond the original item, by request:** a "nearest station" card via one-shot browser Geolocation, requested automatically when the panel opens (not `watchPosition` — nothing needs it to live-update). Denied/unsupported geolocation degrades to an inline message without blocking name search.
+- See `npm run verify:station-search`, `src/search/stationSearch.test.ts`, `src/components/__tests__/StationSearch.test.tsx`
 
 ### 3.1 Suvarnabhumi Airport (BKK) - APM (Can be implemented as Plugin)
 - APM to move people from main terminal to SAT-1

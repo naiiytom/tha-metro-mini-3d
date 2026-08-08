@@ -1,6 +1,7 @@
 import { LineSelector } from "./components/LineSelector";
 import { MapContainer } from "./components/MapContainer";
 import { StationBoard } from "./components/StationBoard";
+import { StationSearch } from "./components/StationSearch";
 import { TimeControls } from "./components/TimeControls";
 import { TimeScrubber } from "./components/TimeScrubber";
 import { TrainInspector } from "./components/TrainInspector";
@@ -48,6 +49,7 @@ export default function App() {
             : "pointer-events-none absolute inset-x-0 bottom-0 flex flex-col items-center gap-2 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] md:contents md:p-0"
         }
       >
+        <StationSearch />
         <TrainInspector />
         <StationBoard />
         {/* At `md:` this inner wrapper becomes the real positioned box (the
