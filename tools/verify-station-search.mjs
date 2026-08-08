@@ -43,11 +43,19 @@ const finish = async (fatal) => {
   console.log("PASS");
 };
 
+const consoleErrors = [];
+
 async function newReadyPage(mockGeolocation) {
   const page = await browser.newPage();
-  page.on("pageerror", (e) => console.log(`[pageerror] ${e.message}`));
+  page.on("pageerror", (e) => {
+    consoleErrors.push(`[pageerror] ${e.message}`);
+    console.log(`[pageerror] ${e.message}`);
+  });
   page.on("console", (m) => {
-    if (m.type() === "error") console.log(`[console.error] ${m.text().slice(0, 200)}`);
+    if (m.type() === "error") {
+      consoleErrors.push(`[console.error] ${m.text().slice(0, 200)}`);
+      console.log(`[console.error] ${m.text().slice(0, 200)}`);
+    }
   });
   await page.evaluateOnNewDocument(mockGeolocation);
   await page.goto(URL, { waitUntil: "networkidle2", timeout: 60_000 });
@@ -118,20 +126,22 @@ async function selectAllAndType(page, input, text) {
 
 const input = await pageA.$('[data-testid="station-search"] input');
 
+// Scoped to the results <ul>, not the whole panel: the panel also contains
+// the always-rendered nearest-station card, which prints a station's own
+// name_en/name_th — a check against the whole panel's textContent would
+// pass vacuously if the nearest station happened to be stations[0], or if
+// the query ever failed to actually replace the input's prior text.
+const resultsListText = (page) =>
+  page.evaluate(() => document.querySelector('[data-testid="station-search"] ul')?.textContent ?? "");
+
 await input.type(firstStation.nameEn);
 await new Promise((r) => setTimeout(r, 200));
-const matchesEn = await pageA.evaluate(
-  (name) => document.querySelector('[data-testid="station-search"]').textContent.includes(name),
-  firstStation.nameEn,
-);
+const matchesEn = (await resultsListText(pageA)).includes(firstStation.nameEn);
 check("typing the full English name filters to the matching station", matchesEn, firstStation.nameEn);
 
 await selectAllAndType(pageA, input, firstStation.nameTh);
 await new Promise((r) => setTimeout(r, 200));
-const matchesTh = await pageA.evaluate(
-  (name) => document.querySelector('[data-testid="station-search"]').textContent.includes(name),
-  firstStation.nameEn,
-);
+const matchesTh = (await resultsListText(pageA)).includes(firstStation.nameEn);
 check("typing the Thai name filters to the matching station", matchesTh, firstStation.nameTh);
 
 await selectAllAndType(pageA, input, firstStation.nameEn);
@@ -157,6 +167,13 @@ for (let i = 0; i < resultButtons.length; i++) {
     break;
   }
 }
+check(
+  "the searched station's own row is present among the results",
+  targetIdx !== -1,
+  targetIdx === -1
+    ? `not found among ${resultButtons.length} row(s) — falling back to row 0`
+    : `row ${targetIdx}`,
+);
 await resultButtons[targetIdx === -1 ? 0 : targetIdx].click();
 await new Promise((r) => setTimeout(r, 1_000));
 
@@ -277,5 +294,11 @@ check(
 );
 
 await pageB.close();
+
+check(
+  "no console/page errors across either page",
+  consoleErrors.length === 0,
+  consoleErrors.length === 0 ? "clean" : consoleErrors.join(" | ").slice(0, 300),
+);
 
 await finish(false);
