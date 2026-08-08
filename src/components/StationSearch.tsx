@@ -42,6 +42,7 @@ export function StationSearch() {
   const setSearchOpen = useAppStore((s) => s.setSearchOpen);
   const stations = useAppStore((s) => s.stations);
   const routes = useAppStore((s) => s.routes);
+  const hiddenRoutes = useAppStore((s) => s.hiddenRoutes);
   const selectStation = useAppStore((s) => s.selectStation);
   const requestFlyTo = useAppStore((s) => s.requestFlyTo);
 
@@ -65,13 +66,25 @@ export function StationSearch() {
         });
       },
       (err) => setGeo({ status: "error", message: geoErrorMessage(err) }),
+      { timeout: 8000, maximumAge: 300_000 },
     );
   }, [searchOpen]);
 
-  const results = useMemo(() => filterStations(stations, query), [stations, query]);
+  // Mirrors src/map/selection.ts's own hiddenRoutes skip — a station on a
+  // hidden line has no visible track/deck to fly to, and StationBoard has
+  // no guard of its own against rendering one.
+  const visibleStations = useMemo(
+    () => stations.filter((s) => !hiddenRoutes.includes(s.route_idx)),
+    [stations, hiddenRoutes],
+  );
+
+  const results = useMemo(
+    () => filterStations(visibleStations, query),
+    [visibleStations, query],
+  );
   const nearest = useMemo(
-    () => (geo.status === "ready" ? nearestStation(geo.userLocal, stations) : null),
-    [geo, stations],
+    () => (geo.status === "ready" ? nearestStation(geo.userLocal, visibleStations) : null),
+    [geo, visibleStations],
   );
 
   if (!searchOpen) return null;
