@@ -3,6 +3,8 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { StationSearch } from "../StationSearch";
 import { useAppStore } from "../../stores/useAppStore";
+import { lngLatToLocal } from "../../map/coordinates";
+import { nearestStation } from "../../search/stationSearch";
 import type { StationInfo } from "../../sim/protocol";
 
 function makeStation(overrides: Partial<StationInfo>): StationInfo {
@@ -90,5 +92,45 @@ describe("StationSearch", () => {
     render(<StationSearch />);
 
     expect(await screen.findByText(/not supported/i)).toBeTruthy();
+  });
+
+  it("renders a real nearest-station card on geolocation success, and selecting it selects the station, requests a fly-to, and closes the panel", async () => {
+    // A plausible position near the app's own coordinate origin (Siam,
+    // src/map/coordinates.ts's ORIGIN_LNG_LAT) — not reverse-engineered
+    // against either fixture station, since which fixture station is
+    // "nearest" is derived the same way the component derives it, below.
+    const mockLng = 100.5332;
+    const mockLat = 13.746;
+
+    Object.defineProperty(navigator, "geolocation", {
+      configurable: true,
+      value: {
+        getCurrentPosition: (success: PositionCallback) =>
+          success({
+            coords: { longitude: mockLng, latitude: mockLat },
+          } as GeolocationPosition),
+      },
+    });
+
+    // Derive the expected nearest station the same way the component does,
+    // rather than hardcoding an assumption about which fixture station wins.
+    const expected = nearestStation(lngLatToLocal(mockLng, mockLat), STATIONS);
+    expect(expected).not.toBeNull();
+
+    act(() => useAppStore.getState().setSearchOpen(true));
+    render(<StationSearch />);
+
+    const nearestEl = await screen.findByTestId("nearest-station");
+    expect(nearestEl.textContent).toContain(expected!.station.name_en);
+    expect(nearestEl.textContent).toMatch(/\d+(\.\d+)?\s*(m|km)/);
+
+    fireEvent.click(nearestEl);
+
+    expect(useAppStore.getState().selectedStation).toEqual({
+      routeIdx: expected!.station.route_idx,
+      stationIdx: expected!.station.station_idx,
+    });
+    expect(useAppStore.getState().flyToRequest).not.toBeNull();
+    expect(useAppStore.getState().searchOpen).toBe(false);
   });
 });

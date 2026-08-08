@@ -122,6 +122,7 @@ export function StationSearch() {
         {geo.status === "ready" && nearest && (
           <button
             type="button"
+            data-testid="nearest-station"
             onClick={() =>
               goToStation(
                 nearest.station.route_idx,

@@ -1,8 +1,13 @@
-// Station search acceptance check: opening the panel shows a nearest-station
-// card (geolocation mocked for determinism), typing filters by English and
-// Thai name, and selecting a result updates selection, moves the camera, and
-// opens the station board. Geolocation denial is checked on a separate fresh
-// page load, since the app only ever requests it once per mount.
+// Station search acceptance check: opening the panel shows a real
+// nearest-station card (geolocation mocked to succeed, with real distance
+// text asserted via [data-testid="nearest-station"] — not just a grep for
+// the always-present "Nearest station" heading), typing filters by English
+// and Thai name, selecting a result updates selection/moves the camera/opens
+// the station board, and clicking the nearest-station card itself does the
+// same select+fly+close. Geolocation denial is checked on a separate fresh
+// page load (the app only ever requests it once per mount), asserting both
+// the inline error message AND that the nearest-station card is genuinely
+// absent there — a real contrast between the two mocked pages.
 //
 // Usage: npm run verify:station-search   (dev server must be running on :5173)
 import puppeteer from "puppeteer-core";
@@ -76,14 +81,14 @@ const panelVisible = await pageA.evaluate(
 );
 check("search panel opens", panelVisible, `visible=${panelVisible}`);
 
-const nearestText = await pageA.evaluate(() => {
-  const el = document.querySelector('[data-testid="station-search"]');
+const nearestCardText = await pageA.evaluate(() => {
+  const el = document.querySelector('[data-testid="nearest-station"]');
   return el ? el.textContent : null;
 });
 check(
-  "nearest-station card appears with geolocation mocked",
-  !!nearestText && /Nearest station/i.test(nearestText),
-  nearestText ? nearestText.slice(0, 120) : "null",
+  "nearest-station card appears with geolocation mocked to succeed",
+  !!nearestCardText && /\d+(\.\d+)?\s*(m|km)/.test(nearestCardText),
+  nearestCardText ? nearestCardText.slice(0, 120) : "null",
 );
 
 const firstStation = await pageA.evaluate(() => {
@@ -186,6 +191,52 @@ const panelClosedAfterSelect = await pageA.evaluate(
 );
 check("panel closes after selecting a result", panelClosedAfterSelect, `closed=${panelClosedAfterSelect}`);
 
+// Reopen the panel (same mount — geolocation was only ever requested once,
+// so the nearest-station card is still available) and confirm clicking the
+// nearest-station card itself does the same select+fly+close as a search
+// result row, not just that the card renders.
+await pageA.evaluate(() => window.__store.getState().setSearchOpen(true));
+await new Promise((r) => setTimeout(r, 300));
+
+const nearestEl = await pageA.$('[data-testid="nearest-station"]');
+if (!nearestEl) {
+  check("nearest-station card exists to click", false, "no element found");
+} else {
+  check("nearest-station card exists to click", true, "found");
+
+  const centerBeforeNearest = await pageA.evaluate(() => window.__map.getCenter());
+  await nearestEl.click();
+  await new Promise((r) => setTimeout(r, 1_000));
+
+  const selectedAfterNearest = await pageA.evaluate(
+    () => window.__store.getState().selectedStation,
+  );
+  check(
+    "clicking the nearest-station card updates selectedStation",
+    !!selectedAfterNearest,
+    JSON.stringify(selectedAfterNearest),
+  );
+
+  const centerAfterNearest = await pageA.evaluate(() => window.__map.getCenter());
+  const movedNearest =
+    Math.abs(centerAfterNearest.lng - centerBeforeNearest.lng) > 1e-4 ||
+    Math.abs(centerAfterNearest.lat - centerBeforeNearest.lat) > 1e-4;
+  check(
+    "clicking the nearest-station card moves the map camera",
+    movedNearest,
+    `${JSON.stringify(centerBeforeNearest)} -> ${JSON.stringify(centerAfterNearest)}`,
+  );
+
+  const panelClosedAfterNearest = await pageA.evaluate(
+    () => !document.querySelector('[data-testid="station-search"]'),
+  );
+  check(
+    "panel closes after selecting the nearest-station card",
+    panelClosedAfterNearest,
+    `closed=${panelClosedAfterNearest}`,
+  );
+}
+
 await pageA.close();
 
 // --- Page B: geolocation denied, fresh mount --------------------------------
@@ -215,6 +266,15 @@ check(
 
 const inputStillWorks = await pageB.$('[data-testid="station-search"] input');
 check("search input is still present after a geolocation error", !!inputStillWorks, `present=${!!inputStillWorks}`);
+
+const nearestAbsentOnDenial = await pageB.evaluate(
+  () => !document.querySelector('[data-testid="nearest-station"]'),
+);
+check(
+  "nearest-station card is absent when geolocation is mocked to deny",
+  nearestAbsentOnDenial,
+  `absent=${nearestAbsentOnDenial}`,
+);
 
 await pageB.close();
 
