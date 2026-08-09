@@ -456,15 +456,17 @@ export function MapContainer() {
       }
     });
 
-    // Dev builds always expose these; a production build (tools/verify-perf.mjs
-    // runs against `npm run preview`, i.e. a real prod bundle — dev-mode React
-    // and unminified Three would make the NF1 numbers meaningless) exposes them
-    // too, but only when opted in via `?debug=1`, so ordinary production
-    // visitors never get debug globals on `window`.
+    // Dev builds always expose these; a production build exposes them too, but
+    // only when opted in via `?debug=1`, so ordinary production visitors never
+    // get debug globals on `window`. The `?debug=1` path was added for the NF1
+    // perf harness (deleted 2026-08-09), which had to measure a real prod
+    // bundle — dev-mode React and unminified Three would have made the numbers
+    // meaningless. Kept: it is still the only way to inspect a prod build.
     const debugRequested =
       typeof window !== "undefined" && new URLSearchParams(window.location.search).get("debug") === "1";
     if (import.meta.env.DEV || debugRequested) {
-      // dev/debug-only handles for tools/screenshot.mjs and tools/verify-*.mjs
+      // dev/debug-only handles for tools/screenshot.mjs (and previously the
+      // browser acceptance harnesses, removed 2026-08-09)
       const dev = window as unknown as {
         __map?: MapLibreMap;
         __sim?: typeof activeSimClient;
