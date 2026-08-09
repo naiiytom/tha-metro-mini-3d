@@ -12,6 +12,7 @@
 
 mod gtfs;
 mod spline;
+mod synthetic;
 
 use std::collections::{HashMap, HashSet};
 use std::io::Write as _;
@@ -149,6 +150,18 @@ struct LineGeometry {
     /// (see tools/lines.config.mjs; spur geometry is out of scope for now).
     #[serde(default)]
     exclude_gtfs_stop_ids: Vec<String>,
+    /// GTFS stop_ids that identify which of a SHARED `gtfs_route_id`'s trips
+    /// belong to this line. Empty = this line is the route's default claimant
+    /// (the ordinary case: it takes every trip). Non-empty = it takes exactly
+    /// the trips serving one of these stops, and some other line is the
+    /// default. See `TripRouter` for the full contract.
+    ///
+    /// Needed for the MRT Pink spur (issue #15): the Namtang feed files the
+    /// Muang Thong Thani spur's 4 shuttle trips under the SAME route_id
+    /// "2436" as the 30-station trunk, so the two lines are separated by
+    /// which trips serve the spur's own stops (16936/16937), not by route id.
+    #[serde(default)]
+    claim_gtfs_stop_ids: Vec<String>,
     /// GTFS stop_ids exempt from the MAX_SNAP_M hard-fail — for a stop whose
     /// GTFS lat/lng is verified to be a *different, real* nearby station,
     /// not bad geometry. Needed for MRT Pink stop 359 "Nonthaburi Civic
@@ -169,6 +182,11 @@ struct LineGeometry {
     /// allow_large_snap_stop_ids.
     #[serde(default)]
     snap_warn_exempt_stop_ids: Vec<String>,
+    /// Present only for an operational line that publishes no timetable at
+    /// all (the Suvarnabhumi APM). Mutually exclusive with `gtfs_route_id`.
+    /// See the `synthetic` module for why this exists and how it is disclosed.
+    #[serde(default)]
+    synthetic_schedule: Option<synthetic::SyntheticSchedule>,
 }
 
 /// One track vertex from network.json: [lng, lat, altitude_m, structure].
@@ -190,24 +208,151 @@ struct NetworkStation {
     position: [f64; 3],
 }
 
-/// route_id -> index into `lines`. Errors on a duplicate instead of silently
-/// keeping the last one: a duplicate would stamp every trip on that route with
-/// the wrong route_idx (wrong track, wrong colour, wrong station table), and
-/// assertRegistryValid() only runs inside fetch-network.mjs — the preprocessor
-/// consumes committed network.json and is routinely run without re-fetching.
-fn build_route_idx_by_gtfs_id(
-    lines: &[(String, Option<String>)],
-) -> Result<HashMap<String, usize>, String> {
-    let mut map = HashMap::new();
-    for (i, (key, route_id)) in lines.iter().enumerate() {
-        let Some(id) = route_id else { continue };
-        if let Some(prev) = map.insert(id.clone(), i) {
+/// One registry line's claim on a GTFS route, as seen by `TripRouter`.
+#[derive(Debug)]
+struct LineClaim {
+    line_idx: usize,
+    line_key: String,
+    /// Empty = this line is the route's DEFAULT claimant (takes every trip no
+    /// other line claims). Non-empty = it takes exactly the trips serving one
+    /// of these stop ids.
+    claimed_stop_ids: HashSet<String>,
+}
+
+/// Assigns every GTFS trip to exactly one registry line.
+///
+/// A line normally owns a whole `route_id`, and for nine of the ten simulated
+/// lines it still does. But the Namtang feed bundles physically separate
+/// branches into one route: MRT Pink's `route_id` "2436" carries both the
+/// 30-station trunk AND the Muang Thong Thani spur ("IMPACT Link"), whose
+/// stations sit ~1.2 km off the trunk alignment. Separating those is a
+/// per-TRIP decision, not a per-route one, so route identity can no longer be
+/// a plain `route_id -> line` map.
+///
+/// Contract, per `route_id`:
+///   - at most one line may omit `claimGtfsStopIds` — the DEFAULT claimant
+///   - every other line sharing that id must declare a non-empty claim set
+///   - a trip goes to the line whose claim set it serves, else to the default
+///
+/// Every ambiguity is a hard error rather than a silent pick. That discipline
+/// is inherited from the duplicate-`route_id` check this replaces, and the
+/// reason for it is unchanged: a mis-assigned trip stamps the wrong
+/// `route_idx`, which desyncs track, colour, station table and vehicle-buffer
+/// lane 6 all at once. `assertRegistryValid()` enforces the same contract, but
+/// it only runs inside `fetch-network.mjs` — the preprocessor is routinely run
+/// against a committed `network.json` with no re-fetch, so it must re-check.
+#[derive(Debug)]
+struct TripRouter {
+    by_route: HashMap<String, Vec<LineClaim>>,
+}
+
+impl TripRouter {
+    /// `lines` is (line_key, gtfs_route_id, claim_gtfs_stop_ids) in registry order.
+    fn build(lines: &[(String, Option<String>, Vec<String>)]) -> Result<Self, String> {
+        let mut by_route: HashMap<String, Vec<LineClaim>> = HashMap::new();
+        for (line_idx, (line_key, route_id, claimed)) in lines.iter().enumerate() {
+            let Some(id) = route_id else { continue };
+            by_route.entry(id.clone()).or_default().push(LineClaim {
+                line_idx,
+                line_key: line_key.clone(),
+                claimed_stop_ids: claimed.iter().cloned().collect(),
+            });
+        }
+
+        // Sorted, not raw HashMap order: with two bad routes, whichever error
+        // surfaced first would otherwise vary per process (HashMap's
+        // RandomState is seeded per run). Same class of nondeterminism as the
+        // snap_warnings ordering bug PR #14 review caught.
+        let mut route_ids: Vec<&String> = by_route.keys().collect();
+        route_ids.sort_unstable();
+        for route_id in route_ids {
+            let claims = &by_route[route_id];
+            let defaults: Vec<&str> = claims
+                .iter()
+                .filter(|c| c.claimed_stop_ids.is_empty())
+                .map(|c| c.line_key.as_str())
+                .collect();
+            if defaults.len() > 1 {
+                return Err(format!(
+                    "duplicate gtfsRouteId '{route_id}': lines {} all claim it with no \
+                     claimGtfsStopIds. At most one line per route may be the default \
+                     claimant; the others must declare which trips they take.",
+                    defaults.join(", ")
+                ));
+            }
+            // Two claim sets sharing a stop id would make a trip serving that
+            // stop ambiguous at resolve time. Reject it here, where the message
+            // can name both lines, rather than at the first trip that hits it.
+            for (i, a) in claims.iter().enumerate() {
+                for b in claims.iter().skip(i + 1) {
+                    let mut shared: Vec<&str> = a
+                        .claimed_stop_ids
+                        .intersection(&b.claimed_stop_ids)
+                        .map(String::as_str)
+                        .collect();
+                    if !shared.is_empty() {
+                        shared.sort_unstable();
+                        return Err(format!(
+                            "gtfsRouteId '{route_id}': lines '{}' and '{}' both claim stop(s) {}",
+                            a.line_key,
+                            b.line_key,
+                            shared.join(", ")
+                        ));
+                    }
+                }
+            }
+        }
+        Ok(Self { by_route })
+    }
+
+    /// Resolve one trip to its registry line index.
+    fn resolve<'a>(
+        &self,
+        route_id: &str,
+        trip_id: &str,
+        stop_ids: impl Iterator<Item = &'a str>,
+    ) -> Result<usize, String> {
+        let claims = self
+            .by_route
+            .get(route_id)
+            .ok_or_else(|| format!("trip {trip_id}: no registry line claims route {route_id}"))?;
+        let served: HashSet<&str> = stop_ids.collect();
+
+        let mut matched: Vec<&LineClaim> = claims
+            .iter()
+            .filter(|c| {
+                !c.claimed_stop_ids.is_empty()
+                    && c.claimed_stop_ids
+                        .iter()
+                        .any(|s| served.contains(s.as_str()))
+            })
+            .collect();
+        if matched.len() > 1 {
+            matched.sort_by(|a, b| a.line_idx.cmp(&b.line_idx));
             return Err(format!(
-                "duplicate gtfsRouteId '{id}': lines[{prev}] and lines[{i}] ('{key}') both claim it"
+                "trip {trip_id} (route {route_id}) is claimed by more than one line: {} — \
+                 their claimGtfsStopIds must not both match one trip",
+                matched
+                    .iter()
+                    .map(|c| c.line_key.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ));
         }
+        if let Some(c) = matched.first() {
+            return Ok(c.line_idx);
+        }
+        claims
+            .iter()
+            .find(|c| c.claimed_stop_ids.is_empty())
+            .map(|c| c.line_idx)
+            .ok_or_else(|| {
+                format!(
+                    "trip {trip_id} (route {route_id}) matches no line's claimGtfsStopIds and \
+                     that route has no default claimant — every trip must land somewhere"
+                )
+            })
     }
-    Ok(map)
 }
 
 /// Sorts `network.report.json`'s `snap_warnings` by (line, gtfs_stop_id) so
@@ -335,11 +480,18 @@ fn run() -> Result<(), String> {
     let track_file: TrackFile =
         serde_json::from_str(&track_json).map_err(|e| format!("bad track JSON: {e}"))?;
 
-    let simulated_route_ids: Vec<&str> = track_file
-        .lines
-        .iter()
-        .filter_map(|l| l.gtfs_route_id.as_deref())
-        .collect();
+    // Deduped: two lines may legitimately share one route_id now (the Pink
+    // trunk and its IMPACT Link spur both sit on "2436"), and the reads below
+    // — routes.txt membership, read_trips — must see that id once, not twice.
+    let simulated_route_ids: Vec<&str> = {
+        let mut seen = HashSet::new();
+        track_file
+            .lines
+            .iter()
+            .filter_map(|l| l.gtfs_route_id.as_deref())
+            .filter(|id| seen.insert(*id))
+            .collect()
+    };
     if simulated_route_ids.is_empty() {
         return Err("network.json has no simulated lines (every gtfsRouteId is null)".into());
     }
@@ -362,39 +514,61 @@ fn run() -> Result<(), String> {
     let calendar = gtfs::read_calendar(gtfs_dir, &service_ids)?;
     let mut calendar_dates = gtfs::read_calendar_dates(gtfs_dir, &service_ids)?;
 
-    // Drop any trip (i.e. its whole pattern) that touches a line's
+    // ---- Trip -> registry line ---------------------------------------------
+    // Resolved up front, BEFORE the exclude filter below, because exclusion is
+    // a per-LINE rule and a shared route_id no longer identifies the line on
+    // its own (see TripRouter).
+    let trip_router = TripRouter::build(
+        &track_file
+            .lines
+            .iter()
+            .map(|l| {
+                (
+                    l.key.clone(),
+                    l.gtfs_route_id.clone(),
+                    l.claim_gtfs_stop_ids.clone(),
+                )
+            })
+            .collect::<Vec<_>>(),
+    )?;
+    let mut route_idx_by_trip: HashMap<String, usize> = HashMap::new();
+    for t in &trips {
+        let idx = trip_router.resolve(
+            &t.route_id,
+            &t.trip_id,
+            stop_times
+                .get(&t.trip_id)
+                .into_iter()
+                .flatten()
+                .map(|r| r.stop_id.as_str()),
+        )?;
+        route_idx_by_trip.insert(t.trip_id.clone(), idx);
+    }
+
+    // Drop any trip (i.e. its whole pattern) that touches ITS OWN line's
     // exclude_gtfs_stop_ids — see the field's doc comment on LineGeometry.
     // stop_times/frequencies/calendar above were loaded from the full trip
     // set and may now carry a few unused entries; harmless, since everything
     // downstream is driven by (the now-filtered) `trips`, not those maps.
-    let excluded_stops_by_route: HashMap<&str, HashSet<&str>> = track_file
+    if track_file
         .lines
         .iter()
-        .filter_map(|l| {
-            if l.exclude_gtfs_stop_ids.is_empty() {
-                return None;
-            }
-            l.gtfs_route_id.as_deref().map(|id| {
-                (
-                    id,
-                    l.exclude_gtfs_stop_ids.iter().map(String::as_str).collect(),
-                )
-            })
-        })
-        .collect();
-    if !excluded_stops_by_route.is_empty() {
+        .any(|l| !l.exclude_gtfs_stop_ids.is_empty())
+    {
         let before = trips.len();
         trips.retain(|t| {
-            let Some(excluded) = excluded_stops_by_route.get(t.route_id.as_str()) else {
+            let line = &track_file.lines[route_idx_by_trip[&t.trip_id]];
+            if line.exclude_gtfs_stop_ids.is_empty() {
                 return true;
-            };
-            let touches_excluded = stop_times
-                .get(&t.trip_id)
-                .is_some_and(|rows| rows.iter().any(|r| excluded.contains(r.stop_id.as_str())));
+            }
+            let touches_excluded = stop_times.get(&t.trip_id).is_some_and(|rows| {
+                rows.iter()
+                    .any(|r| line.exclude_gtfs_stop_ids.contains(&r.stop_id))
+            });
             if touches_excluded {
                 eprintln!(
-                    "note: dropping trip {} (route {}) — serves an excluded stop",
-                    t.trip_id, t.route_id
+                    "note: dropping trip {} (line {}) — serves an excluded stop",
+                    t.trip_id, line.key
                 );
             }
             !touches_excluded
@@ -407,31 +581,6 @@ fn run() -> Result<(), String> {
             return Err("exclude_gtfs_stop_ids filtering removed every trip".into());
         }
     }
-
-    // route_id -> allow_large_snap_stop_ids, so the per-pattern resolver
-    // (below) can honour the same escape hatch the station-level snapping
-    // loop does when it validates a PATTERN-CHOSEN candidate's distance
-    // (task 5 follow-up finding 1b) — the resolver can select a candidate
-    // whose distance the station-level check, which only ever saw the
-    // globally-nearest candidate, never validated.
-    let allow_large_snap_by_route: HashMap<&str, HashSet<&str>> = track_file
-        .lines
-        .iter()
-        .filter_map(|l| {
-            if l.allow_large_snap_stop_ids.is_empty() {
-                return None;
-            }
-            l.gtfs_route_id.as_deref().map(|id| {
-                (
-                    id,
-                    l.allow_large_snap_stop_ids
-                        .iter()
-                        .map(String::as_str)
-                        .collect(),
-                )
-            })
-        })
-        .collect();
 
     let all_stop_ids: HashSet<String> = stop_times
         .values()
@@ -465,7 +614,7 @@ fn run() -> Result<(), String> {
     let mut large_snap_exceptions: Vec<serde_json::Value> = Vec::new();
     let mut snap_warnings: Vec<serde_json::Value> = Vec::new();
 
-    for line in &track_file.lines {
+    for (line_idx, line) in track_file.lines.iter().enumerate() {
         check_track_gradient(&line.key, &line.track, &proj)?;
         let ctrl: Vec<[f64; 3]> = line
             .track
@@ -481,10 +630,14 @@ fn run() -> Result<(), String> {
 
         match line.gtfs_route_id.as_deref() {
             Some(route_id) => {
-                // Stop ids served by this route's patterns.
+                // Stop ids served by THIS LINE's patterns. Filtered by the
+                // resolved trip -> line assignment, not by route_id: when two
+                // lines share a route id (Pink trunk + IMPACT Link spur), a
+                // route_id filter would pull the other line's stops in here
+                // and try to snap them onto this line's track.
                 let route_stop_ids: HashSet<&String> = trips
                     .iter()
-                    .filter(|t| t.route_id == route_id)
+                    .filter(|t| route_idx_by_trip[&t.trip_id] == line_idx)
                     .flat_map(|t| {
                         stop_times
                             .get(&t.trip_id)
@@ -494,7 +647,11 @@ fn run() -> Result<(), String> {
                     })
                     .collect();
                 if route_stop_ids.is_empty() {
-                    return Err(format!("route {route_id}: no stop_times rows"));
+                    return Err(format!(
+                        "line '{}' (route {route_id}): no stop_times rows — no trip resolved \
+                         to this line. Check its claimGtfsStopIds against the feed.",
+                        line.key
+                    ));
                 }
 
                 let network_by_id: HashMap<&str, &NetworkStation> =
@@ -776,7 +933,10 @@ fn run() -> Result<(), String> {
         routes.push(RouteDoc {
             gtfs_route_id: line.gtfs_route_id.clone().unwrap_or_default(),
             line_key: line.key.clone(),
-            simulated: line.gtfs_route_id.is_some(),
+            // A synthetic-schedule line has no gtfs_route_id but IS simulated:
+            // it is the first route where `simulated` is true while
+            // `gtfs_route_id` is empty (see the `synthetic` module).
+            simulated: line.gtfs_route_id.is_some() || line.synthetic_schedule.is_some(),
             name_en,
             color_rgb,
             track_xyz: poly
@@ -820,13 +980,6 @@ fn run() -> Result<(), String> {
     }
 
     // ---- Patterns ----------------------------------------------------------
-    let route_idx_by_gtfs_id = build_route_idx_by_gtfs_id(
-        &track_file
-            .lines
-            .iter()
-            .map(|l| (l.key.clone(), l.gtfs_route_id.clone()))
-            .collect::<Vec<_>>(),
-    )?;
     let mut patterns = Vec::new();
     let mut pattern_idx_by_trip: HashMap<String, u16> = HashMap::new();
     // Total per-stop fallbacks (finding 1d): the resolver found no candidate
@@ -835,7 +988,7 @@ fn run() -> Result<(), String> {
     // was invisible in committed data; now gateable via --report.
     let mut pattern_arc_fallback_count: usize = 0;
     for trip in &trips {
-        let route_idx = route_idx_by_gtfs_id[trip.route_id.as_str()];
+        let route_idx = route_idx_by_trip[&trip.trip_id];
         let rows = stop_times
             .get(&trip.trip_id)
             .ok_or(format!("trip {} has no stop_times", trip.trip_id))?;
@@ -890,9 +1043,12 @@ fn run() -> Result<(), String> {
             // same rule (and the same allow_large_snap_stop_ids escape
             // hatch + ceiling).
             let dist = resolved_dists[i];
-            let large_snap_allowed = allow_large_snap_by_route
-                .get(trip.route_id.as_str())
-                .is_some_and(|s| s.contains(row.stop_id.as_str()));
+            // Looked up on the RESOLVED line, not on the route id: two lines
+            // sharing a route id have independent allow-lists, and keying this
+            // by route_id would silently apply one line's exception to the other.
+            let large_snap_allowed = track_file.lines[route_idx]
+                .allow_large_snap_stop_ids
+                .contains(&row.stop_id);
             if dist > MAX_SNAP_M && !large_snap_allowed {
                 return Err(format!(
                     "trip {}: stop {} resolves to a pattern-specific candidate {dist:.1} m \
@@ -965,6 +1121,48 @@ fn run() -> Result<(), String> {
             service_idx,
         ));
     }
+    // ---- Synthetic runs (operational lines with no published timetable) ----
+    // Runs after the GTFS expansion above and after the station tables are
+    // final: it reads each route's own arc-sorted station list, never any
+    // stop_times rows. See the `synthetic` module for why this exists.
+    let synthetic_span = services
+        .iter()
+        .fold(None::<(u32, u32)>, |acc, s| match acc {
+            None => Some((s.start_date, s.end_date)),
+            Some((lo, hi)) => Some((lo.min(s.start_date), hi.max(s.end_date))),
+        })
+        .ok_or("no services to take a synthetic line's date range from")?;
+    for (line_idx, line) in track_file.lines.iter().enumerate() {
+        let Some(sched) = &line.synthetic_schedule else {
+            continue;
+        };
+        let out = synthetic::synthesize(&line.key, line_idx, &routes[line_idx].stations, sched)?;
+        let service_idx = u8::try_from(services.len())
+            .map_err(|_| "too many services for RunDoc's u8 service_idx".to_string())?;
+        services.push(synthetic::all_days_service(
+            &line.key,
+            synthetic_span.0,
+            synthetic_span.1,
+        ));
+        let mut added = 0usize;
+        for (pattern, starts) in out.patterns.into_iter().zip(out.starts) {
+            let pattern_idx = u16::try_from(patterns.len())
+                .map_err(|_| "too many patterns for RunDoc's u16 pattern_idx".to_string())?;
+            patterns.push(pattern);
+            added += starts.len();
+            runs.extend(starts.into_iter().map(|start_sec| RunDoc {
+                pattern_idx,
+                service_idx,
+                start_sec,
+            }));
+        }
+        eprintln!(
+            "note: line '{}' — ESTIMATED timetable synthesized (no published feed): \
+             {added} runs over 2 directions at {} s headway",
+            line.key, sched.headway_sec
+        );
+    }
+
     if runs.is_empty() {
         return Err("expansion produced zero runs".into());
     }
@@ -1523,31 +1721,112 @@ mod tests {
         ]}"##
     }
 
+    /// (key, route_id, claimed_stop_ids) tuples in the shape TripRouter::build wants.
+    fn router_lines(
+        spec: &[(&str, Option<&str>, &[&str])],
+    ) -> Vec<(String, Option<String>, Vec<String>)> {
+        spec.iter()
+            .map(|(k, r, c)| {
+                (
+                    k.to_string(),
+                    r.map(str::to_string),
+                    c.iter().map(|s| s.to_string()).collect(),
+                )
+            })
+            .collect()
+    }
+
     #[test]
-    fn rejects_two_lines_claiming_the_same_gtfs_route_id() {
-        // Silent misrouting: HashMap::collect keeps the LAST duplicate, so every
-        // trip on the shared id would be stamped with the wrong route_idx and
-        // rendered on the wrong line's track.
-        let lines = vec![
-            ("a".to_string(), Some("1".to_string())),
-            ("b".to_string(), Some("1".to_string())),
-        ];
-        let err = build_route_idx_by_gtfs_id(&lines).unwrap_err();
+    fn rejects_two_default_claimants_for_one_gtfs_route_id() {
+        // The pre-claim behaviour: two lines owning one route id with nothing
+        // to tell their trips apart. Used to be silent misrouting (HashMap
+        // collect kept the LAST duplicate, stamping every trip on the shared
+        // id with the wrong route_idx and rendering it on the wrong track).
+        let lines = router_lines(&[("a", Some("1"), &[]), ("b", Some("1"), &[])]);
+        let err = TripRouter::build(&lines).unwrap_err();
         assert!(err.contains("duplicate gtfsRouteId '1'"), "got: {err}");
+        assert!(err.contains("a") && err.contains("b"), "got: {err}");
     }
 
     #[test]
     fn accepts_multiple_track_only_lines() {
         // Several lines may legitimately have gtfsRouteId: null (Orange,
         // Purple Phase 2) — null is not a duplicate.
-        let lines = vec![
-            ("a".to_string(), None),
-            ("b".to_string(), None),
-            ("c".to_string(), Some("1".to_string())),
-        ];
-        let map = build_route_idx_by_gtfs_id(&lines).unwrap();
-        assert_eq!(map.len(), 1);
-        assert_eq!(map["1"], 2);
+        let lines = router_lines(&[("a", None, &[]), ("b", None, &[]), ("c", Some("1"), &[])]);
+        let router = TripRouter::build(&lines).unwrap();
+        assert_eq!(router.resolve("1", "t", ["s1"].into_iter()).unwrap(), 2);
+    }
+
+    #[test]
+    fn two_lines_split_one_gtfs_route_by_claimed_stops() {
+        // The real MRT Pink shape (issue #15): trunk is the default claimant,
+        // the IMPACT Link spur claims its own two stops. A spur trip also
+        // serves the shared junction stop (14630), which must NOT pull it back
+        // to the trunk — a claim match wins over the default.
+        let lines = router_lines(&[
+            ("pink", Some("2436"), &[]),
+            ("pink-spur", Some("2436"), &["16936", "16937"]),
+        ]);
+        let router = TripRouter::build(&lines).unwrap();
+        let trunk = router
+            .resolve("2436", "trunk-trip", ["14630", "100", "101"].into_iter())
+            .unwrap();
+        let spur = router
+            .resolve("2436", "spur-trip", ["14630", "16936", "16937"].into_iter())
+            .unwrap();
+        assert_eq!(
+            trunk, 0,
+            "a trip touching no claimed stop goes to the default"
+        );
+        assert_eq!(
+            spur, 1,
+            "a trip touching a claimed stop goes to the claimant"
+        );
+    }
+
+    #[test]
+    fn a_trip_claimed_by_two_lines_is_an_error() {
+        // Disjoint claim sets are enforced at build time, so construct the
+        // ambiguity the only other way it can arise: two claimants whose sets
+        // differ but whose stops are both served by one trip.
+        let lines = router_lines(&[
+            ("trunk", Some("9"), &[]),
+            ("spur-a", Some("9"), &["A"]),
+            ("spur-b", Some("9"), &["B"]),
+        ]);
+        let router = TripRouter::build(&lines).unwrap();
+        let err = router
+            .resolve("9", "both", ["A", "B"].into_iter())
+            .unwrap_err();
+        assert!(err.contains("claimed by more than one line"), "got: {err}");
+        assert!(
+            err.contains("spur-a") && err.contains("spur-b"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
+    fn overlapping_claim_sets_are_rejected_at_build_time() {
+        let lines = router_lines(&[
+            ("trunk", Some("9"), &[]),
+            ("spur-a", Some("9"), &["A", "X"]),
+            ("spur-b", Some("9"), &["X"]),
+        ]);
+        let err = TripRouter::build(&lines).unwrap_err();
+        assert!(err.contains("both claim stop(s) X"), "got: {err}");
+    }
+
+    #[test]
+    fn an_unclaimed_trip_with_no_default_claimant_is_an_error() {
+        // A route whose every line declares a claim set has nowhere to put a
+        // trip matching none of them. Dropping it silently would lose real
+        // scheduled service with no signal.
+        let lines = router_lines(&[("spur", Some("9"), &["A"])]);
+        let router = TripRouter::build(&lines).unwrap();
+        let err = router
+            .resolve("9", "orphan", ["Z"].into_iter())
+            .unwrap_err();
+        assert!(err.contains("no default claimant"), "got: {err}");
     }
 
     #[test]

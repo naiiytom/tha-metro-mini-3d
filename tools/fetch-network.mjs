@@ -98,7 +98,23 @@ function dedupe(coords) {
   );
 }
 
-async function fetchBranch(relationId, branchKey, defaultStructure) {
+/**
+ * @param {Array<{id: string, nameEn?: string, code?: string}>} extraStationNodes
+ *   Station nodes to add on top of whatever the relation's own members supply.
+ *   Needed when a route relation carries no stop members at all — the
+ *   Suvarnabhumi APM's relation (19955655) is tagged `route=light_rail` but has
+ *   ZERO node members, so the member-derived path below finds nothing even
+ *   though both of its stations exist in OSM as properly tagged
+ *   `railway=station` nodes.
+ *
+ *   `nameEn`/`code` are overrides for what OSM genuinely lacks (the APM's Main
+ *   Terminal node has `name:th` but no `name:en`). POSITIONS ARE NEVER
+ *   OVERRIDABLE — they always come from the live node fetch, so this cannot
+ *   become a way to hand-place a station from a guessed coordinate. That is
+ *   the failure mode the Mo Chit hand-patch turned out to be: a citation to an
+ *   untagged node ~270 m from the position it was used to justify.
+ */
+async function fetchBranch(relationId, branchKey, defaultStructure, extraStationNodes = []) {
   const data = await overpass(`[out:json][timeout:90];relation(${relationId});out geom;`);
   const rel = data.elements.find((e) => e.type === "relation");
   if (!rel) throw new Error(`Relation ${relationId} not found`);
@@ -158,6 +174,17 @@ async function fetchBranch(relationId, branchKey, defaultStructure) {
     // fails deserialization with "invalid type: integer, expected a string".
     .map((m) => ({ id: String(m.ref), role: m.role, lon: m.lon, lat: m.lat }));
 
+  // Explicitly-listed station nodes (see the extraStationNodes doc above).
+  // Positions are unknown at this point — the shared node query below fills
+  // them in from OSM, and a node it doesn't return is a hard error rather
+  // than a station silently dropped or placed at a made-up coordinate.
+  const extraById = new Map(extraStationNodes.map((s) => [String(s.id), s]));
+  for (const id of extraById.keys()) {
+    if (!candidates.some((c) => c.id === id)) {
+      candidates.push({ id, role: "stop", lon: null, lat: null });
+    }
+  }
+
   // stop_position/station nodes carry no tags via `out geom` members —
   // fetch tags for every candidate in one follow-up query, then filter.
   const ids = candidates.map((s) => s.id).join(",");
@@ -170,6 +197,19 @@ async function fetchBranch(relationId, branchKey, defaultStructure) {
     // station fell back to "" name/code — this broke ALL 155 stations'
     // OSM-sourced names/codes network-wide before this fix).
     byId = new Map(nodeData.elements.map((e) => [String(e.id), e.tags ?? {}]));
+    // Positions for the explicitly-listed nodes, which have none yet.
+    const posById = new Map(nodeData.elements.map((e) => [String(e.id), [e.lon, e.lat]]));
+    for (const c of candidates) {
+      if (c.lat != null) continue;
+      const pos = posById.get(c.id);
+      if (!pos) {
+        throw new Error(
+          `${branchKey}: extraStationNodeIds names node ${c.id}, which OSM did not return — ` +
+            `check the id; a station is never placed from a registry-supplied coordinate`,
+        );
+      }
+      [c.lon, c.lat] = pos;
+    }
   }
 
   const STOP_LIKE = new Set(["stop_position", "station", "platform"]);
@@ -180,9 +220,12 @@ async function fetchBranch(relationId, branchKey, defaultStructure) {
   });
   for (const s of stations) {
     const tags = byId.get(s.id) ?? {};
-    s.name = tags["name:en"] ?? tags.name ?? "";
+    const override = extraById.get(s.id) ?? {};
+    // Override only where OSM has nothing — never silently rename a station
+    // OSM already labels in English.
+    s.name = tags["name:en"] ?? override.nameEn ?? tags.name ?? "";
     s.nameTh = tags["name:th"] ?? tags.name ?? "";
-    s.code = tags.ref ?? "";
+    s.code = tags.ref ?? override.code ?? "";
   }
 
   // Per-line structure histogram so a mis-tagged relation is obvious at
@@ -468,7 +511,12 @@ async function main() {
       ? await fetchBranchFromWayNames(line.osm.wayNamePatterns, line.key, line.structure)
       : line.osm.wayNamePattern
         ? await fetchBranchFromWayName(line.osm.wayNamePattern, line.key, line.structure)
-        : await fetchBranch(line.osm.relationId ?? (await discoverRelationId(line)), line.key, line.structure);
+        : await fetchBranch(
+            line.osm.relationId ?? (await discoverRelationId(line)),
+            line.key,
+            line.structure,
+            line.osm.extraStationNodeIds ?? [],
+          );
     lines.push({
       key: line.key,
       name: line.name,
@@ -479,6 +527,10 @@ async function main() {
       gtfsRouteId: line.gtfsRouteId,
       preRevenue: line.preRevenue,
       excludeGtfsStopIds: line.excludeGtfsStopIds ?? [],
+      claimGtfsStopIds: line.claimGtfsStopIds ?? [],
+      // null (not undefined) so the field is present in network.json for
+      // every line — the Rust side and the UI both branch on it.
+      syntheticSchedule: line.syntheticSchedule ?? null,
       allowLargeSnapStopIds: line.allowLargeSnapStopIds ?? [],
       snapWarnExemptStopIds: line.snapWarnExemptStopIds ?? [],
       ...geom,

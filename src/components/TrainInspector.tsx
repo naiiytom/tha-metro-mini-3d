@@ -3,6 +3,7 @@ import type { RunDetail, StationInfo } from "../sim/protocol";
 import { activeSimClient } from "../sim/SimClient";
 import { formatCountdown, formatServiceSec } from "../sim/time";
 import { useAppStore } from "../stores/useAppStore";
+import { SYNTHETIC_SCHEDULE_NOTE } from "../types";
 
 /** `${route_idx}:${station_idx}` — the natural key for cross-route station lookup. */
 function stationKey(routeIdx: number, stationIdx: number): string {
@@ -89,6 +90,17 @@ export function TrainInspector() {
           <p className="truncate text-xs text-slate-600">
             {detail ? `${detail.route_name} · run ${detail.run_idx}` : `run ${selectedRunIdx}`}
           </p>
+          {/* Not truncated, unlike the two lines above: this one is a caveat
+           * about the times shown below, and a clipped caveat is worse than
+           * none (see SYNTHETIC_SCHEDULE_NOTE). */}
+          {detail && routes[detail.route_idx]?.syntheticSchedule != null && (
+            <p
+              data-testid="synthetic-schedule-note"
+              className="mt-1 rounded bg-sky-50 px-1.5 py-1 text-[10px] leading-snug text-sky-800"
+            >
+              {SYNTHETIC_SCHEDULE_NOTE}
+            </p>
+          )}
         </div>
         <button
           type="button"

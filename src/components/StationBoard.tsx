@@ -3,6 +3,7 @@ import type { StationBoard as StationBoardData, StationInfo } from "../sim/proto
 import { activeSimClient } from "../sim/SimClient";
 import { formatCountdown, formatServiceSec } from "../sim/time";
 import { useAppStore } from "../stores/useAppStore";
+import { SYNTHETIC_SCHEDULE_NOTE } from "../types";
 
 /** `${route_idx}:${station_idx}` — the natural key for cross-route station lookup. */
 function stationKey(routeIdx: number, stationIdx: number): string {
@@ -109,6 +110,16 @@ export function StationBoard() {
         <p className="px-2 pb-1 text-[10px] uppercase tracking-wide text-slate-500">
           Next departures
         </p>
+        {/* Every departure below is synthesized, not published — say so
+         * before the user reads a single time (see SYNTHETIC_SCHEDULE_NOTE). */}
+        {routes[selectedStation.routeIdx]?.syntheticSchedule != null && (
+          <p
+            data-testid="synthetic-schedule-note"
+            className="mx-2 mb-1 rounded bg-sky-50 px-2 py-1 text-[10px] leading-snug text-sky-800"
+          >
+            {SYNTHETIC_SCHEDULE_NOTE}
+          </p>
+        )}
         {!board ? (
           <p className="px-2 py-2 text-xs text-slate-600">Loading…</p>
         ) : board.entries.length === 0 ? (

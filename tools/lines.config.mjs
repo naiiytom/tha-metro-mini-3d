@@ -119,13 +119,20 @@ export const LINES = [
     // patterns (stop_ids 16936 "Impact Muang Thong Thani" / 16937 "Lake
     // Muang Thong Thani") into this SAME route_id alongside the 30-station
     // main line — discovered when the preprocessor's snap check hard-failed
-    // (those 2 stops are ~1.2 km off the main-line-only track fetched
-    // above). The spur is a real, separate physical branch (relation pair
-    // 19149752/19150155 in OSM) whose own track geometry is out of scope
-    // for this registry entry (see docs/SRS.md §2's caveat block) — until a
-    // future task adds it as its own line, drop these 2 stops (and the
-    // trips that serve them) rather than mis-snapping them onto the trunk.
-    excludeGtfsStopIds: ["16936", "16937"],
+    // (those 2 stops are ~1.2 km off the main-line-only track fetched above).
+    //
+    // Until issue #15 this entry carried `excludeGtfsStopIds: ["16936",
+    // "16937"]`, which DROPPED those 4 trips entirely — real revenue service
+    // (since 2025-06-17) missing from the map, which is exactly what the
+    // issue reported. The spur is now its own registry line (`pink-spur`,
+    // below) and claims those trips via `claimGtfsStopIds`, so this entry is
+    // simply the route's DEFAULT claimant: it takes every 2436 trip the spur
+    // does not. The exclude list is gone deliberately — keeping both would be
+    // two sources of truth for the same split, free to drift apart.
+    //
+    // This entry stays the default claimant (no claimGtfsStopIds of its own):
+    // adding a trunk claim set would mean enumerating 30 stations to say
+    // "everything else".
     // GTFS stop 359 ("MRT Nonthaburi Civic Center", the Pink Line's own
     // western terminus) is 555 m from where this line's fetched track ends
     // — but that's a GTFS coordinate quirk, not a stitching bug: the
@@ -322,6 +329,93 @@ export const LINES = [
     // fetchBranchFromWayName for why stations are intentionally empty.
     osm: { relationId: null, wayNamePattern: "สายสีม่วงใต้" },
   },
+  {
+    // Issue #15: the Muang Thong Thani spur, branded "IMPACT Link" — in full
+    // revenue service since 2025-06-17, but absent from the map until now
+    // because the `pink` entry above dropped its trips (see the long comment
+    // there). Appended, never inserted: the registry-index invariant means
+    // LINES order == network.json order == cache route order == vehicle-buffer
+    // route_idx, so reordering would invalidate every committed .tmb.
+    key: "pink-spur",
+    name: "MRT Pink Line (IMPACT Link)",
+    nameTh: "สายสีชมพู (ส่วนต่อขยายเมืองทองธานี)",
+    // Deliberately the trunk's livery, not OSM's #C4007B: this is the same
+    // Pink Line to a rider, and the two are told apart by name in the
+    // selector rather than by an invented second shade.
+    color: "#CD4692",
+    structure: "elevated",
+    vehicleType: "monorail",
+    // Shared with `pink` — legal only because the two are separated per-trip
+    // by claimGtfsStopIds below (see assertRegistryValid's shared-route_id
+    // contract and Rust's TripRouter for the full rule).
+    gtfsRouteId: "2436",
+    // The spur's own two stations. Verified against the feed (2026-08-09):
+    // route 2436 has exactly 6 trips, and the 4 serving these stops are the
+    // spur's — patterns 14630 -> 16936 -> 16937 and the exact reverse, one
+    // minute between stops, frequency-based, on services 1 and 2.
+    //
+    // 14630 (Muang Thong Thani) is deliberately NOT claimed: it is the
+    // junction, served by BOTH the trunk and the spur. Claiming it would pull
+    // every trunk trip onto the spur. Claim sets identify a branch by the
+    // stops only that branch reaches.
+    claimGtfsStopIds: ["16936", "16937"],
+    preRevenue: false,
+    // A clean PTv2 relation, unlike the Orange/Purple-Phase-2 construction
+    // ways: route=monorail, ref="IMPACT Link", 3 way members and 3 stop node
+    // members (verified 2026-08-09), ~2.67 km. The reverse-direction twin is
+    // 19150155; either direction's track is equivalent for our purposes, same
+    // convention as every other relation-pinned line here.
+    osm: { relationId: 19149752 },
+  },
+  {
+    // Roadmap item 3.1. The airport people mover between the Main Terminal
+    // and Midfield Satellite Concourse 1 (SAT-1) — free, operated by AOT,
+    // in service since SAT-1 opened 2023-09-28, running 24 hours.
+    key: "apm",
+    name: "Suvarnabhumi APM",
+    nameTh: "รถไฟฟ้าขนส่งผู้โดยสารอัตโนมัติ ท่าอากาศยานสุวรรณภูมิ",
+    // No official livery colour to source; a neutral airport grey, chosen not
+    // to collide with any operator's real line colour.
+    color: "#6D7B8D",
+    // Both OSM ways carry layer=-1, so structureOfWay() classifies every
+    // point underground on its own — this fallback is never actually reached.
+    structure: "underground",
+    vehicleType: "apm",
+    // NOT in the Namtang feed. Verified 2026-08-09 by scanning all 2,077
+    // routes: the only Suvarnabhumi entries are buses and ferries. So there
+    // is no gtfsRouteId to give it, and its schedule is synthesized below.
+    gtfsRouteId: null,
+    // Operational, not under construction — it must NOT get the dashed,
+    // desaturated pre-revenue treatment that Orange/Purple Phase 2 use.
+    preRevenue: false,
+    // ---- ESTIMATED TIMETABLE, NOT PUBLISHED DATA -------------------------
+    // AOT publishes no timetable for the APM — only "runs continuously".
+    // These figures describe the observed service pattern (a ~1 km run at a
+    // few minutes' headway, around the clock); they are NOT sourced from an
+    // operator feed like every other line here. The app surfaces this to the
+    // user via the `syntheticSchedule` flag (see LineSelector/StationBoard)
+    // rather than presenting invented times as if they were real.
+    syntheticSchedule: {
+      headwaySec: 180,
+      runtimeSec: 120,
+      dwellSec: 40,
+      startSec: 0,
+      endSec: 86400,
+    },
+    // relation 19955655 is tagged route=light_rail but has ZERO node members
+    // (verified 2026-08-09), so the usual member-derived station path finds
+    // nothing. Both stations do exist as real, tagged railway=station nodes,
+    // named here explicitly. Positions still come from OSM, never from here.
+    osm: {
+      relationId: 19955655,
+      extraStationNodeIds: [
+        // OSM node has name:th ("อาคารผู้โดยสารหลัก") but no name:en.
+        { id: "13373875189", nameEn: "Suvarnabhumi Main Terminal" },
+        // Already carries name:en="Midfield Satellite Concourse 1".
+        { id: "13373875190" },
+      ],
+    },
+  },
 ];
 
 /**
@@ -358,15 +452,31 @@ const HEX = /^#[0-9a-fA-F]{6}$/;
 /** Throws on any registry mistake that would corrupt the index invariant. */
 export function assertRegistryValid(lines = LINES) {
   const keys = new Set();
-  const routeIds = new Set();
+  // route_id -> the entries claiming it. Two lines MAY share one id now (the
+  // Pink trunk and its IMPACT Link spur both sit on "2436" in the Namtang
+  // feed), but only when `claimGtfsStopIds` says which trips each one takes.
+  // Validated as a group after the per-line loop — mirrors the Rust
+  // `TripRouter::build` contract, which re-checks it because the preprocessor
+  // runs against a committed network.json without this validator.
+  const byRouteId = new Map();
   for (const l of lines) {
     if (keys.has(l.key)) throw new Error(`duplicate line key '${l.key}'`);
     keys.add(l.key);
     if (l.gtfsRouteId !== null) {
-      if (routeIds.has(l.gtfsRouteId)) {
-        throw new Error(`duplicate gtfsRouteId '${l.gtfsRouteId}'`);
+      if (!byRouteId.has(l.gtfsRouteId)) byRouteId.set(l.gtfsRouteId, []);
+      byRouteId.get(l.gtfsRouteId).push(l);
+    }
+    if (l.claimGtfsStopIds !== undefined) {
+      if (
+        !Array.isArray(l.claimGtfsStopIds) ||
+        l.claimGtfsStopIds.length === 0 ||
+        !l.claimGtfsStopIds.every((id) => typeof id === "string" && id.length > 0)
+      ) {
+        throw new Error(`${l.key}: claimGtfsStopIds must be a non-empty array of non-empty strings`);
       }
-      routeIds.add(l.gtfsRouteId);
+      if (l.gtfsRouteId === null) {
+        throw new Error(`${l.key}: claimGtfsStopIds needs a gtfsRouteId to claim trips from`);
+      }
     }
     if (!(l.structure in STRUCTURE_ALTITUDE_M)) {
       throw new Error(`${l.key}: unknown structure '${l.structure}'`);
@@ -377,6 +487,50 @@ export function assertRegistryValid(lines = LINES) {
     if (!HEX.test(l.color)) throw new Error(`${l.key}: color must be #RRGGBB`);
     if (typeof l.preRevenue !== "boolean") {
       throw new Error(`${l.key}: preRevenue must be a boolean`);
+    }
+    if (l.syntheticSchedule !== undefined) {
+      const s = l.syntheticSchedule;
+      if (l.gtfsRouteId !== null) {
+        // Two schedule sources for one line: the GTFS trips and the
+        // synthesized ones would both generate runs on the same track.
+        throw new Error(`${l.key}: syntheticSchedule requires gtfsRouteId: null`);
+      }
+      if (l.preRevenue) {
+        // A synthetic schedule means "running, just unpublished". Nothing
+        // should be simulated on track that does not carry passengers yet.
+        throw new Error(`${l.key}: a preRevenue line must not have a syntheticSchedule`);
+      }
+      for (const f of ["headwaySec", "runtimeSec", "dwellSec", "startSec", "endSec"]) {
+        if (!Number.isInteger(s[f]) || s[f] < 0) {
+          throw new Error(`${l.key}: syntheticSchedule.${f} must be a non-negative integer`);
+        }
+      }
+      if (s.headwaySec <= 0) throw new Error(`${l.key}: syntheticSchedule.headwaySec must be > 0`);
+      if (s.runtimeSec <= 0) throw new Error(`${l.key}: syntheticSchedule.runtimeSec must be > 0`);
+      if (s.endSec <= s.startSec) {
+        throw new Error(`${l.key}: syntheticSchedule.endSec must be after startSec`);
+      }
+    }
+    if (l.osm?.extraStationNodeIds !== undefined) {
+      const v = l.osm.extraStationNodeIds;
+      if (!Array.isArray(v) || v.length === 0) {
+        throw new Error(`${l.key}: osm.extraStationNodeIds must be a non-empty array`);
+      }
+      for (const n of v) {
+        if (typeof n?.id !== "string" || !/^\d+$/.test(n.id)) {
+          throw new Error(`${l.key}: each extraStationNodeIds entry needs a numeric string id`);
+        }
+        // Guard against anyone extending this into a position override — the
+        // whole point is that coordinates always come from the live node.
+        for (const banned of ["lat", "lon", "position"]) {
+          if (banned in n) {
+            throw new Error(
+              `${l.key}: extraStationNodeIds entry ${n.id} must not carry '${banned}' — ` +
+                `station positions always come from OSM, never from the registry`,
+            );
+          }
+        }
+      }
     }
     if (l.preRevenue && l.gtfsRouteId !== null) {
       // A line with a live GTFS route id would be simulated — trains running
@@ -433,6 +587,33 @@ export function assertRegistryValid(lines = LINES) {
       }
       if (l.osm.wayNamePatterns.some((p) => /["\\]/.test(p))) {
         throw new Error(`${l.key}: osm.wayNamePatterns entries must not contain '"' or '\\'`);
+      }
+    }
+  }
+
+  // Shared-route_id contract (see byRouteId above and Rust's TripRouter):
+  // at most one default claimant per route, and no two claim sets may overlap
+  // — otherwise a trip serving the shared stop has no single owner, and a
+  // mis-assigned trip desyncs track, colour, station table and vehicle-buffer
+  // lane 6 at once.
+  for (const [routeId, claimants] of byRouteId) {
+    if (claimants.length === 1) continue;
+    const defaults = claimants.filter((l) => l.claimGtfsStopIds === undefined);
+    if (defaults.length > 1) {
+      throw new Error(
+        `duplicate gtfsRouteId '${routeId}': ${defaults.map((l) => l.key).join(", ")} all claim ` +
+          `it with no claimGtfsStopIds — at most one line per route may be the default claimant`,
+      );
+    }
+    const seenStop = new Map();
+    for (const l of claimants) {
+      for (const id of l.claimGtfsStopIds ?? []) {
+        if (seenStop.has(id)) {
+          throw new Error(
+            `gtfsRouteId '${routeId}': lines '${seenStop.get(id)}' and '${l.key}' both claim stop '${id}'`,
+          );
+        }
+        seenStop.set(id, l.key);
       }
     }
   }

@@ -13,9 +13,43 @@ describe("line registry", () => {
     expect(LINES[1].key).toBe("silom");
   });
 
-  it("rejects a duplicate GTFS route id", () => {
+  it("rejects two default claimants of one GTFS route id", () => {
+    // Two lines owning one route with nothing to tell their trips apart.
     const dup = [LINES[0], { ...LINES[1], gtfsRouteId: LINES[0].gtfsRouteId }];
     expect(() => assertRegistryValid(dup)).toThrow(/duplicate gtfsRouteId/);
+  });
+
+  it("allows two lines to share a route id when one claims specific stops", () => {
+    // The real MRT Pink shape (issue #15): trunk is the default claimant, the
+    // IMPACT Link spur claims its own stops.
+    // Appended to the real registry rather than run as a 2-line subset, so
+    // INTERCHANGE_OVERRIDES still resolves (it names lines by key).
+    const split = [
+      ...LINES,
+      { ...LINES[1], key: "extra-spur", gtfsRouteId: LINES[1].gtfsRouteId, claimGtfsStopIds: ["zz"] },
+    ];
+    expect(() => assertRegistryValid(split)).not.toThrow();
+  });
+
+  it("rejects two claimants of one route both claiming the same stop", () => {
+    const overlap = [
+      LINES[0],
+      { ...LINES[1], key: "a", gtfsRouteId: LINES[0].gtfsRouteId, claimGtfsStopIds: ["X"] },
+      { ...LINES[2], key: "b", gtfsRouteId: LINES[0].gtfsRouteId, claimGtfsStopIds: ["X"] },
+    ];
+    expect(() => assertRegistryValid(overlap)).toThrow(/both claim stop 'X'/);
+  });
+
+  it("rejects claimGtfsStopIds on a line with no route id to claim from", () => {
+    const orphan = [{ ...LINES[0], gtfsRouteId: null, claimGtfsStopIds: ["X"] }];
+    expect(() => assertRegistryValid(orphan)).toThrow(/needs a gtfsRouteId/);
+  });
+
+  it("rejects an empty claimGtfsStopIds array", () => {
+    // An empty array would silently read as "default claimant" and quietly
+    // create a second default for the route.
+    const empty = [{ ...LINES[0], claimGtfsStopIds: [] }];
+    expect(() => assertRegistryValid(empty)).toThrow(/non-empty array/);
   });
 
   it("rejects an unknown structure", () => {
