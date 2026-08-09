@@ -336,6 +336,23 @@ export const LINES = [
     // there). Appended, never inserted: the registry-index invariant means
     // LINES order == network.json order == cache route order == vehicle-buffer
     // route_idx, so reordering would invalidate every committed .tmb.
+    //
+    // WHY A SECOND LINE RATHER THAN A SECOND BRANCH OF `pink` — the obvious
+    // question, since the two share operator, livery, route id, structure and
+    // vehicle type. A branch is not representable: `RouteDoc` carries exactly
+    // ONE `track_xyz`/`track_arc_m` per route, stations are sorted by a single
+    // scalar arc and asserted strictly increasing, and the spur leaves the
+    // trunk at Muang Thong Thani — stop 10 of 30, MID-LINE, not a terminus.
+    // Splicing a mid-line branch into one polyline forces it to double back
+    // through the trunk, which is the Tha Phra arc-ambiguity failure MVP 6
+    // documented, except structurally guaranteed instead of incidental.
+    // (`fetchBranchFromWayNames`, used for Orange East+West, joins two parts
+    // END TO END into a single traverse — a linear join, not a branch.)
+    // Supporting real branches would mean making a route a graph of polylines
+    // with per-branch arc spaces: a cache-format change, plus the engine's
+    // interpolation, the per-pattern arc resolver and VehicleManager. The
+    // two-entry split is the intended permanent shape for branch lines here;
+    // the next branch (e.g. a future Blue or Purple spur) should follow it.
     key: "pink-spur",
     name: "MRT Pink Line (IMPACT Link)",
     nameTh: "สายสีชมพู (ส่วนต่อขยายเมืองทองธานี)",
@@ -597,8 +614,21 @@ export function assertRegistryValid(lines = LINES) {
   // mis-assigned trip desyncs track, colour, station table and vehicle-buffer
   // lane 6 at once.
   for (const [routeId, claimants] of byRouteId) {
-    if (claimants.length === 1) continue;
     const defaults = claimants.filter((l) => l.claimGtfsStopIds === undefined);
+    if (defaults.length === 0) {
+      // Every claimant declares a claim set, so any trip on this route serving
+      // none of them has nowhere to go. TripRouter::build accepts this shape
+      // too and only fails at resolve(), on the first unclaimed trip — which
+      // means `data:fetch` succeeds and OVERWRITES network.json, and the
+      // failure only surfaces at the later `data:preprocess`. Catch it here,
+      // before anything is written.
+      throw new Error(
+        `gtfsRouteId '${routeId}': every claimant (${claimants.map((l) => l.key).join(", ")}) ` +
+          `declares claimGtfsStopIds, so no line takes the route's remaining trips — ` +
+          `exactly one must be the default claimant (omit claimGtfsStopIds)`,
+      );
+    }
+    if (claimants.length === 1) continue;
     if (defaults.length > 1) {
       throw new Error(
         `duplicate gtfsRouteId '${routeId}': ${defaults.map((l) => l.key).join(", ")} all claim ` +

@@ -214,6 +214,15 @@ async function fetchBranch(relationId, branchKey, defaultStructure, extraStation
 
   const STOP_LIKE = new Set(["stop_position", "station", "platform"]);
   const stations = candidates.filter((s) => {
+    // An explicitly-named node always survives. It was named in the registry
+    // precisely because the relation's own members can't be relied on, so
+    // dropping it here would silently ignore that instruction. This matters
+    // for a node that IS already a relation member with an empty role: it
+    // skips the force-add above, then this filter tests `public_transport`
+    // only — so a real `railway=station` node that happens to carry no
+    // `public_transport` tag would vanish with no error, unlike the
+    // not-returned-by-OSM case below which hard-fails.
+    if (extraById.has(s.id)) return true;
     if (/^stop/.test(s.role)) return true;
     const pt = byId.get(s.id)?.public_transport;
     return typeof pt === "string" && STOP_LIKE.has(pt);

@@ -53,7 +53,20 @@ export interface LineGeometry {
   /** Fallback for track points whose OSM way carries no tunnel/bridge/layer. */
   structure: Structure;
   vehicleType: VehicleType;
-  /** null = track geometry only, never simulated (pre-revenue or absent feed). */
+  /**
+   * The GTFS `route_id` this line's trips come from, or null if it has none.
+   *
+   * **null does NOT mean "not simulated."** A line with a `syntheticSchedule`
+   * (the Suvarnabhumi APM) is null here and still runs trains. Check
+   * `syntheticSchedule` BEFORE branching on this — `LineSelector` depends on
+   * that ordering, or the APM renders as "track only" while visibly moving.
+   * Genuinely track-only lines are null here AND have no `syntheticSchedule`
+   * (`orange`, `purple-ext`).
+   *
+   * Also **not unique across lines**: two entries may share one route id when
+   * `claimGtfsStopIds` splits it per trip (the Pink trunk and its IMPACT Link
+   * spur both carry "2436").
+   */
   gtfsRouteId: string | null;
   /** Under construction / not yet in revenue service — rendered distinctly. */
   preRevenue: boolean;

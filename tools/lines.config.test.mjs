@@ -45,6 +45,14 @@ describe("line registry", () => {
     expect(() => assertRegistryValid(orphan)).toThrow(/needs a gtfsRouteId/);
   });
 
+  it("rejects a route whose only claimant declares claimGtfsStopIds", () => {
+    // No default claimant means the route's other trips land nowhere. Caught
+    // here rather than at preprocess time, which would be after data:fetch has
+    // already overwritten network.json.
+    const orphan = [{ ...LINES[0], claimGtfsStopIds: ["zz"] }];
+    expect(() => assertRegistryValid(orphan)).toThrow(/no line takes the route's remaining trips/);
+  });
+
   it("rejects an empty claimGtfsStopIds array", () => {
     // An empty array would silently read as "default claimant" and quietly
     // create a second default for the route.

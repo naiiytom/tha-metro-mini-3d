@@ -615,6 +615,21 @@ fn run() -> Result<(), String> {
     let mut snap_warnings: Vec<serde_json::Value> = Vec::new();
 
     for (line_idx, line) in track_file.lines.iter().enumerate() {
+        // Re-checked in Rust, not trusted from assertRegistryValid, for the
+        // same reason TripRouter re-checks its own contract: that validator
+        // only runs inside fetch-network.mjs, and the preprocessor is designed
+        // to consume a committed network.json with no re-fetch. A line with
+        // BOTH a gtfs_route_id and a synthetic_schedule would get GTFS-expanded
+        // patterns AND synthesized ones on the same track — two overlapping
+        // fleets on one route, with nothing downstream detecting it.
+        if line.gtfs_route_id.is_some() && line.synthetic_schedule.is_some() {
+            return Err(format!(
+                "line '{}' has both a gtfsRouteId and a syntheticSchedule — these are \
+                 mutually exclusive; a synthetic schedule exists only for a line with no \
+                 feed route, and running both would put two fleets on one track",
+                line.key
+            ));
+        }
         check_track_gradient(&line.key, &line.track, &proj)?;
         let ctrl: Vec<[f64; 3]> = line
             .track

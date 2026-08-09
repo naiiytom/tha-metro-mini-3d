@@ -87,6 +87,33 @@ pub fn synthesize(
     stations: &[StationDoc],
     sched: &SyntheticSchedule,
 ) -> Result<Synthesized, String> {
+    // Re-checked here, not trusted from `assertRegistryValid`. That validator
+    // lives in fetch-network.mjs and only runs on a re-fetch, while the
+    // preprocessor is explicitly built to run against a committed, sometimes
+    // hand-edited `network.json` (the Mo Chit patch, the gradient-limit pass
+    // and the interchangeOverrides sync are all established precedent for
+    // editing that file directly). Same reason `TripRouter` duplicates its own
+    // contract in Rust. Without the headway check the run loop below never
+    // terminates and grows `dir_starts` until the process is killed —
+    // `sim_core::calendar::expand_frequency` guards exactly this case.
+    if sched.headway_sec == 0 {
+        return Err(format!(
+            "line '{line_key}': syntheticSchedule.headwaySec must be > 0 (got 0) — \
+             a zero headway cannot be expanded into runs"
+        ));
+    }
+    if sched.runtime_sec == 0 {
+        return Err(format!(
+            "line '{line_key}': syntheticSchedule.runtimeSec must be > 0 (got 0) — \
+             every run would arrive at its terminus the second it departs"
+        ));
+    }
+    if sched.end_sec <= sched.start_sec {
+        return Err(format!(
+            "line '{line_key}': syntheticSchedule endSec ({}) must be after startSec ({})",
+            sched.end_sec, sched.start_sec
+        ));
+    }
     if stations.len() < 2 {
         return Err(format!(
             "line '{line_key}': a syntheticSchedule needs at least 2 stations, found {} — \
@@ -130,8 +157,18 @@ pub fn synthesize(
             if i > 0 {
                 let leg = (ordered[i].1.arc_m - ordered[i - 1].1.arc_m).abs() as f64;
                 // Rounded per leg rather than accumulated as a float, so the
-                // last stop lands on a whole second.
-                clock += ((leg / total_arc) * sched.runtime_sec as f64).round() as u32;
+                // last stop lands on a whole second — but floored at 1 s.
+                //
+                // A leg short enough to round to 0 would give `arrival_s ==
+                // the previous `departure_s`: zero transit time, which is
+                // exactly the "dwell 60 s then teleport" defect this project
+                // already documents for MRT Pink's real GTFS data (CLAUDE.md,
+                // "Known unfixed issues"). Unreachable at 2 stations, but a
+                // future synthetic line with one very short leg would
+                // reproduce it, and nothing downstream detects it. Better a
+                // 1 s leg than a teleport.
+                let travel = ((leg / total_arc) * sched.runtime_sec as f64).round() as u32;
+                clock += travel.max(1);
             }
             let arrival_s = clock;
             let is_last = i == ordered.len() - 1;
@@ -302,6 +339,67 @@ mod tests {
         let one = [station("A", 0.0)];
         let err = synthesize("apm", 0, &one, &apm_like()).unwrap_err();
         assert!(err.contains("at least 2 stations"), "got: {err}");
+    }
+
+    #[test]
+    fn a_zero_headway_is_rejected_rather_than_looping_forever() {
+        // `while t < end_sec { t += headway_sec }` never terminates at 0.
+        // assertRegistryValid rejects it, but only runs on a re-fetch — the
+        // preprocessor consumes a committed, hand-editable network.json.
+        let stations = [station("A", 0.0), station("B", 1000.0)];
+        let sched = SyntheticSchedule {
+            headway_sec: 0,
+            ..apm_like()
+        };
+        let err = synthesize("apm", 0, &stations, &sched).unwrap_err();
+        assert!(err.contains("headwaySec must be > 0"), "got: {err}");
+    }
+
+    #[test]
+    fn a_zero_runtime_or_inverted_span_is_rejected() {
+        let stations = [station("A", 0.0), station("B", 1000.0)];
+        let zero_runtime = SyntheticSchedule {
+            runtime_sec: 0,
+            ..apm_like()
+        };
+        assert!(
+            synthesize("apm", 0, &stations, &zero_runtime)
+                .unwrap_err()
+                .contains("runtimeSec must be > 0")
+        );
+        let inverted = SyntheticSchedule {
+            start_sec: 500,
+            end_sec: 500,
+            ..apm_like()
+        };
+        assert!(
+            synthesize("apm", 0, &stations, &inverted)
+                .unwrap_err()
+                .contains("must be after startSec")
+        );
+    }
+
+    #[test]
+    fn a_leg_too_short_to_round_up_still_gets_a_second_of_transit() {
+        // 1 m of a 10 km route at 120 s runtime rounds to 0 s, which would
+        // make arrival_s == the previous departure_s — zero transit, the exact
+        // "dwell and teleport" shape documented as a known defect for MRT
+        // Pink's real feed data. Floored at 1 s instead.
+        let stations = [
+            station("A", 0.0),
+            station("B", 1.0), // 1 m from A
+            station("C", 10_000.0),
+        ];
+        let out = synthesize("apm", 0, &stations, &apm_like()).unwrap();
+        for p in &out.patterns {
+            for i in 1..p.stops.len() {
+                let transit = p.stops[i].arrival_s - p.stops[i - 1].departure_s;
+                assert!(
+                    transit >= 1,
+                    "leg {i} has {transit} s of transit — a teleport between stations"
+                );
+            }
+        }
     }
 
     #[test]
