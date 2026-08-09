@@ -1,5 +1,7 @@
 # Engine Contract — MVP 2 (data pipeline), MVP 3 (simulation), MVP 4 (queries), MVP 5 (multi-line breadth), MVP 6 (underground + polish)
 
+> **Note (2026-08-09):** every browser acceptance harness referenced in this document — the MVP 4/5/6/7, camera, kinematics, closeup, perf, mobile, train-tooltip, legibility, station-search and spur/APM runs — **was deleted**, along with its `npm run verify:*` script. References are kept as the record of how each finding was established; they are not runnable instructions. `npm test`, `cargo test` and `npm run check:bundle` are the only automated checks left.
+
 Authoritative interface spec between the Rust side (preprocessor CLI, sim core,
 Wasm bindings) and the TypeScript side (worker, loader, rendering). Both sides
 are implemented against THIS document. If something here proves impossible,
@@ -82,11 +84,18 @@ pub struct CacheDoc {
 
 #[derive(Serialize, Deserialize)]
 pub struct RouteDoc {
-    pub gtfs_route_id: String,   // "1" / "2" / "" for a track-only (unsimulated) line
+    pub gtfs_route_id: String,   // "1" / "2" / "" for a line with no GTFS route.
+                                  // NOT unique: two lines may share one route id when
+                                  // claim_gtfs_stop_ids splits it per trip (Pink trunk
+                                  // + IMPACT Link spur, both "2436").
     pub line_key: String,        // registry key from tools/lines.config.mjs — ties a
                                   // cache route back to its network.json geometry/colour
     pub simulated: bool,         // false = track geometry only: no patterns, no runs,
-                                  // no trains (e.g. a pre-revenue line with no gtfsRouteId)
+                                  // no trains (e.g. a pre-revenue line with no gtfsRouteId).
+                                  // May be TRUE with an EMPTY gtfs_route_id: a line with a
+                                  // synthetic_schedule has no feed route but does run
+                                  // trains (Suvarnabhumi APM). Do not treat an empty
+                                  // gtfs_route_id as "not simulated".
     pub name_en: String,
     pub color_rgb: u32,          // always parse_hex_color(line.color) from the registry, e.g. 0x7CB342 (Sukhumvit)
     /// Track polyline in LOCAL ENU METERS relative to (origin_lng, origin_lat),
@@ -216,6 +225,18 @@ struct LineGeometry {
     /// but sit ~1.2 km off the main-line-only track this entry fetches.
     /// Optional, defaults to empty.
     exclude_gtfs_stop_ids: Vec<String>,
+    /// GTFS stop_ids identifying which of a SHARED gtfs_route_id's trips
+    /// belong to this line. Empty = this line is the route's default
+    /// claimant (takes every trip no other line claims). See TripRouter in
+    /// the preprocessor for the full contract; every ambiguity is a hard
+    /// error. Optional, defaults to empty.
+    claim_gtfs_stop_ids: Vec<String>,
+    /// Present only for an operational line that publishes NO timetable
+    /// (the Suvarnabhumi APM). Mutually exclusive with gtfs_route_id. The
+    /// preprocessor synthesizes patterns, runs and an all-days service from
+    /// it; ids are prefixed "synthetic:" and the UI labels the line's times
+    /// as estimated. Optional, defaults to None.
+    synthetic_schedule: Option<SyntheticSchedule>,
     /// GTFS stop_ids exempt from the 150 m hard snap-distance fail — for a
     /// stop verified to be a real, different, nearby station rather than bad
     /// geometry (still snapped and simulated; logged as a warning instead of
@@ -261,14 +282,16 @@ implemented against it.
   `None` -> the line is track geometry only (`RouteDoc.simulated = false`, no
   patterns/runs for it, its own station list from `network.json` is used
   directly instead of GTFS stop_times). At least one line must have a
-  `gtfsRouteId`, or the CLI fails loudly. **As of MVP 6, no line in the
-  registry actually uses `gtfs_route_id: None`** — all 10 registered lines
-  (Sukhumvit, Silom, Purple, ARL, Pink, Yellow, Gold, SRT Dark/Light Red,
-  and MRT Blue, new this MVP) are simulated; the mechanism exists and is
-  tested (`sim-core` query tests) but its intended first real users, MRT
-  Orange and MRT Purple's southern extension, still aren't in the registry —
-  the MVP 6 plan's Task 6, which would have added them, was deferred by
-  human ruling, not merely not-yet-scheduled.
+  `gtfsRouteId`, or the CLI fails loudly. **As of 2026-08-09 the registry is
+  14 lines**: 11 GTFS-simulated (the original 10 plus `pink-spur`), `apm`
+  (simulated from a synthetic schedule, no GTFS route), and `orange` /
+  `purple-ext` (genuinely track-only, `gtfs_route_id: None`).
+- A `gtfs_route_id` is **not unique across lines.** `TripRouter` resolves each
+  TRIP to a line: at most one default claimant per route id, every other
+  claimant declares a non-empty disjoint `claim_gtfs_stop_ids`, and a trip
+  goes to whichever claim set it serves. Two lines share `"2436"` today (the
+  Pink trunk and its IMPACT Link spur). Anything keying off `route_id` to
+  identify a line is wrong and must key off the resolved line index instead.
 - Builds each route's track from its `network.json` line's `track` polyline:
   Catmull-Rom (centripetal) resample at ~10 m, offset z=+15 (elevated
   structure; other structure types carry their own z in the source geometry).
@@ -336,7 +359,7 @@ implemented against it.
   300-concurrent target. This is real GTFS density, not a defect: MVP 6's one
   deferred task (MRT Orange + MRT Purple Phase 2 as track-only lines) would
   have contributed exactly zero vehicles to this count either way, so it does
-  not explain the shortfall. `npm run verify:perf` leaves
+  not explain the shortfall. the NF1 perf harness leaves
   that one sub-check (of 5) failing on purpose (see ENGINE_CONTRACT §8 / CLAUDE.md)
   rather than weakening it or fabricating load to pass it; it is real GTFS
   schedule density for these lines, not a defect in the engine, buffer sizing,
@@ -469,7 +492,7 @@ Worker → main:
   `simEpochMs = clockEpochMs + (performance.now() - clockSetAt) * warp`,
   converts to Bangkok local date + sec-of-day (fixed UTC+7, no DST:
   `local = simEpochMs + 7*3600_000`), calls `engine.evaluate` timed with
-  `performance.now()` (`evalMs`, NF1 harness — `tools/verify-perf.mjs`), reads
+  `performance.now()` (`evalMs`, the NF1 perf harness, since removed), reads
   `engine.last_truncated()` (`truncated`), posts a frame. `SimClient` keeps a
   600-sample rolling window of `evalMs`/`count`/`truncated`
   (`getEvalStats(): { samples, meanMs, p95Ms, maxCount, truncated, maxVehicles }`,
@@ -661,21 +684,21 @@ together.
 - MVP 4: a train can be selected by clicking it, followed by the camera,
   inspected (route, headsign, origin/destination, next-stop ETA, full call
   list), a station's live board read, and the clock scrubbed to any time of
-  day — all asserted by `npm run verify:mvp4` against a running dev server.
+  day — all asserted by the MVP 4 acceptance harness against a running dev server.
 - MVP 3: trains visibly dwell + move along both branches at the correct
   scheduled positions for the current Bangkok time; headings follow track
   tangent (opposite directions on the two tracks); no vehicles before first
   service (~06:00) or long after last runs; warp 1×/5×/10×/60× works; 60 FPS
   target: instanced meshes, no per-frame React state.
 - MVP 5: the whole registry (9 lines, 155 stations, 4,481 runs) renders and
-  simulates together — asserted by `npm run verify:mvp5` (6/6 as of this
+  simulates together — asserted by the MVP 5 acceptance harness (6/6 as of this
   writing: every registry line renders in order; trains run on 3+ lines at
   once; hiding a line stops its rendering but not its simulation or its
   clickability; an interchange station shows a transfer chip; a monorail's
   *rendered* geometry — not just its config table — is shorter than a
-  heavy-rail train's) — and `npm run verify:mvp4` still passes unchanged (14
+  heavy-rail train's) — and the MVP 4 acceptance harness still passes unchanged (14
   checks), i.e. single-line interaction did not regress. **NF1 is 4/5, not
-  5/5, by design, not by oversight:** `npm run verify:perf` against the
+  5/5, by design, not by oversight:** the NF1 perf harness against the
   production build measures the sim actually ticking a meaningful sample
   count during the window (pass — rules out a silently-dead worker producing
   the same "one check fails" tally), sim tick p95 ≈ 0.2–0.3 ms (< 3 ms
@@ -691,13 +714,13 @@ together.
   Blue added, genuinely mixed underground/elevated (234 elevated / 260
   underground track points; 494 total, one point off the keyed 495 due to a
   way-join dedup step that only fires with all 10 lines fetched together) —
-  asserted by `npm run verify:mvp6` (6/6): the registry renders in order;
+  asserted by the MVP 6 acceptance harness (6/6): the registry renders in order;
   Blue's *data* is mixed (structure tags present in `network.json`); Blue's
   *rendered* deck (not just its config) is split into separate per-structure
   Three.js meshes; underground mode fades the basemap into the SRS F3.2
   0.1–0.4 band; the sun tracks the sim clock; the basemap's own colour also
-  gets darker at midnight than at noon. `npm run verify:mvp5` (6/6) and
-  `npm run verify:mvp4` (14/14) both still pass unchanged. **NF1 is still
+  gets darker at midnight than at noon. the MVP 5 acceptance harness (6/6) and
+  the MVP 4 acceptance harness (14/14) both still pass unchanged. **NF1 is still
   4/5, and the peak-concurrency shortfall is unrelated to MVP 6's one
   deferred task:** the network's real measured peak rose to 246 (weekday;
   see §2's peak-concurrent scan above) with Blue added, but MRT Orange and

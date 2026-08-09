@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { useAppStore } from "../stores/useAppStore";
-import type { LineGeometry } from "../types";
+import { type LineGeometry, SYNTHETIC_SCHEDULE_NOTE } from "../types";
 import { ViewControls } from "./ViewControls";
 
 /** One toggleable row — its own component so it can call the store's
@@ -30,6 +30,17 @@ function LineRow({ line, routeIdx }: { line: LineGeometry; routeIdx: number }) {
         {line.preRevenue ? (
           <span className="ml-auto shrink-0 rounded bg-amber-100 px-1 text-[9px] uppercase text-amber-700">
             pre-revenue
+          </span>
+        ) : line.syntheticSchedule !== null ? (
+          // Checked before the track-only branch below: a synthetic-schedule
+          // line also has gtfsRouteId === null, but it is emphatically NOT
+          // track only — it runs trains, just on estimated times.
+          <span
+            className="ml-auto shrink-0 rounded bg-sky-100 px-1 text-[9px] uppercase text-sky-700"
+            title={SYNTHETIC_SCHEDULE_NOTE}
+            data-testid="synthetic-schedule-badge"
+          >
+            estimated
           </span>
         ) : line.gtfsRouteId === null ? (
           <span className="ml-auto shrink-0 text-[9px] uppercase text-slate-500">

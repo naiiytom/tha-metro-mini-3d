@@ -1,7 +1,7 @@
 {
-  "bytes": 586971,
-  "feed_version": "20260807",
-  "gzip_bytes": 343315,
+  "bytes": 601731,
+  "feed_version": "20260808",
+  "gzip_bytes": 351363,
   "interchanges": [
     {
       "a": "sukhumvit/Samrong",
@@ -56,6 +56,10 @@
       "b": "blue/Phetchaburi"
     },
     {
+      "a": "pink/Muang Thong Thani",
+      "b": "pink-spur/Muang Thong Thani"
+    },
+    {
       "a": "pink/Lak Si",
       "b": "red-dark/Lak Si"
     },
@@ -77,18 +81,18 @@
   ],
   "max_snap_m": 109.47373318622579,
   "pattern_arc_fallbacks": 0,
-  "patterns": 58,
-  "peak_concurrent": 246,
+  "patterns": 64,
+  "peak_concurrent": 250,
   "peak_concurrent_date": 20260722,
   "peak_concurrent_time": 70200,
   "peak_concurrent_weekday": {
     "date": 20260722,
-    "peak": 246,
+    "peak": 250,
     "time": 70200
   },
   "peak_concurrent_weekend": {
     "date": 20260725,
-    "peak": 173,
+    "peak": 177,
     "time": 67200
   },
   "per_route": [
@@ -103,12 +107,12 @@
     },
     {
       "gtfs_route_id": "2",
-      "length_m": 13197.5517578125,
+      "length_m": 13191.6767578125,
       "name_en": "Silom Line",
       "patterns": 4,
       "runs": 798,
       "stations": 14,
-      "track_points": 1321
+      "track_points": 1320
     },
     {
       "gtfs_route_id": "4",
@@ -184,7 +188,7 @@
     },
     {
       "gtfs_route_id": "",
-      "length_m": 35272.34375,
+      "length_m": 35272.51171875,
       "name_en": "MRT Orange Line",
       "patterns": 0,
       "runs": 0,
@@ -199,10 +203,28 @@
       "runs": 0,
       "stations": 0,
       "track_points": 2385
+    },
+    {
+      "gtfs_route_id": "2436",
+      "length_m": 2673.745849609375,
+      "name_en": "MRT Pink Line (IMPACT Link)",
+      "patterns": 4,
+      "runs": 456,
+      "stations": 3,
+      "track_points": 268
+    },
+    {
+      "gtfs_route_id": "",
+      "length_m": 1060.9320068359375,
+      "name_en": "Suvarnabhumi APM",
+      "patterns": 2,
+      "runs": 960,
+      "stations": 2,
+      "track_points": 107
     }
   ],
-  "runs": 8193,
-  "services": 5,
+  "runs": 9609,
+  "services": 6,
   "snap_warnings": [
     {
       "gtfs_stop_id": "13627",
@@ -225,5 +247,5 @@
       "snap_m": 63.92498328970017
     }
   ],
-  "stations": 193
+  "stations": 198
 }

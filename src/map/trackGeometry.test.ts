@@ -30,6 +30,7 @@ const line = (track: TrackPoint[]): LineGeometry => ({
   vehicleType: "heavy",
   gtfsRouteId: null,
   preRevenue: false,
+  syntheticSchedule: null,
   relationId: 0,
   osmName: "test",
   track,
@@ -261,7 +262,7 @@ describe("splitByStructure — a long run followed by a chain of singletons (reg
 const preRevenueLine = (over: Partial<LineGeometry> = {}): LineGeometry => ({
   key: "t", name: "T", nameTh: "T", color: "#888888",
   structure: "elevated", vehicleType: "heavy", gtfsRouteId: "1",
-  preRevenue: false, relationId: 1, osmName: "T",
+  preRevenue: false, syntheticSchedule: null, relationId: 1, osmName: "T",
   track: [[100.53, 13.74, 15, "elevated"], [100.54, 13.74, 15, "elevated"]],
   stations: [],
   ...over,
