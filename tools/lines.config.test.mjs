@@ -134,7 +134,7 @@ describe("line registry", () => {
 
   it("rejects a line that is its own estimatedRunTimes basis", () => {
     const bad = patched("pink", { estimatedRunTimes: { basisLine: "pink" } });
-    expect(() => assertRegistryValid(bad)).toThrow(/itself/);
+    expect(() => assertRegistryValid(bad)).toThrow(/points at itself/);
   });
 
   it("rejects estimatedRunTimes on a line with no gtfsRouteId", () => {
