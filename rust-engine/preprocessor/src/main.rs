@@ -11,6 +11,7 @@
 //!     --out public/data/network.tmb [--report public/data/network.report.json]
 
 mod gtfs;
+mod runtimes;
 mod spline;
 mod synthetic;
 
