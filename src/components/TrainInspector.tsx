@@ -3,7 +3,7 @@ import type { RunDetail, StationInfo } from "../sim/protocol";
 import { activeSimClient } from "../sim/SimClient";
 import { formatCountdown, formatServiceSec } from "../sim/time";
 import { useAppStore } from "../stores/useAppStore";
-import { SYNTHETIC_SCHEDULE_NOTE } from "../types";
+import { ESTIMATED_RUN_TIMES_NOTE, SYNTHETIC_SCHEDULE_NOTE } from "../types";
 
 /** `${route_idx}:${station_idx}` — the natural key for cross-route station lookup. */
 function stationKey(routeIdx: number, stationIdx: number): string {
@@ -99,6 +99,11 @@ export function TrainInspector() {
               className="mt-1 rounded bg-sky-50 px-1.5 py-1 text-[10px] leading-snug text-sky-800"
             >
               {SYNTHETIC_SCHEDULE_NOTE}
+            </p>
+          )}
+          {detail && routes[detail.route_idx]?.estimatedRunTimes != null && (
+            <p className="px-3 pb-2 text-[11px] leading-snug text-white/60">
+              {ESTIMATED_RUN_TIMES_NOTE}
             </p>
           )}
         </div>

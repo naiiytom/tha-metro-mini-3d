@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { useAppStore } from "../stores/useAppStore";
-import { type LineGeometry, SYNTHETIC_SCHEDULE_NOTE } from "../types";
+import { ESTIMATED_RUN_TIMES_NOTE, type LineGeometry, SYNTHETIC_SCHEDULE_NOTE } from "../types";
 import { ViewControls } from "./ViewControls";
 
 /** One toggleable row — its own component so it can call the store's
@@ -41,6 +41,19 @@ function LineRow({ line, routeIdx }: { line: LineGeometry; routeIdx: number }) {
             data-testid="synthetic-schedule-badge"
           >
             estimated
+          </span>
+        ) : line.estimatedRunTimes !== null ? (
+          // Also checked before the track-only branch: MRT Pink has a real
+          // gtfsRouteId, so it can't collide with that branch either way —
+          // but keeping this ahead of it matches the syntheticSchedule
+          // precedent and keeps every "runs trains on non-standard times"
+          // case together, ahead of "doesn't run trains at all."
+          <span
+            data-testid="estimated-run-times-badge"
+            className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-white/70"
+            title={ESTIMATED_RUN_TIMES_NOTE}
+          >
+            Est. times
           </span>
         ) : line.gtfsRouteId === null ? (
           <span className="ml-auto shrink-0 text-[9px] uppercase text-slate-500">
