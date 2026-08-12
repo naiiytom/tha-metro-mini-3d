@@ -92,8 +92,24 @@ export function contrastRatio(a: number, b: number): number {
  * Scale factor between this model's predicted linear-light output and what
  * Three's shader actually produces.
  *
- * MEASURED 2026-08-15 by `tools/calibrate-night-lift.mjs` against the real
- * renderer (headless Edge, `--enable-unsafe-swiftshader`, Three r185,
+ * DERIVED from Three's own shipped shader source (`node_modules/three`,
+ * matching the `^0.185.1` this project pins), not fitted from measurement.
+ * `MeshLambertMaterial` bakes the Lambertian BRDF's `1/π` reciprocal-pi
+ * normalization in unconditionally — `ShaderChunk/common.glsl.js`'s
+ * `BRDF_Lambert(diffuseColor) { return RECIPROCAL_PI * diffuseColor; }`
+ * (`RECIPROCAL_PI = 0.3183098861837907`, same file), applied by
+ * `lights_lambert_pars_fragment.glsl.js` in BOTH `RE_Direct_Lambert` (the
+ * sun term) and `RE_IndirectDiffuse_Lambert` (the ambient term) — it is not
+ * specific to a "physically correct lights" opt-in path. `WebGLLights.js`
+ * applies no extra normalization before that. `ThreeLayer.ts` never sets
+ * `renderer.toneMapping`, so `NoToneMapping` (the default) applies and no
+ * nonlinear tone curve breaks the multiplicative relationship. Three's real
+ * output is therefore exactly
+ * `albedo_lin × (1/π) × (ambient·ambientIntensity + sun·sunIntensity·max(N·L,0))`
+ * — precisely `predictRendered`'s formula with `SHADING_SCALE = 1/π`.
+ *
+ * CORROBORATED 2026-08-15 by `tools/calibrate-night-lift.mjs` against the
+ * real renderer (headless Edge, `--enable-unsafe-swiftshader`, Three r185,
  * `MeshLambertMaterial`, `renderer.outputColorSpace = "srgb"`). The script
  * adds its own known-albedo, upward-facing quad directly to the live
  * `NetworkLayer` scene (never the unlit `Line2` centerline — that geometry
@@ -102,28 +118,31 @@ export function contrastRatio(a: number, b: number): number {
  * exact same `sunDirection`/`skyPalette` values `nightLift.test.ts` uses for
  * NOON and DEEP_NIGHT, and reads the rendered pixel back with `gl.readPixels`
  * at a screen position computed from the real per-frame projection matrix
- * (not assumed from camera framing).
+ * (not assumed from camera framing). 6 colour/time cases (white and mid-gray
+ * at both times, MRT Blue `#1964B7` at both times, MRT Purple `#660066` at
+ * deep night), 18 channel samples, with `NO_LIFT` (emissive forced to 0) so
+ * only this scale's own multiplier is isolated. After excluding samples that
+ * are uninformative by construction (a channel that measured a saturated
+ * 255, or predicted below 4/255 where 8-bit rounding dominates), 13 channel
+ * samples solved independently for the scale implied by that one channel's
+ * real pixel: mean 0.3271, stdev 0.0108 — only 0.81σ from 1/π (0.31831), not
+ * a resolvable discrepancy. The residual is explained by which samples pull
+ * it: the noon-only subset (least affected by 8-bit rounding at low signal)
+ * lands at 0.315–0.318, bracketing 1/π almost exactly, while the deep-night
+ * samples nearest the near-black exclusion threshold — where rounding bias
+ * is largest — pull the full-sample mean up. That combination (derived
+ * value, independently measured within under a standard deviation) is the
+ * basis for pinning this to the exact derived constant rather than the
+ * noisier raw fit.
  *
- * 6 colour/time cases (white and mid-gray at both times, MRT Blue `#1964B7`
- * at both times, MRT Purple `#660066` at deep night), 18 channel samples,
- * with `NO_LIFT` (emissive forced to 0) so only this scale's own multiplier
- * is isolated. After excluding samples that are uninformative by
- * construction (a channel that measured a saturated 255, or predicted below
- * 4/255 where 8-bit rounding dominates), 13 channel samples solved
- * independently for the scale implied by that one channel's real pixel:
- * mean 0.3271, stdev 0.0108 (≈3.3% of the mean) — consistent, not a fluke of
- * one colour or one time of day. The measured value is real Three's shader
- * output running noticeably darker than this model's un-scaled prediction,
- * roughly consistent with (though not exactly) the 1/π ≈ 0.3183 Lambertian
- * BRDF normalization Three's physically-based lighting applies and this
- * model's simple `albedo * light` term does not — offered as the likely
- * mechanism, not asserted as the reason 0.327 was chosen; 0.327 is the
- * measured value, not a theory-derived one.
- *
- * Re-run `tools/calibrate-night-lift.mjs` (with a live `npm run dev`) before
- * changing this if the renderer, material type, or Three version changes.
+ * Re-run `tools/calibrate-night-lift.mjs` (with a live `npm run dev`) as a
+ * fresh corroboration if the renderer, material type, or Three version
+ * changes — starting from `SHADING_SCALE = 1` the way this derivation did,
+ * since the script's own near-black exclusion threshold (`predicted >= 4`)
+ * is evaluated against whatever `SHADING_SCALE` happens to be live when it
+ * runs.
  */
-export const SHADING_SCALE = 0.327;
+export const SHADING_SCALE = 1 / Math.PI;
 
 export function predictRendered(
   albedo: number,

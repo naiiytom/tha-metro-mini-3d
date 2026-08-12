@@ -101,12 +101,14 @@ try {
 
   const hasMap = await page.evaluate(() => !!window.__map);
   if (!hasMap) {
-    console.error(
+    // Throw rather than process.exit(1) here: exit() would skip the
+    // `finally` below and leak the headless Edge process. Let the outer
+    // catch print this and set a nonzero exit code AFTER the browser closes.
+    throw new Error(
       "FATAL: window.__map is not present. This is only exposed in a dev build " +
         "(src/components/MapContainer.tsx) — confirm the URL above is really the dev " +
         "server (not a production preview) and that the app finished mounting.",
     );
-    process.exit(1);
   }
 
   const hasLayer = await page.evaluate(() => {
@@ -114,11 +116,10 @@ try {
     return !!(l && l.implementation);
   });
   if (!hasLayer) {
-    console.error(
+    throw new Error(
       'FATAL: map.getLayer("network-3d").implementation is not present — the Three.js ' +
         "network layer has not been added yet. Increase the settle wait and retry.",
     );
-    process.exit(1);
   }
 
   // Everything from here runs inside the page: it needs live access to the
@@ -299,6 +300,13 @@ try {
       // relative ratio for a negligible absolute one — exactly the
       // quantization effect CLAUDE.md already documents for MRT Blue's own
       // livery, not a real calibration signal.
+      //
+      // NOTE: `predicted` (and so this <4 threshold) is computed from
+      // whichever `SHADING_SCALE` is live in nightLift.ts when this script
+      // runs, not from a fixed baseline — a from-scratch re-derivation
+      // should start with `SHADING_SCALE = 1` the way this run did, so the
+      // exclusion set is judged against the same un-scaled predictions this
+      // constant was originally solved from.
       const impliedScale = preScaleLinear.map((v, i) =>
         v > 1e-6 && measured[i] < 255 && predicted[i] >= 4 ? toLinear(measured[i]) / v : null,
       );
@@ -363,6 +371,13 @@ try {
       : "-> NOT consistent across channels/samples (stdev >= 10% of mean): do not pin a single scale " +
           "factor from this data without investigating why it varies.",
   );
+} catch (err) {
+  // `finally` below still runs after this (JS runs catch, then finally,
+  // regardless of whether catch itself throws) and closes the browser —
+  // the fix this whole try/catch exists for: process.exit() would have
+  // skipped it and leaked the headless Edge process (see the throws above).
+  console.error(err.message ?? err);
+  process.exitCode = 1;
 } finally {
   await browser.close();
 }

@@ -96,18 +96,20 @@ describe("night lift", () => {
   // the brief's stated 12/2 — see the Task 6 report for the full computed
   // table and the discrepancy flagged for human adjudication.
   //
-  // UPDATE 2026-08-15 (Task 8, SHADING_SCALE calibrated from 1 to 0.327): the
-  // SET of lines that ever need stage 2 did NOT change — still exactly
-  // blue/purple/purple-ext, 11/3 as above. What DID change is WHEN: with the
-  // real renderer measured to be ~3x darker than the uncalibrated model
-  // assumed, MRT Purple and Purple Phase 2's `#660066` no longer clears the
-  // floor at noon either (ratio lands right at 3.01:1, i.e. it now needs
-  // full stage-2 whitening at BOTH times, not just at night) — the old "none
-  // needs it at noon" premise is false for those two lines under the
-  // calibrated model. MRT Blue is unaffected: its noon ratio (3.17:1) still
-  // clears on its own (stage 0, no lift at all) even at the darker scale, and
-  // it still only needs stage 2 at night. See tools/calibrate-night-lift.mjs
-  // and the Task 8 report for the full per-line noon/night table.
+  // UPDATE 2026-08-15 (Task 8, SHADING_SCALE set to the derived 1/π ≈
+  // 0.31831, corroborated by real-pixel measurement — see nightLift.ts's own
+  // doc comment): the SET of lines that ever need stage 2 did NOT change —
+  // still exactly blue/purple/purple-ext, 11/3 as above. What DID change is
+  // WHEN: with the real renderer running ~1/π ≈ 3.1x darker than the
+  // uncalibrated model assumed, MRT Purple and Purple Phase 2's `#660066` no
+  // longer clears the floor at noon either (ratio lands right at 3.01:1,
+  // i.e. it now needs full stage-2 whitening at BOTH times, not just at
+  // night) — the old "none needs it at noon" premise is false for those two
+  // lines under the corrected model. MRT Blue is unaffected: its noon ratio
+  // (3.09:1) still clears on its own (stage 0, no lift at all) even at the
+  // darker scale, and it still only needs stage 2 at night. See
+  // tools/calibrate-night-lift.mjs and the Task 8 report for the full
+  // per-line noon/night table.
   test("only MRT Blue and MRT Purple / Purple Phase 2 ever need stage-2 whitening", () => {
     // Per-line expectation of whether stage 2 (whitening) is needed at each
     // time, now that noon and night no longer behave uniformly across the
@@ -165,11 +167,12 @@ describe("night lift", () => {
     // of brief-vs-measured gap the "11/3 not 12/2" note above already
     // documents.
     //
-    // UPDATE 2026-08-15 (Task 8 calibration, SHADING_SCALE 1 -> 0.327): the
-    // darker calibrated scale means white's own deep-night intensity rose
-    // from 0.087 to ~0.128 (still small, still far below Blue's, but no
-    // longer under the old 0.1 bound) — a real, expected consequence of the
-    // whole model getting darker, not a threshold picked to make this pass.
+    // UPDATE 2026-08-15 (Task 8, SHADING_SCALE set to the derived 1/π ≈
+    // 0.31831 — see nightLift.ts's own doc comment): the darker corrected
+    // scale means white's own deep-night intensity rose from 0.087 to
+    // ~0.128 (still small, still far below Blue's, but no longer under the
+    // old 0.1 bound) — a real, expected consequence of the whole model
+    // getting darker, not a threshold picked to make this pass.
     const { palette, ndotl } = paletteAt(DEEP_NIGHT);
     const whiteLift = nightLift(0xffffff, palette, ndotl);
     const blueLift = nightLift(0x1964b7, palette, ndotl);
@@ -177,14 +180,20 @@ describe("night lift", () => {
     expect(blueLift.intensity).toBeGreaterThan(whiteLift.intensity);
   });
 
-  test("the shading scale is the calibrated value, not a guess", () => {
-    // Measured against real rendered pixels by tools/calibrate-night-lift.mjs
-    // on 2026-08-15 (headless Edge, SwiftShader software rendering, Three
-    // r185 MeshLambertMaterial): 13 informative channel samples across 6
-    // colour/time cases solved independently for the implied scale, mean
-    // 0.3271, stdev 0.0108 (~3.3% of the mean, consistent). See SHADING_SCALE's
-    // own doc comment in nightLift.ts and the Task 8 report for the full
-    // measured-vs-predicted table. Re-run that script before changing this.
-    expect(SHADING_SCALE).toBe(0.327);
+  test("the shading scale is the derived value, not a fit", () => {
+    // Three's MeshLambertMaterial bakes the Lambertian BRDF's 1/π
+    // (RECIPROCAL_PI) normalization in unconditionally — see nightLift.ts's
+    // SHADING_SCALE doc comment for the exact shader-source citations
+    // (ShaderChunk/common.glsl.js's BRDF_Lambert, applied in both
+    // RE_Direct_Lambert and RE_IndirectDiffuse_Lambert by
+    // lights_lambert_pars_fragment.glsl.js). Corroborated, not just derived:
+    // tools/calibrate-night-lift.mjs measured real rendered pixels on
+    // 2026-08-15 (headless Edge, SwiftShader, Three r185
+    // MeshLambertMaterial) and found 13 informative channel samples across 6
+    // colour/time cases implying mean 0.3271, stdev 0.0108 — only 0.81σ from
+    // 1/π, with the noon-only subset (least affected by 8-bit rounding)
+    // landing at 0.315-0.318, bracketing 1/π almost exactly. Re-run that
+    // script before changing this.
+    expect(SHADING_SCALE).toBe(1 / Math.PI);
   });
 });
