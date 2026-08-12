@@ -120,8 +120,14 @@ export function StationBoard() {
             {SYNTHETIC_SCHEDULE_NOTE}
           </p>
         )}
+        {/* Same box as the syntheticSchedule note directly above — this card
+         * is light (bg-white/70), so this note needs the same dark-on-light
+         * treatment, not the white-on-white this originally shipped with. */}
         {routes[selectedStation.routeIdx]?.estimatedRunTimes != null && (
-          <p className="px-3 pb-2 text-[11px] leading-snug text-white/60">
+          <p
+            data-testid="estimated-run-times-note"
+            className="mx-2 mb-1 rounded bg-sky-50 px-2 py-1 text-[10px] leading-snug text-sky-800"
+          >
             {ESTIMATED_RUN_TIMES_NOTE}
           </p>
         )}

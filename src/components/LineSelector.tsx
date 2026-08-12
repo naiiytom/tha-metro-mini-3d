@@ -47,10 +47,14 @@ function LineRow({ line, routeIdx }: { line: LineGeometry; routeIdx: number }) {
           // gtfsRouteId, so it can't collide with that branch either way —
           // but keeping this ahead of it matches the syntheticSchedule
           // precedent and keeps every "runs trains on non-standard times"
-          // case together, ahead of "doesn't run trains at all."
+          // case together, ahead of "doesn't run trains at all." Same
+          // classes as the syntheticSchedule badge just above (this card is
+          // light — bg-white/70 — so a badge needs a dark-on-light palette
+          // like every other one here, not the white-on-white this
+          // originally shipped with).
           <span
             data-testid="estimated-run-times-badge"
-            className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-white/70"
+            className="ml-auto shrink-0 rounded bg-sky-100 px-1 text-[9px] uppercase text-sky-700"
             title={ESTIMATED_RUN_TIMES_NOTE}
           >
             Est. times

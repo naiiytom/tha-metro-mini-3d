@@ -101,8 +101,15 @@ export function TrainInspector() {
               {SYNTHETIC_SCHEDULE_NOTE}
             </p>
           )}
+          {/* Same box as the syntheticSchedule note directly above — this
+           * card is light (bg-white/70), so this note needs the same
+           * dark-on-light treatment, not the white-on-white it originally
+           * shipped with. */}
           {detail && routes[detail.route_idx]?.estimatedRunTimes != null && (
-            <p className="px-3 pb-2 text-[11px] leading-snug text-white/60">
+            <p
+              data-testid="estimated-run-times-note"
+              className="mt-1 rounded bg-sky-50 px-1.5 py-1 text-[10px] leading-snug text-sky-800"
+            >
               {ESTIMATED_RUN_TIMES_NOTE}
             </p>
           )}
