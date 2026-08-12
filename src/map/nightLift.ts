@@ -90,22 +90,40 @@ export function contrastRatio(a: number, b: number): number {
 
 /**
  * Scale factor between this model's predicted linear-light output and what
- * Three's shader actually produces. Currently an UNVALIDATED PLACEHOLDER of
- * 1 — `tools/calibrate-night-lift.mjs` does not exist yet. Task 8 creates
- * that tool, measures real rendered pixels against this model's prediction,
- * and pins the measured value here. Do not adjust it by eye in the meantime;
- * modelling the shader wrong is exactly how the deleted legibility harness
- * failed.
+ * Three's shader actually produces.
  *
- * Known symptom that the placeholder is wrong, recorded here for whoever
- * calibrates: at `SHADING_SCALE = 1` this model predicts NO line needs any
- * lift at noon, Blue included (`nightLift` returns `intensity: 0` for every
- * one of the 14 registry colours at noon). The deleted real-pixel harness
- * measured genuine noon failures for five lines — Sukhumvit, Yellow, Gold,
- * Red Light, and Blue. That gap between "predicted fine" and "measured
- * failing" is the evidence this constant needs a real value, not 1.
+ * MEASURED 2026-08-15 by `tools/calibrate-night-lift.mjs` against the real
+ * renderer (headless Edge, `--enable-unsafe-swiftshader`, Three r185,
+ * `MeshLambertMaterial`, `renderer.outputColorSpace = "srgb"`). The script
+ * adds its own known-albedo, upward-facing quad directly to the live
+ * `NetworkLayer` scene (never the unlit `Line2` centerline — that geometry
+ * mismatch is exactly what made the deleted legibility harness's numbers
+ * meaningless for its whole life), drives `NetworkLayer.setSun()` with the
+ * exact same `sunDirection`/`skyPalette` values `nightLift.test.ts` uses for
+ * NOON and DEEP_NIGHT, and reads the rendered pixel back with `gl.readPixels`
+ * at a screen position computed from the real per-frame projection matrix
+ * (not assumed from camera framing).
+ *
+ * 6 colour/time cases (white and mid-gray at both times, MRT Blue `#1964B7`
+ * at both times, MRT Purple `#660066` at deep night), 18 channel samples,
+ * with `NO_LIFT` (emissive forced to 0) so only this scale's own multiplier
+ * is isolated. After excluding samples that are uninformative by
+ * construction (a channel that measured a saturated 255, or predicted below
+ * 4/255 where 8-bit rounding dominates), 13 channel samples solved
+ * independently for the scale implied by that one channel's real pixel:
+ * mean 0.3271, stdev 0.0108 (≈3.3% of the mean) — consistent, not a fluke of
+ * one colour or one time of day. The measured value is real Three's shader
+ * output running noticeably darker than this model's un-scaled prediction,
+ * roughly consistent with (though not exactly) the 1/π ≈ 0.3183 Lambertian
+ * BRDF normalization Three's physically-based lighting applies and this
+ * model's simple `albedo * light` term does not — offered as the likely
+ * mechanism, not asserted as the reason 0.327 was chosen; 0.327 is the
+ * measured value, not a theory-derived one.
+ *
+ * Re-run `tools/calibrate-night-lift.mjs` (with a live `npm run dev`) before
+ * changing this if the renderer, material type, or Three version changes.
  */
-export const SHADING_SCALE = 1;
+export const SHADING_SCALE = 0.327;
 
 export function predictRendered(
   albedo: number,

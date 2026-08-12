@@ -4,6 +4,7 @@ import { skyPalette, sunDirection } from "./sun";
 import {
   CONTRAST_REFERENCE,
   MIN_CONTRAST,
+  SHADING_SCALE,
   contrastRatio,
   nightLift,
   predictRendered,
@@ -94,10 +95,30 @@ describe("night lift", () => {
   // pink-spur, apm. This test pins the measured 11/3 behaviour rather than
   // the brief's stated 12/2 — see the Task 6 report for the full computed
   // table and the discrepancy flagged for human adjudication.
+  //
+  // UPDATE 2026-08-15 (Task 8, SHADING_SCALE calibrated from 1 to 0.327): the
+  // SET of lines that ever need stage 2 did NOT change — still exactly
+  // blue/purple/purple-ext, 11/3 as above. What DID change is WHEN: with the
+  // real renderer measured to be ~3x darker than the uncalibrated model
+  // assumed, MRT Purple and Purple Phase 2's `#660066` no longer clears the
+  // floor at noon either (ratio lands right at 3.01:1, i.e. it now needs
+  // full stage-2 whitening at BOTH times, not just at night) — the old "none
+  // needs it at noon" premise is false for those two lines under the
+  // calibrated model. MRT Blue is unaffected: its noon ratio (3.17:1) still
+  // clears on its own (stage 0, no lift at all) even at the darker scale, and
+  // it still only needs stage 2 at night. See tools/calibrate-night-lift.mjs
+  // and the Task 8 report for the full per-line noon/night table.
   test("only MRT Blue and MRT Purple / Purple Phase 2 ever need stage-2 whitening", () => {
-    const stage2Keys = new Set(["blue", "purple", "purple-ext"]);
+    // Per-line expectation of whether stage 2 (whitening) is needed at each
+    // time, now that noon and night no longer behave uniformly across the
+    // three stage-2 lines (see the UPDATE note above).
+    const stage2Expectation: Record<string, { noon: boolean; night: boolean }> = {
+      blue: { noon: false, night: true },
+      purple: { noon: true, night: true },
+      "purple-ext": { noon: true, night: true },
+    };
     const unexpectedlyWhitened: string[] = [];
-    const stage2LinesMissingWhitening: string[] = [];
+    const mismatches: string[] = [];
 
     for (const line of network.lines) {
       const albedo = parseInt(line.color.slice(1), 16);
@@ -105,18 +126,19 @@ describe("night lift", () => {
       const { palette, ndotl } = paletteAt(DEEP_NIGHT);
       const whitenedAtNight = nightLift(albedo, palette, ndotl).emissive !== albedo;
 
-      if (stage2Keys.has(line.key)) {
-        // Every stage-2 line in this network needs whitening at deep night
-        // (none needs it at noon — noon ambient is bright enough for all 14
-        // registry colours to clear via stage 0/1 alone).
-        expect(whitenedAtNoon).toBe(false);
-        if (!whitenedAtNight) stage2LinesMissingWhitening.push(line.key);
+      const expected = stage2Expectation[line.key];
+      if (expected) {
+        if (whitenedAtNoon !== expected.noon || whitenedAtNight !== expected.night) {
+          mismatches.push(
+            `${line.key}: expected noon=${expected.noon}/night=${expected.night}, got noon=${whitenedAtNoon}/night=${whitenedAtNight}`,
+          );
+        }
       } else if (whitenedAtNoon || whitenedAtNight) {
         unexpectedlyWhitened.push(line.key);
       }
     }
 
-    expect(stage2LinesMissingWhitening).toEqual([]);
+    expect(mismatches).toEqual([]);
     expect(unexpectedlyWhitened).toEqual([]);
   });
 
@@ -142,10 +164,27 @@ describe("night lift", () => {
     // (there is no special case for white in `nightLift`) — the same class
     // of brief-vs-measured gap the "11/3 not 12/2" note above already
     // documents.
+    //
+    // UPDATE 2026-08-15 (Task 8 calibration, SHADING_SCALE 1 -> 0.327): the
+    // darker calibrated scale means white's own deep-night intensity rose
+    // from 0.087 to ~0.128 (still small, still far below Blue's, but no
+    // longer under the old 0.1 bound) — a real, expected consequence of the
+    // whole model getting darker, not a threshold picked to make this pass.
     const { palette, ndotl } = paletteAt(DEEP_NIGHT);
     const whiteLift = nightLift(0xffffff, palette, ndotl);
     const blueLift = nightLift(0x1964b7, palette, ndotl);
-    expect(whiteLift.intensity).toBeLessThan(0.1);
+    expect(whiteLift.intensity).toBeLessThan(0.2);
     expect(blueLift.intensity).toBeGreaterThan(whiteLift.intensity);
+  });
+
+  test("the shading scale is the calibrated value, not a guess", () => {
+    // Measured against real rendered pixels by tools/calibrate-night-lift.mjs
+    // on 2026-08-15 (headless Edge, SwiftShader software rendering, Three
+    // r185 MeshLambertMaterial): 13 informative channel samples across 6
+    // colour/time cases solved independently for the implied scale, mean
+    // 0.3271, stdev 0.0108 (~3.3% of the mean, consistent). See SHADING_SCALE's
+    // own doc comment in nightLift.ts and the Task 8 report for the full
+    // measured-vs-predicted table. Re-run that script before changing this.
+    expect(SHADING_SCALE).toBe(0.327);
   });
 });
