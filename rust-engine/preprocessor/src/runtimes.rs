@@ -51,6 +51,16 @@ fn transit(p: &PatternDoc, i: usize) -> i64 {
     p.stops[i].arrival_s as i64 - p.stops[i - 1].departure_s as i64
 }
 
+/// Seconds a vehicle sits at stop `i`. Signed like `transit()`, and for the
+/// same reason: `PatternStop::departure_s`'s `>= arrival_s` invariant is
+/// only ASSUMED by the feed's schema, not verified before it reaches this
+/// module — a malformed row (`departure_s < arrival_s`) must read as
+/// negative here rather than silently wrapping to a huge garbage `u32` in
+/// release or panicking in debug.
+fn dwell(p: &PatternDoc, i: usize) -> i64 {
+    p.stops[i].departure_s as i64 - p.stops[i].arrival_s as i64
+}
+
 fn pair_key(a: u16, b: u16) -> (u16, u16) {
     if a <= b { (a, b) } else { (b, a) }
 }
@@ -89,18 +99,23 @@ pub fn sibling_times(patterns: &[&PatternDoc]) -> SiblingTimes {
 }
 
 /// A line's own median dwell, from its healthy patterns only.
+///
+/// A malformed stop (`departure_s < arrival_s`) is skipped rather than
+/// erroring: this function only ever reads HEALTHY patterns — never one
+/// `repair_pattern` is about to rewrite — so a bad row here has no trip to
+/// blame and no corruption path to guard against. It just doesn't get a
+/// vote in the median.
 pub fn sibling_dwell(patterns: &[&PatternDoc]) -> Option<u32> {
-    let mut dwells: Vec<u32> = patterns
-        .iter()
-        .filter(|p| !is_degenerate(p))
-        .flat_map(|p| {
-            let last = p.stops.len().saturating_sub(1);
-            p.stops[..last]
-                .iter()
-                .map(|s| s.departure_s - s.arrival_s)
-                .collect::<Vec<_>>()
-        })
-        .collect();
+    let mut dwells: Vec<u32> = Vec::new();
+    for p in patterns.iter().filter(|p| !is_degenerate(p)) {
+        let last = p.stops.len().saturating_sub(1);
+        for i in 0..last {
+            let d = dwell(p, i);
+            if d >= 0 {
+                dwells.push(d as u32);
+            }
+        }
+    }
     if dwells.is_empty() {
         None
     } else {
@@ -189,10 +204,29 @@ pub fn repair_pattern(
     let dwells: Vec<u32> = if is_fully_degenerate(p) {
         vec![replacement_dwell; n]
     } else {
-        p.stops
-            .iter()
-            .map(|s| s.departure_s - s.arrival_s)
-            .collect()
+        // Real dwells, kept verbatim — but a malformed row here is a hard
+        // error, not a wrapped/panicking u32 subtraction. This is this
+        // project's own disclosure convention (`check_track_gradient`, the
+        // snap gate): stop the build with a named line/trip rather than
+        // silently absorb a bad row.
+        let mut own_dwells = Vec::with_capacity(n);
+        for i in 0..n {
+            let d = dwell(p, i);
+            if d < 0 {
+                return Err(format!(
+                    "pattern {} stop {} (station_idx {}) has departure_s {} before arrival_s \
+                     {} — a malformed row, not one this repair can trust; fix the upstream \
+                     feed data",
+                    p.gtfs_trip_id,
+                    i,
+                    p.stops[i].station_idx,
+                    p.stops[i].departure_s,
+                    p.stops[i].arrival_s,
+                ));
+            }
+            own_dwells.push(d as u32);
+        }
+        own_dwells
     };
 
     let mut clock = 0u32;
@@ -474,5 +508,57 @@ mod tests {
         assert!(err.contains("pink"), "got: {err}");
         assert!(err.contains("degenerate"), "must name the trip: {err}");
         assert!(assert_no_zero_transit(&[healthy()], &keys).is_ok());
+    }
+
+    #[test]
+    fn median_of_an_even_count_takes_the_upper_middle_element() {
+        // `values[len / 2]` is a deliberate choice (the upper-middle
+        // element, not an average) — pin it so a refactor can't silently
+        // change it.
+        let mut values = vec![100, 200];
+        assert_eq!(median(&mut values), 200);
+    }
+
+    #[test]
+    fn a_malformed_dwell_is_a_hard_error_naming_the_trip_and_stop() {
+        // Not fully degenerate (legs 1->2 and 2->3 are real), so
+        // repair_pattern takes the own-dwell branch — which must validate
+        // each row instead of blindly subtracting into a wrapped/panicking
+        // u32. The zero leg 0->1 is made recoverable via a sibling so the
+        // legs loop completes cleanly and this error is really coming from
+        // the dwell check, not the "no sibling or basis" one.
+        let sib = pattern("sib", vec![stop(0, 0, 0, 0.0), stop(1, 50, 50, 1000.0)]);
+        let siblings = sibling_times(&[&sib]);
+        let mut p = pattern(
+            "broken",
+            vec![
+                stop(0, 0, 10, 0.0),
+                stop(1, 10, 10, 1000.0),  // zero leg, recoverable via sibling
+                stop(2, 200, 50, 2000.0), // malformed: departure (50) before arrival (200)
+                stop(3, 300, 300, 3000.0),
+            ],
+        );
+        let err = repair_pattern(&mut p, &siblings, None, None).unwrap_err();
+        assert!(err.contains("broken"), "must name the trip: {err}");
+        assert!(err.contains("stop 2"), "must name the stop index: {err}");
+    }
+
+    #[test]
+    fn a_malformed_sibling_stop_does_not_poison_the_median() {
+        // sibling_dwell only ever reads healthy (non-degenerate) patterns,
+        // but a malformed row's own dwell can still be negative independently
+        // of its transit — it must be skipped, not turned into a wrapped u32
+        // that becomes every leg's replacement dwell.
+        let ok = pattern("ok", vec![stop(0, 0, 30, 0.0), stop(1, 130, 130, 1000.0)]);
+        let malformed = pattern(
+            "malformed",
+            vec![stop(0, 50, 10, 0.0), stop(1, 500, 500, 1000.0)], // dep(10) < arr(50)
+        );
+        assert!(
+            !is_degenerate(&malformed),
+            "must stay healthy to reach the dwell scan"
+        );
+        let dwell = sibling_dwell(&[&ok, &malformed]);
+        assert_eq!(dwell, Some(30), "only the healthy row's dwell should count");
     }
 }
