@@ -188,6 +188,19 @@ struct LineGeometry {
     /// See the `synthetic` module for why this exists and how it is disclosed.
     #[serde(default)]
     synthetic_schedule: Option<synthetic::SyntheticSchedule>,
+    /// Present when this line's feed rows carry no usable transit times and
+    /// must be estimated from a sibling line's calibration. Only MRT Pink is
+    /// in this position — see `runtimes.rs`. Its presence is what the UI
+    /// discloses; it is NOT a speed, only a pointer to the basis line whose
+    /// own real rows the speed is derived from.
+    #[serde(default)]
+    estimated_run_times: Option<EstimatedRunTimes>,
+}
+
+#[derive(Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct EstimatedRunTimes {
+    basis_line: String,
 }
 
 /// One track vertex from network.json: [lng, lat, altitude_m, structure].
@@ -1106,6 +1119,83 @@ fn run() -> Result<(), String> {
         });
     }
 
+    // ---- Repair degenerate ("dwell and teleport") stop times ---------------
+    // Must run AFTER the loop above (it needs every pattern's resolved arc_m)
+    // and BEFORE run expansion. See runtimes.rs for the two tiers.
+    let line_keys: Vec<String> = track_file.lines.iter().map(|l| l.key.clone()).collect();
+    let mut run_time_repairs = serde_json::Map::new();
+    for (line_idx, line) in track_file.lines.iter().enumerate() {
+        let of_this_route: Vec<&PatternDoc> = patterns
+            .iter()
+            .filter(|p| p.route_idx as usize == line_idx)
+            .collect();
+        if !of_this_route.iter().any(|p| runtimes::is_degenerate(p)) {
+            continue;
+        }
+        let siblings = runtimes::sibling_times(&of_this_route);
+        let own_dwell = runtimes::sibling_dwell(&of_this_route);
+
+        let basis = match &line.estimated_run_times {
+            None => None,
+            Some(cfg) => {
+                let basis_idx = track_file
+                    .lines
+                    .iter()
+                    .position(|l| l.key == cfg.basis_line)
+                    .ok_or(format!(
+                        "line '{}': estimatedRunTimes.basisLine '{}' is not a registry line",
+                        line.key, cfg.basis_line
+                    ))?;
+                if basis_idx == line_idx {
+                    return Err(format!(
+                        "line '{}': estimatedRunTimes.basisLine points at itself",
+                        line.key
+                    ));
+                }
+                let basis_patterns: Vec<&PatternDoc> = patterns
+                    .iter()
+                    .filter(|p| p.route_idx as usize == basis_idx)
+                    .collect();
+                Some(
+                    runtimes::basis_profile(&basis_patterns)
+                        .map_err(|e| format!("line '{}': {e}", line.key))?,
+                )
+            }
+        };
+
+        let mut total = runtimes::RepairOutcome::default();
+        for p in patterns
+            .iter_mut()
+            .filter(|p| p.route_idx as usize == line_idx)
+        {
+            let out = runtimes::repair_pattern(p, &siblings, own_dwell, basis)
+                .map_err(|e| format!("line '{}': {e}", line.key))?;
+            total.recovered_legs += out.recovered_legs;
+            total.estimated_legs += out.estimated_legs;
+        }
+        eprintln!(
+            "note: line '{}' — repaired zero-transit stop times: {} legs recovered from its \
+             own healthy patterns, {} legs ESTIMATED{}",
+            line.key,
+            total.recovered_legs,
+            total.estimated_legs,
+            basis
+                .map(|b| format!(" at {:.2} m/s / {} s dwell", b.speed_mps, b.dwell_s))
+                .unwrap_or_default(),
+        );
+        run_time_repairs.insert(
+            line.key.clone(),
+            serde_json::json!({
+                "recovered_legs": total.recovered_legs,
+                "estimated_legs": total.estimated_legs,
+                "basis_line": line.estimated_run_times.as_ref().map(|c| c.basis_line.clone()),
+                "basis_speed_mps": basis.map(|b| b.speed_mps),
+                "basis_dwell_s": basis.map(|b| b.dwell_s),
+            }),
+        );
+    }
+    runtimes::assert_no_zero_transit(&patterns, &line_keys)?;
+
     // ---- Runs (frequency expansion, or one run per scheduled trip) --------
     // (original_service_idx, single-day bit) -> synthetic service_idx, so
     // every trip sharing the same split (e.g. all of MRT Blue's Saturday
@@ -1337,6 +1427,7 @@ fn run() -> Result<(), String> {
         "peak_concurrent_date": peak_concurrent_date,
         "peak_concurrent_weekday": {"date": PEAK_SAMPLE_WEEKDAY, "peak": weekday_peak, "time": weekday_peak_sec},
         "peak_concurrent_weekend": {"date": PEAK_SAMPLE_WEEKEND, "peak": weekend_peak, "time": weekend_peak_sec},
+        "run_time_repairs": run_time_repairs,
     });
     let report_str = serde_json::to_string_pretty(&report).unwrap();
     if let Some(path) = &args.report {
@@ -2450,5 +2541,40 @@ mod tests {
             matches!(verdict, SnapVerdict::Disclosed { .. }),
             "allowLargeSnapStopIds must also satisfy the warn band, got {verdict:?}"
         );
+    }
+
+    #[test]
+    fn estimated_run_times_deserialises_from_a_network_json_line() {
+        // Double-hash delimiter: the JSON contains `"#CD4692"` (a `"`
+        // immediately followed by `#`), which would close a single-hash
+        // r#"..."# raw string early — same gotcha as track_json() above.
+        let json = r##"{
+            "key": "pink",
+            "name": "MRT Pink Line",
+            "color": "#CD4692",
+            "gtfsRouteId": "2436",
+            "track": [],
+            "stations": [],
+            "estimatedRunTimes": { "basisLine": "yellow" }
+        }"##;
+        let line: LineGeometry = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            line.estimated_run_times.map(|e| e.basis_line),
+            Some("yellow".to_string())
+        );
+    }
+
+    #[test]
+    fn a_line_without_estimated_run_times_deserialises_to_none() {
+        let json = r##"{
+            "key": "blue",
+            "name": "MRT Blue Line",
+            "color": "#1964B7",
+            "gtfsRouteId": "3",
+            "track": [],
+            "stations": []
+        }"##;
+        let line: LineGeometry = serde_json::from_str(json).unwrap();
+        assert!(line.estimated_run_times.is_none());
     }
 }
