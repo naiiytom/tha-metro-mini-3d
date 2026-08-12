@@ -540,6 +540,7 @@ async function main() {
       // null (not undefined) so the field is present in network.json for
       // every line — the Rust side and the UI both branch on it.
       syntheticSchedule: line.syntheticSchedule ?? null,
+      estimatedRunTimes: line.estimatedRunTimes ?? null,
       allowLargeSnapStopIds: line.allowLargeSnapStopIds ?? [],
       snapWarnExemptStopIds: line.snapWarnExemptStopIds ?? [],
       ...geom,

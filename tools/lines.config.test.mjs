@@ -110,4 +110,41 @@ describe("line registry", () => {
     expect(structureOfWay({ tunnel: "building_passage", layer: "1" })).toBe("elevated");
     expect(structureOfWay({ tunnel: "building_passage" })).toBe("elevated");
   });
+
+  /** The real registry with one line patched — keeps INTERCHANGE_OVERRIDES resolvable. */
+  const patched = (key, patch) => LINES.map((l) => (l.key === key ? { ...l, ...patch } : l));
+
+  it("rejects an estimatedRunTimes basis that is not a registry line", () => {
+    const bad = patched("pink", { estimatedRunTimes: { basisLine: "nope" } });
+    expect(() => assertRegistryValid(bad)).toThrow(/basisLine 'nope' is not a registry line/);
+  });
+
+  it("rejects an estimatedRunTimes basis that is not GTFS-simulated", () => {
+    // `orange` is track-only (gtfsRouteId null), so it has no real feed rows
+    // for a calibration to be derived from.
+    const bad = patched("pink", { estimatedRunTimes: { basisLine: "orange" } });
+    expect(() => assertRegistryValid(bad)).toThrow(/must have a gtfsRouteId/);
+  });
+
+  it("rejects an estimatedRunTimes basis that is itself estimated", () => {
+    // Calibrating an estimate from an estimate compounds it.
+    const bad = patched("yellow", { estimatedRunTimes: { basisLine: "silom" } });
+    expect(() => assertRegistryValid(bad)).toThrow(/cannot itself have estimatedRunTimes/);
+  });
+
+  it("rejects a line that is its own estimatedRunTimes basis", () => {
+    const bad = patched("pink", { estimatedRunTimes: { basisLine: "pink" } });
+    expect(() => assertRegistryValid(bad)).toThrow(/itself/);
+  });
+
+  it("rejects estimatedRunTimes on a line with no gtfsRouteId", () => {
+    const bad = patched("orange", { estimatedRunTimes: { basisLine: "yellow" } });
+    expect(() => assertRegistryValid(bad)).toThrow(/only means something for a GTFS line/);
+  });
+
+  it("declares Yellow as the basis on both Pink entries", () => {
+    const pink = LINES.filter((l) => l.key === "pink" || l.key === "pink-spur");
+    expect(pink.length).toBe(2);
+    for (const l of pink) expect(l.estimatedRunTimes?.basisLine).toBe("yellow");
+  });
 });
