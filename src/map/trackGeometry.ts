@@ -373,6 +373,20 @@ function buildMarkerPair(items: MarkerStation[]): { discs: THREE.InstancedMesh; 
   const discGeo = new THREE.CylinderGeometry(16, 16, 2.5, 24);
   discGeo.rotateX(Math.PI / 2); // cylinder axis Y -> Z (our up)
   const discMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+  // discMat.color stays white — the real per-station colour is applied via
+  // setColorAt below (InstancedMesh instance colour, applied in the shader
+  // independent of vertexColors). Same trap VehicleManager has: without a
+  // stamp, ThreeLayer's night-lift pass would compute white's lift instead
+  // of the line's real one. `items` here is always one call's worth of
+  // stations from a single line (buildStationMarkers is called per-line as
+  // buildStationMarkers([line])), so the colour is uniform — but guard it
+  // rather than assume: only stamp when every item genuinely shares one
+  // colour, so a future caller that mixes lines gets an honest white
+  // fallback (under-treated) instead of a misleading single stamped value.
+  const firstHex = items[0]?.color.getHex();
+  if (firstHex !== undefined && items.every((it) => it.color.getHex() === firstHex)) {
+    discMat.userData.liveryHex = firstHex;
+  }
   const discs = new THREE.InstancedMesh(discGeo, discMat, items.length);
 
   const poleGeo = new THREE.CylinderGeometry(1.1, 1.1, 1, 10);

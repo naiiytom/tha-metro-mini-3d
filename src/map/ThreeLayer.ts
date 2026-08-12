@@ -10,6 +10,7 @@ import { MERC_PER_METER, ORIGIN_MERC } from "./coordinates";
 import { buildSkyDome, type SkyDome } from "./skyDome";
 import { PRE_REVENUE_OPACITY, buildStationMarkers, buildTrackDeck, buildTrackLine } from "./trackGeometry";
 import { nightLift } from "./nightLift";
+import { materialAlbedo } from "./materialAlbedo";
 import type { SkyPalette } from "./sun";
 import type { VehicleManager } from "./VehicleManager";
 
@@ -152,8 +153,7 @@ export class NetworkLayer implements CustomLayerInterface {
     // the sun does.
     const ndotl = Math.max(dir.up, 0.05);
     for (const m of this.litMaterials) {
-      const albedo = (m.userData?.liveryHex as number | undefined) ?? m.color.getHex();
-      const lift = nightLift(albedo, palette, ndotl);
+      const lift = nightLift(materialAlbedo(m), palette, ndotl);
       m.emissive.setHex(lift.emissive);
       m.emissiveIntensity = lift.intensity;
     }
