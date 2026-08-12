@@ -49,6 +49,11 @@ export class VehicleManager {
     this.counts = new Array(routes.length).fill(0);
     this.meshes = routes.map((route, routeIdx) => {
       const material = new THREE.MeshLambertMaterial({ vertexColors: true });
+      // vertexColors means material.color stays white — the real livery lives
+      // in per-vertex data. Stamp it here so ThreeLayer's night-floor pass can
+      // compute the lift from the route's actual colour instead of white
+      // (which would glow every train white at night).
+      material.userData.liveryHex = new THREE.Color(route.color).getHex();
       const geometry = buildTrainGeometry(
         CONSISTS[route.vehicleType],
         new THREE.Color(route.color).getHex(),

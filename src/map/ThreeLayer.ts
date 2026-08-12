@@ -9,6 +9,8 @@ import type { LineMaterial } from "three/addons/lines/LineMaterial.js";
 import { MERC_PER_METER, ORIGIN_MERC } from "./coordinates";
 import { buildSkyDome, type SkyDome } from "./skyDome";
 import { PRE_REVENUE_OPACITY, buildStationMarkers, buildTrackDeck, buildTrackLine } from "./trackGeometry";
+import { nightLift } from "./nightLift";
+import type { SkyPalette } from "./sun";
 import type { VehicleManager } from "./VehicleManager";
 
 /**
@@ -41,6 +43,13 @@ export class NetworkLayer implements CustomLayerInterface {
    *  re-weight the two sets without walking the scene graph each toggle. */
   private surfaceMaterials: THREE.Material[] = [];
   private subsurfaceMaterials: THREE.Material[] = [];
+  /** Every Lambert material the night floor applies to — track decks, station
+   *  markers and vehicles. Orthogonal to the two elevation bands above: those
+   *  own opacity, this owns emissive, and the two must never write each
+   *  other's property (the same split styleBinding.ts enforces for the
+   *  basemap). The Line2 centerlines are deliberately absent — LineMaterial is
+   *  unlit, so it already renders at full colour and needs no floor. */
+  private litMaterials: THREE.MeshLambertMaterial[] = [];
   private undergroundMode = false;
   private skyDome: SkyDome | null = null;
 
@@ -111,6 +120,12 @@ export class NetworkLayer implements CustomLayerInterface {
       this.lineGroups.push(group);
     }
     if (this.vehicles) scene.add(...this.vehicles.meshes);
+    for (const mesh of this.vehicles?.meshes ?? []) {
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const m of mats) {
+        if (m instanceof THREE.MeshLambertMaterial) this.litMaterials.push(m);
+      }
+    }
     this.scene = scene;
     this.indexMaterialsByBand();
     this.applyUndergroundMode();
@@ -123,15 +138,7 @@ export class NetworkLayer implements CustomLayerInterface {
    * The 10 km radius just needs to clear the scene; a directional light's
    * position only sets its direction.
    */
-  setSun(
-    dir: { east: number; north: number; up: number },
-    palette: {
-      sun: number;
-      sunIntensity: number;
-      ambient: number;
-      ambientIntensity: number;
-    },
-  ): void {
+  setSun(dir: { east: number; north: number; up: number }, palette: SkyPalette): void {
     if (!this.sunLight || !this.ambientLight) return;
     const R = 10_000;
     this.sunLight.position.set(dir.east * R, dir.north * R, Math.max(dir.up, 0.05) * R);
@@ -139,6 +146,17 @@ export class NetworkLayer implements CustomLayerInterface {
     this.sunLight.intensity = palette.sunIntensity;
     this.ambientLight.color.setHex(palette.ambient);
     this.ambientLight.intensity = palette.ambientIntensity;
+
+    // Per-material night floor. Runs at UI rate with setSun, never per frame:
+    // it is O(materials), ~50 objects, and the palette only moves as fast as
+    // the sun does.
+    const ndotl = Math.max(dir.up, 0.05);
+    for (const m of this.litMaterials) {
+      const albedo = (m.userData?.liveryHex as number | undefined) ?? m.color.getHex();
+      const lift = nightLift(albedo, palette, ndotl);
+      m.emissive.setHex(lift.emissive);
+      m.emissiveIntensity = lift.intensity;
+    }
   }
 
   /** Sky colours follow the same solar elevation the key light does. Called
@@ -184,6 +202,9 @@ export class NetworkLayer implements CustomLayerInterface {
         const band =
           obj.userData?.structure === "underground" ? this.subsurfaceMaterials : this.surfaceMaterials;
         band.push(...mats);
+        for (const m of mats) {
+          if (m instanceof THREE.MeshLambertMaterial) this.litMaterials.push(m);
+        }
       });
     }
   }
@@ -279,6 +300,7 @@ export class NetworkLayer implements CustomLayerInterface {
     this.lineGroups = [];
     this.surfaceMaterials = [];
     this.subsurfaceMaterials = [];
+    this.litMaterials = [];
     // Cleared along with the material buckets it drives — a re-add starts
     // onAdd()'s applyUndergroundMode() from a clean flag instead of seeding
     // a freshly rebuilt scene from a stale prior value.

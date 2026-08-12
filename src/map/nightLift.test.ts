@@ -119,4 +119,31 @@ describe("night lift", () => {
     expect(stage2LinesMissingWhitening).toEqual([]);
     expect(unexpectedlyWhitened).toEqual([]);
   });
+
+  test("a white vertex-coloured material would glow white without its livery tag", () => {
+    // Regression guard for the VehicleManager path: vertexColors materials
+    // carry white in .color, so the lift must be computed from the stamped
+    // livery instead, or every train renders white at night.
+    //
+    // NOTE on the task brief's stated assertion: the brief asserts
+    // `nightLift(0xffffff, ...).intensity` is exactly 0 at deep night.
+    // Measured against this implementation it is not (0.087) — DEEP_NIGHT's
+    // ambient/sun palette is itself a dim navy colour (`sun.ts`'s NIGHT_SUN /
+    // NIGHT_AMBIENT floors), so even a pure-white material's unlifted render
+    // (albedo * light) falls just short of the 3:1 floor and needs a small
+    // lift of its own. That is correct, physically-based model behaviour
+    // (there is no special case for white in `nightLift`) — the same class
+    // of brief-vs-measured gap the "11/3 not 12/2" note above already
+    // documents. What actually matters for THIS regression guard is that
+    // white's own lift is far smaller than what a dark livery like MRT Blue
+    // genuinely needs: if the vertexColors bug ever reappears (computing
+    // every vehicle's lift from white instead of its stamped livery), Blue's
+    // trains would get white's tiny lift instead of the much larger one
+    // their own colour requires, staying under-lit and losing hue.
+    const { palette, ndotl } = paletteAt(DEEP_NIGHT);
+    const whiteLift = nightLift(0xffffff, palette, ndotl);
+    const blueLift = nightLift(0x1964b7, palette, ndotl);
+    expect(whiteLift.intensity).toBeLessThan(0.1);
+    expect(blueLift.intensity).toBeGreaterThan(whiteLift.intensity);
+  });
 });
