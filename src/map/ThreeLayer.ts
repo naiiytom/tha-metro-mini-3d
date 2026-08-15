@@ -139,7 +139,22 @@ export class NetworkLayer implements CustomLayerInterface {
    * The 10 km radius just needs to clear the scene; a directional light's
    * position only sets its direction.
    */
-  setSun(dir: { east: number; north: number; up: number }, palette: SkyPalette): void {
+  /**
+   * `elevationDeg` is the EFFECTIVE elevation that produced `palette`
+   * (`effectiveElevationDeg(themeMode, dir.elevationDeg)` in MapContainer),
+   * not necessarily `dir`'s own real solar elevation — the two diverge
+   * whenever the theme mode is pinned to Light or Dark rather than Auto.
+   * `nightLift()`'s day gate needs the elevation that actually decided
+   * `palette`'s day/night blend, or a Dark-pinned session at real noon would
+   * wrongly suppress every lift (real elevation says day, palette says
+   * night). Found in code review 2026-08-15, alongside the day-gate fix
+   * itself — see `nightLift.ts`'s `CONTRAST_REFERENCE` comment.
+   */
+  setSun(
+    dir: { east: number; north: number; up: number },
+    palette: SkyPalette,
+    elevationDeg: number,
+  ): void {
     if (!this.sunLight || !this.ambientLight) return;
     const R = 10_000;
     this.sunLight.position.set(dir.east * R, dir.north * R, Math.max(dir.up, 0.05) * R);
@@ -153,7 +168,7 @@ export class NetworkLayer implements CustomLayerInterface {
     // the sun does.
     const ndotl = Math.max(dir.up, 0.05);
     for (const m of this.litMaterials) {
-      const lift = nightLift(materialAlbedo(m), palette, ndotl);
+      const lift = nightLift(materialAlbedo(m), palette, ndotl, elevationDeg);
       m.emissive.setHex(lift.emissive);
       m.emissiveIntensity = lift.intensity;
     }

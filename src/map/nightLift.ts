@@ -1,4 +1,5 @@
 import type { SkyPalette } from "./sun";
+import { nightFactor } from "./basemapTheme";
 
 /**
  * A per-material minimum-brightness floor, so the network stays legible after
@@ -28,6 +29,21 @@ export const MIN_CONTRAST = 3;
  * them is the conservative choice. Roads are brighter still, but requiring
  * 3:1 against those would wash six lines toward white and destroy colour
  * identity — a worse outcome than the problem.
+ *
+ * A FIXED constant — `basemapTheme.ts` deliberately has no day-side building
+ * colour to blend from (see that file's own comment on `NIGHT`: an earlier
+ * version tried one and double-applied the night blend). The real day colour
+ * only exists live, captured once per basemap style in `MapContainer.tsx`,
+ * and this module is pure and has no reach into that — so this reference is
+ * only ever a valid proxy for what's actually on screen once the basemap has
+ * begun blending toward it, i.e. once `nightFactor(elevationDeg) > 0`. See
+ * `nightLift()`'s own day gate below for how that's enforced. Found in code
+ * review 2026-08-15: without the gate, this reference was being checked
+ * against at NOON too, where the real backdrop is nothing like it — MRT
+ * Purple's `#660066` was landing at 1.09:1 against the real light Liberty
+ * day basemap while this reference reported it as passing at 6.9:1, and the
+ * model was force-whitening it toward `#ac3aac` at noon to satisfy a
+ * backdrop that was never on screen.
  */
 export const CONTRAST_REFERENCE = 0x1c222c;
 
@@ -35,13 +51,21 @@ export interface NightLift {
   /** Emissive colour — the material's own colour, whitened only if forced. */
   emissive: number;
   /**
-   * 0 when the material already clears the floor under the current palette,
-   * up to 1 when it does not.
+   * 0 during full day (`nightFactor(elevationDeg) === 0`) — deliberately,
+   * since `CONTRAST_REFERENCE` has no relevance to what's actually behind a
+   * material until the basemap itself has begun blending toward it. Once any
+   * night blending has begun, driven by the contrast shortfall against that
+   * reference, up to 1 when it does not clear on the material's own colour.
    *
-   * Driven by the contrast shortfall, NOT by the time of day — the deleted
-   * MVP 7 harness measured real noon failures for five lines, so "day means
-   * no lift" would be false. In practice this is 0 at noon for most liveries
-   * and non-zero at night for most, but that is an outcome, not a rule.
+   * An earlier version of this doc comment claimed this was "driven by the
+   * contrast shortfall, NOT by the time of day," citing the deleted MVP 7
+   * harness's real noon failures as evidence "day means no lift" would be
+   * false. That reasoning doesn't hold: the MVP 7 harness measured noon
+   * failures against the REAL day basemap (a browser screenshot); this
+   * model, before the day gate below existed, was checking noon against the
+   * NIGHT basemap's reference colour — a different, wrong question. Fixed in
+   * code review 2026-08-15 (see `CONTRAST_REFERENCE`'s own comment for the
+   * concrete regression this caused).
    */
   intensity: number;
 }
@@ -191,7 +215,17 @@ const whiten = (hex: number, t: number): number => {
   return pack(r + (1 - r) * t, g + (1 - g) * t, b + (1 - b) * t);
 };
 
-export function nightLift(albedo: number, palette: SkyPalette, ndotl: number): NightLift {
+export function nightLift(
+  albedo: number,
+  palette: SkyPalette,
+  ndotl: number,
+  elevationDeg: number,
+): NightLift {
+  // Full day: CONTRAST_REFERENCE isn't on screen yet (see its own comment),
+  // so there is nothing meaningful to check against. Gated on the same
+  // nightFactor threshold basemapTheme.ts uses for the basemap's own
+  // darkening, so both night effects agree on when night begins.
+  if (nightFactor(elevationDeg) === 0) return NO_LIFT(albedo);
   if (clears(albedo, palette, ndotl, NO_LIFT(albedo))) return NO_LIFT(albedo);
 
   // Stage 1: the material's own colour, as little of it as possible.

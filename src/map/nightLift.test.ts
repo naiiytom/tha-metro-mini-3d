@@ -17,7 +17,11 @@ const DEEP_NIGHT = Date.UTC(2026, 7, 14, 19, 0, 0);
 
 function paletteAt(epochMs: number) {
   const dir = sunDirection(epochMs);
-  return { palette: skyPalette(dir.elevationDeg), ndotl: Math.max(dir.up, 0.05) };
+  return {
+    palette: skyPalette(dir.elevationDeg),
+    ndotl: Math.max(dir.up, 0.05),
+    elevationDeg: dir.elevationDeg,
+  };
 }
 
 describe("relative luminance", () => {
@@ -34,40 +38,67 @@ describe("relative luminance", () => {
 });
 
 describe("night lift", () => {
-  test("is inert for a colour that already clears the floor on its own", () => {
-    // Yellow at noon needs nothing. Deliberately NOT asserted for a dark
-    // livery at noon: the deleted MVP 7 harness measured real noon failures
-    // for Sukhumvit, Yellow, Gold, Red Light and Blue, so the lift is driven
-    // by whether the floor is met, not by the time of day.
-    const { palette, ndotl } = paletteAt(NOON);
-    expect(nightLift(0xfbc02d, palette, ndotl).intensity).toBe(0);
+  test("is inert during full day, unconditionally — not just for a colour that clears on its own", () => {
+    // CONTRAST_REFERENCE is the NIGHT basemap's building colour — see its own
+    // doc comment in nightLift.ts. It has no relevance to what's on screen at
+    // noon, where the real backdrop is the light day basemap. Found in code
+    // review 2026-08-15: before this gate existed, MRT Purple's #660066 was
+    // being checked against CONTRAST_REFERENCE at noon too (reporting a
+    // passing 6.9:1) and force-whitened toward #ac3aac to satisfy it, while
+    // the real noon contrast against the actual Liberty day basemap
+    // (buildings ≈ #e0dfdb) was ~1.09:1 — an active daytime regression this
+    // gate exists specifically to close. Yellow (which genuinely never needs
+    // help) is intentionally NOT the interesting case here; Purple is, since
+    // it's the line the old code was wrongly "fixing" at noon.
+    const { palette, ndotl, elevationDeg } = paletteAt(NOON);
+    expect(nightLift(0x660066, palette, ndotl, elevationDeg)).toEqual({
+      emissive: 0x660066,
+      intensity: 0,
+    });
   });
 
   test("preserves hue exactly while the material's own colour is enough", () => {
     // Yellow clears the floor without any whitening (stage 0 or 1 only).
-    const { palette, ndotl } = paletteAt(DEEP_NIGHT);
-    expect(nightLift(0xfbc02d, palette, ndotl).emissive).toBe(0xfbc02d);
+    const { palette, ndotl, elevationDeg } = paletteAt(DEEP_NIGHT);
+    expect(nightLift(0xfbc02d, palette, ndotl, elevationDeg).emissive).toBe(0xfbc02d);
   });
 
   test("whitens only a colour its own hue cannot save", () => {
     // MRT Purple cannot clear the floor at full emissive with its own hue.
-    const { palette, ndotl } = paletteAt(DEEP_NIGHT);
-    const lift = nightLift(0x660066, palette, ndotl);
+    const { palette, ndotl, elevationDeg } = paletteAt(DEEP_NIGHT);
+    const lift = nightLift(0x660066, palette, ndotl, elevationDeg);
     expect(lift.intensity).toBe(1);
     expect(lift.emissive).not.toBe(0x660066);
   });
 
-  test("EVERY registry line clears WCAG 3:1 at noon and at 02:00", () => {
+  test("no registry line takes ANY lift at noon — the day gate applies uniformly", () => {
+    // The meaningful noon invariant post-fix: CONTRAST_REFERENCE isn't on
+    // screen at noon, so nightLift() must never compute against it there,
+    // for ANY line — not "every line happens to clear it," which was the
+    // old (wrong) noon assertion this test replaces.
+    const { palette, ndotl, elevationDeg } = paletteAt(NOON);
+    const stillLifted = network.lines
+      .map((l) => l.key)
+      .filter((key) => {
+        const albedo = parseInt(network.lines.find((l) => l.key === key)!.color.slice(1), 16);
+        return nightLift(albedo, palette, ndotl, elevationDeg).intensity !== 0;
+      });
+    expect(stillLifted).toEqual([]);
+  });
+
+  test("EVERY registry line clears WCAG 3:1 at 02:00", () => {
+    // Deep night, unlike noon, IS a case where CONTRAST_REFERENCE is a valid
+    // proxy for the real on-screen backdrop (the basemap has fully blended
+    // toward NIGHT_THEME by then) — this is the one time-of-day where "does
+    // it clear the floor" is still the right question to ask.
+    const { palette, ndotl, elevationDeg } = paletteAt(DEEP_NIGHT);
     const failures: string[] = [];
-    for (const when of [NOON, DEEP_NIGHT]) {
-      const { palette, ndotl } = paletteAt(when);
-      for (const line of network.lines) {
-        const albedo = parseInt(line.color.slice(1), 16);
-        const rendered = predictRendered(albedo, palette, ndotl, nightLift(albedo, palette, ndotl));
-        const ratio = contrastRatio(rendered, CONTRAST_REFERENCE);
-        if (ratio < MIN_CONTRAST) {
-          failures.push(`${line.key} @ ${when === NOON ? "noon" : "02:00"}: ${ratio.toFixed(2)}:1`);
-        }
+    for (const line of network.lines) {
+      const albedo = parseInt(line.color.slice(1), 16);
+      const rendered = predictRendered(albedo, palette, ndotl, nightLift(albedo, palette, ndotl, elevationDeg));
+      const ratio = contrastRatio(rendered, CONTRAST_REFERENCE);
+      if (ratio < MIN_CONTRAST) {
+        failures.push(`${line.key}: ${ratio.toFixed(2)}:1`);
       }
     }
     expect(failures).toEqual([]);
@@ -102,31 +133,41 @@ describe("night lift", () => {
   // still exactly blue/purple/purple-ext, 11/3 as above. What DID change is
   // WHEN: with the real renderer running ~1/π ≈ 3.1x darker than the
   // uncalibrated model assumed, MRT Purple and Purple Phase 2's `#660066` no
-  // longer clears the floor at noon either (ratio lands right at 3.01:1,
-  // i.e. it now needs full stage-2 whitening at BOTH times, not just at
-  // night) — the old "none needs it at noon" premise is false for those two
-  // lines under the corrected model. MRT Blue is unaffected: its noon ratio
-  // (3.09:1) still clears on its own (stage 0, no lift at all) even at the
-  // darker scale, and it still only needs stage 2 at night. See
-  // tools/calibrate-night-lift.mjs and the Task 8 report for the full
-  // per-line noon/night table.
+  // longer cleared the floor AGAINST CONTRAST_REFERENCE at noon either
+  // (ratio landed right at 3.01:1). MRT Blue was unaffected: its noon ratio
+  // (3.09:1) still cleared on its own even at the darker scale.
+  //
+  // UPDATE 2026-08-15 (code review, day gate added): the paragraph above
+  // described checking noon against CONTRAST_REFERENCE at all — which turned
+  // out to be the actual bug (see the day-gate tests above). Purple's "noon
+  // ratio 3.01:1" was never a real number: CONTRAST_REFERENCE is the NIGHT
+  // basemap colour, never on screen at noon, and checking against it there
+  // was actively forcing Purple/Purple-ext into stage-2 whitening at noon in
+  // the real running app to satisfy a backdrop nobody sees at that hour. Now
+  // that `nightLift()` returns NO_LIFT unconditionally whenever
+  // `nightFactor(elevationDeg) === 0`, EVERY line's noon expectation is
+  // `false` — not just the 11 that would have cleared anyway. Night
+  // expectations are unchanged; night is the one time CONTRAST_REFERENCE
+  // genuinely is the on-screen backdrop.
   test("only MRT Blue and MRT Purple / Purple Phase 2 ever need stage-2 whitening", () => {
     // Per-line expectation of whether stage 2 (whitening) is needed at each
-    // time, now that noon and night no longer behave uniformly across the
-    // three stage-2 lines (see the UPDATE note above).
+    // time — noon is uniformly false for every line now (see the UPDATE
+    // note above), so this test's remaining job is pinning that ONLY these
+    // three lines ever whiten, and only at night.
     const stage2Expectation: Record<string, { noon: boolean; night: boolean }> = {
       blue: { noon: false, night: true },
-      purple: { noon: true, night: true },
-      "purple-ext": { noon: true, night: true },
+      purple: { noon: false, night: true },
+      "purple-ext": { noon: false, night: true },
     };
     const unexpectedlyWhitened: string[] = [];
     const mismatches: string[] = [];
 
     for (const line of network.lines) {
       const albedo = parseInt(line.color.slice(1), 16);
-      const whitenedAtNoon = nightLift(albedo, paletteAt(NOON).palette, paletteAt(NOON).ndotl).emissive !== albedo;
-      const { palette, ndotl } = paletteAt(DEEP_NIGHT);
-      const whitenedAtNight = nightLift(albedo, palette, ndotl).emissive !== albedo;
+      const noon = paletteAt(NOON);
+      const whitenedAtNoon = nightLift(albedo, noon.palette, noon.ndotl, noon.elevationDeg).emissive !== albedo;
+      const { palette, ndotl, elevationDeg } = paletteAt(DEEP_NIGHT);
+      const whitenedAtNight = nightLift(albedo, palette, ndotl, elevationDeg).emissive !== albedo;
 
       const expected = stage2Expectation[line.key];
       if (expected) {
@@ -173,9 +214,9 @@ describe("night lift", () => {
     // ~0.128 (still small, still far below Blue's, but no longer under the
     // old 0.1 bound) — a real, expected consequence of the whole model
     // getting darker, not a threshold picked to make this pass.
-    const { palette, ndotl } = paletteAt(DEEP_NIGHT);
-    const whiteLift = nightLift(0xffffff, palette, ndotl);
-    const blueLift = nightLift(0x1964b7, palette, ndotl);
+    const { palette, ndotl, elevationDeg } = paletteAt(DEEP_NIGHT);
+    const whiteLift = nightLift(0xffffff, palette, ndotl, elevationDeg);
+    const blueLift = nightLift(0x1964b7, palette, ndotl, elevationDeg);
     expect(whiteLift.intensity).toBeLessThan(0.2);
     expect(blueLift.intensity).toBeGreaterThan(whiteLift.intensity);
   });

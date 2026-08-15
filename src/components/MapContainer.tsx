@@ -173,7 +173,7 @@ export function MapContainer() {
         if (client && layer) {
           const dir = sunDirection(client.getSimNow());
           const eff = effectiveElevationDeg(state.themeMode, dir.elevationDeg);
-          layer.setSun(dir, skyPalette(eff));
+          layer.setSun(dir, skyPalette(eff), eff);
           layer.setSkyElevation(eff);
         }
         // Force the next tick to recompute: `lastApplied` still holds the
@@ -339,7 +339,7 @@ export function MapContainer() {
         // light position); only the palette and the basemap blend use the
         // mode-effective elevation.
         const eff = effectiveElevationDeg(mode, dir.elevationDeg);
-        layer?.setSun(dir, skyPalette(eff));
+        layer?.setSun(dir, skyPalette(eff), eff);
         layer?.setSkyElevation(eff);
         binding?.applyThemeElevation(eff);
       };

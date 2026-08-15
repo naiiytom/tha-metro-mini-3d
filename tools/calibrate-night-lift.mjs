@@ -259,7 +259,13 @@ try {
     const rows = [];
     for (const c of cases) {
       const { dir, palette, ndotl } = paletteAt(c.when);
-      layer.setSun(dir, palette);
+      // 3rd arg added in code review alongside nightLift()'s day gate — this
+      // script's own quad bypasses nightLift() entirely (NO_LIFT is forced
+      // manually below), so it's inert to what this script measures, but
+      // passing it keeps this call honest with the real setSun signature and
+      // avoids leaving nightFactor(undefined) live against setSun's OWN
+      // litMaterials loop while this runs.
+      layer.setSun(dir, palette, dir.elevationDeg);
       mat.color.setHex(c.albedo);
       mat.emissive.setHex(0x000000);
       mat.emissiveIntensity = 0;
