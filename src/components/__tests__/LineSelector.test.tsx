@@ -123,6 +123,24 @@ describe("estimated run times disclosure", () => {
     expect(screen.queryByTestId("estimated-run-times-badge")).toBeNull();
   });
 
+  it("a hand-edited line missing the field entirely does not show the badge (found in code review)", () => {
+    // network.json is routinely hand-edited in this repo without a re-fetch
+    // (CLAUDE.md documents several precedents). A line patched by hand that
+    // omits `estimatedRunTimes` entirely has the key `undefined`, not
+    // `null` — `!== null` would have shown this badge for such a line
+    // (`undefined !== null` is true), a false "estimated" claim, while
+    // StationBoard/TrainInspector's `!= null` correctly showed nothing.
+    const { estimatedRunTimes: _omitted, ...withoutField } = makeLine({ key: "yellow" });
+    useAppStore.setState({
+      searchOpen: false,
+      mapReady: true,
+      uiHidden: false,
+      routes: [withoutField as unknown as LineGeometry],
+    });
+    render(<LineSelector />);
+    expect(screen.queryByTestId("estimated-run-times-badge")).toBeNull();
+  });
+
   it("does not disturb the synthetic-schedule badge (ordering regression)", () => {
     useAppStore.setState({
       searchOpen: false,

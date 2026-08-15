@@ -42,7 +42,7 @@ function LineRow({ line, routeIdx }: { line: LineGeometry; routeIdx: number }) {
           >
             estimated
           </span>
-        ) : line.estimatedRunTimes !== null ? (
+        ) : line.estimatedRunTimes != null ? (
           // Also checked before the track-only branch: MRT Pink has a real
           // gtfsRouteId, so it can't collide with that branch either way —
           // but keeping this ahead of it matches the syntheticSchedule
@@ -52,6 +52,14 @@ function LineRow({ line, routeIdx }: { line: LineGeometry; routeIdx: number }) {
           // light — bg-white/70 — so a badge needs a dark-on-light palette
           // like every other one here, not the white-on-white this
           // originally shipped with).
+          //
+          // `!= null`, not `!== null`: StationBoard/TrainInspector both use
+          // `!= null` for this same field, and network.json is routinely
+          // hand-edited in this repo without a re-fetch — a line added or
+          // patched by hand that omits the field entirely is `undefined`,
+          // not `null`. `!== null` would have shown this badge for such a
+          // line (a false "estimated" claim) while the two detail panels
+          // correctly showed nothing. Found in code review.
           <span
             data-testid="estimated-run-times-badge"
             className="ml-auto shrink-0 rounded bg-sky-100 px-1 text-[9px] uppercase text-sky-700"
