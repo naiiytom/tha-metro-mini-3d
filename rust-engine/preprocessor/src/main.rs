@@ -1238,7 +1238,6 @@ fn run() -> Result<(), String> {
             }),
         );
     }
-    runtimes::assert_no_zero_transit(&patterns, &line_keys)?;
 
     // ---- Runs (frequency expansion, or one run per scheduled trip) --------
     // (original_service_idx, single-day bit) -> synthetic service_idx, so
@@ -1312,6 +1311,15 @@ fn run() -> Result<(), String> {
             line.key, sched.headway_sec
         );
     }
+
+    // Must run AFTER the synthetic pass above, not just after the GTFS
+    // repair loop: a synthetic pattern's legs are appended to `patterns` by
+    // that pass, and a future synthetic line whose stations resolve to the
+    // same arc (or whose declared speed/runtime yields a sub-second leg)
+    // would otherwise ship in network.tmb with the exact defect this gate
+    // exists to close, unchecked. Found in code review — the gate call used
+    // to sit right after the GTFS repair loop, before this pass ran.
+    runtimes::assert_no_zero_transit(&patterns, &line_keys)?;
 
     if runs.is_empty() {
         return Err("expansion produced zero runs".into());
