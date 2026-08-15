@@ -35,6 +35,73 @@ export interface VehicleRoute {
 const TINT_PLAIN = new THREE.Color(1, 1, 1);
 const TINT_SELECTED = new THREE.Color(1.9, 1.55, 0.5);
 
+/**
+ * Per-instance ADDITIVE emissive boost for the selected train, on top of
+ * whatever material-level night-floor emissive `ThreeLayer.setSun()` has
+ * already set for the whole route (see `materialAlbedo.ts` / `nightLift.ts`).
+ *
+ * Found in code review 2026-08-15: `TINT_SELECTED` above is a per-instance
+ * MULTIPLIER on the vertex-coloured DIFFUSE term only — Three's Lambert
+ * fragment shader sets `totalEmissiveRadiance = emissive` (a material-level
+ * uniform, shared by every instance of an InstancedMesh) BEFORE the vertex
+ * colour multiply ever runs, and composites it additively into the final
+ * output. So once the night floor's material-level `emissiveIntensity` is
+ * non-trivial (it usually is at night — even white needs ~0.13, and this is
+ * exactly what this whole PR raised for dark liveries), that fixed additive
+ * floor is identical for the selected and unselected instances alike, and
+ * `TINT_SELECTED`'s multiplicative diffuse difference becomes a shrinking
+ * fraction of a growing common offset — the selection highlight visually
+ * disappears at night for exactly the liveries this PR was built to fix.
+ *
+ * `InstancedMesh` ships no per-instance emissive channel (only
+ * `instanceColor`, which — per the shader trace above — only ever reaches
+ * the diffuse term, never emissive). Fixed with a real one: a custom
+ * `instanceEmissive` InstancedBufferAttribute + an `onBeforeCompile` patch
+ * (below) that threads it through as its own varying and adds it into
+ * `totalEmissiveRadiance`, genuinely per-instance, independent of whatever
+ * the shared material-level floor currently is.
+ *
+ * A warm gold, echoing `TINT_SELECTED`'s own warm bias (boosted red/green,
+ * dimmed blue) so the two selection cues read as the same visual language.
+ * Converted to linear once — the shader's lighting math is entirely in
+ * linear space (see `nightLift.ts`'s SHADING_SCALE derivation), and a raw
+ * sRGB value added there would be composited in the wrong colour space.
+ * Independent of route colour and time of day BY DESIGN: a fixed, always-
+ * visible cue is more reliable than one that has to out-compete an unknown
+ * current night-floor magnitude.
+ */
+const SELECTED_EMISSIVE_BOOST_SRGB = new THREE.Color(0xffaa33);
+const SELECTED_EMISSIVE_BOOST_LINEAR = SELECTED_EMISSIVE_BOOST_SRGB.clone().convertSRGBToLinear();
+const NO_EMISSIVE_BOOST_LINEAR = new THREE.Color(0, 0, 0);
+
+/**
+ * Patches a per-route vehicle material to add a real per-instance emissive
+ * channel. Exported so its GLSL string-surgery can be unit-tested directly
+ * against a minimal fake `shader` object, without a WebGL context — actual
+ * shader compilation can't be exercised in this project's jsdom test
+ * environment, but the transformation this function performs on the raw
+ * (pre-`#include`-resolution) template strings can be, and a Three version
+ * bump changing these literal include markers would otherwise break this
+ * silently.
+ */
+export function patchInstancedEmissive(shader: { vertexShader: string; fragmentShader: string }): void {
+  shader.vertexShader = shader.vertexShader
+    .replace(
+      "#include <common>",
+      "attribute vec3 instanceEmissive;\nvarying vec3 vInstanceEmissive;\n#include <common>",
+    )
+    .replace(
+      "#include <color_vertex>",
+      "#include <color_vertex>\n\tvInstanceEmissive = instanceEmissive;",
+    );
+  shader.fragmentShader = shader.fragmentShader
+    .replace("uniform vec3 emissive;", "uniform vec3 emissive;\nvarying vec3 vInstanceEmissive;")
+    .replace(
+      "vec3 totalEmissiveRadiance = emissive;",
+      "vec3 totalEmissiveRadiance = emissive + vInstanceEmissive;",
+    );
+}
+
 export class VehicleManager {
   /** One InstancedMesh per route, index == route_idx. Add these to the scene. */
   readonly meshes: THREE.InstancedMesh[];
@@ -54,10 +121,22 @@ export class VehicleManager {
       // compute the lift from the route's actual colour instead of white
       // (which would glow every train white at night).
       material.userData.liveryHex = new THREE.Color(route.color).getHex();
+      material.onBeforeCompile = patchInstancedEmissive;
       const geometry = buildTrainGeometry(
         CONSISTS[route.vehicleType],
         new THREE.Color(route.color).getHex(),
       );
+      // Allocated eagerly, unlike `instanceColor` (a Three built-in the
+      // renderer allocates lazily on the first `setColorAt`): this is a
+      // plain custom attribute with no such lazy path, and it must exist
+      // before the first render regardless of whether anything is selected
+      // yet, so every slot reliably reads "no boost" from frame 1.
+      const instanceEmissive = new THREE.InstancedBufferAttribute(
+        new Float32Array(MAX_VEHICLES * 3),
+        3,
+      );
+      instanceEmissive.setUsage(THREE.DynamicDrawUsage);
+      geometry.setAttribute("instanceEmissive", instanceEmissive);
       const mesh = new THREE.InstancedMesh(geometry, material, MAX_VEHICLES);
       mesh.name = `vehicles-route-${routeIdx}`;
       mesh.count = 0;
@@ -105,9 +184,20 @@ export class VehicleManager {
       const slot = counts[routeIdx]++;
       mesh.setMatrixAt(slot, this.matrix);
       if (writeTints) {
-        mesh.setColorAt(
+        const selected = vehicles[o + LANE_RUN_IDX] === selectedRunIdx;
+        mesh.setColorAt(slot, selected ? TINT_SELECTED : TINT_PLAIN);
+        // Same per-slot discipline as setColorAt just above, same reason:
+        // slot assignment is per-frame packing order, not a stable per-
+        // vehicle identity, so this must be rewritten for every active slot
+        // whenever anything is (or was) selected — never just for the
+        // previously-selected slot, which may not even be this vehicle's
+        // slot this frame.
+        const boost = selected ? SELECTED_EMISSIVE_BOOST_LINEAR : NO_EMISSIVE_BOOST_LINEAR;
+        (mesh.geometry.attributes.instanceEmissive as THREE.InstancedBufferAttribute).setXYZ(
           slot,
-          vehicles[o + LANE_RUN_IDX] === selectedRunIdx ? TINT_SELECTED : TINT_PLAIN,
+          boost.r,
+          boost.g,
+          boost.b,
         );
       }
     }
@@ -117,6 +207,11 @@ export class VehicleManager {
       mesh.instanceMatrix.needsUpdate = true;
       // Allocated lazily by the first setColorAt; absent if no vehicle drew.
       if (writeTints && mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+      if (writeTints) {
+        (
+          mesh.geometry.attributes.instanceEmissive as THREE.InstancedBufferAttribute
+        ).needsUpdate = true;
+      }
     }
   }
 }
