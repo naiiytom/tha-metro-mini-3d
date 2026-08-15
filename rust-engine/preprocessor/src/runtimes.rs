@@ -202,7 +202,16 @@ pub fn repair_pattern(
         .or_else(|| basis.map(|b| b.dwell_s))
         .unwrap_or(0);
     let dwells: Vec<u32> = if is_fully_degenerate(p) {
-        vec![replacement_dwell; n]
+        // A pattern's last stop has no dwell by this project's own
+        // convention (see `synthetic.rs`'s `synthesize()`: "Dwell at every
+        // stop except the last of each direction") — there is no next leg
+        // for it to matter to. Zeroed here, at construction, ONLY in this
+        // branch: the placeholder dwell carries no information to lose, so
+        // this changes nothing observable. The partially-degenerate branch
+        // below must NOT do this — its dwells are real data.
+        let mut placeholder = vec![replacement_dwell; n];
+        placeholder[n - 1] = 0;
+        placeholder
     } else {
         // Real dwells, kept verbatim — but a malformed row here is a hard
         // error, not a wrapped/panicking u32 subtraction. This is this
@@ -226,6 +235,12 @@ pub fn repair_pattern(
             }
             own_dwells.push(d as u32);
         }
+        // Real dwells including the last stop's — kept exactly as computed
+        // above. Previously the write-back loop below force-zeroed the last
+        // stop's departure unconditionally, silently discarding a genuine
+        // terminal dwell if the feed had one. Found in code review; no
+        // pattern in today's data is partially degenerate with a nonzero
+        // terminal dwell, so this was latent, not yet observed.
         own_dwells
     };
 
@@ -235,7 +250,7 @@ pub fn repair_pattern(
             clock += legs[i - 1];
         }
         p.stops[i].arrival_s = clock;
-        p.stops[i].departure_s = if i + 1 == n { clock } else { clock + dwells[i] };
+        p.stops[i].departure_s = clock + dwells[i];
         clock = p.stops[i].departure_s;
     }
     Ok(out)
@@ -459,6 +474,52 @@ mod tests {
             180,
             "zero leg repaired"
         );
+    }
+
+    #[test]
+    fn a_partially_degenerate_pattern_keeps_a_genuine_nonzero_terminal_dwell() {
+        // Found in code review: the write-back loop used to force
+        // departure_s == arrival_s at the LAST stop unconditionally, which
+        // is correct for a fully-degenerate pattern (its dwells are all
+        // placeholder) but silently discarded a real terminal dwell here,
+        // contradicting this branch's own "kept verbatim" promise. The
+        // pattern below has one real leg, one zero leg to repair, and a
+        // genuine 30 s dwell at its own last stop.
+        let sib = pattern("sib", vec![stop(1, 0, 0, 1000.0), stop(2, 90, 90, 2000.0)]);
+        let siblings = sibling_times(&[&sib]);
+        let mut p = pattern(
+            "terminal-dwell",
+            vec![
+                stop(0, 0, 0, 0.0),
+                stop(1, 150, 150, 1000.0), // real 150 s leg, zero dwell
+                stop(2, 150, 150, 2000.0), // zero leg, to be repaired
+                stop(3, 400, 430, 3000.0), // real leg AND a real 30 s terminal dwell
+            ],
+        );
+        let out = repair_pattern(&mut p, &siblings, Some(0), None).unwrap();
+        assert_eq!(out.recovered_legs, 1);
+        assert_eq!(
+            p.stops[3].departure_s - p.stops[3].arrival_s,
+            30,
+            "the pattern's real terminal dwell must survive the repair, not be zeroed"
+        );
+    }
+
+    #[test]
+    fn a_fully_degenerate_pattern_still_ends_with_zero_terminal_dwell() {
+        // The placeholder-dwell case this project's own convention (see
+        // synthetic.rs's synthesize()) applies to every pattern's last stop
+        // — unaffected by the fix above, verified explicitly so a future
+        // change to the write-back loop can't silently reintroduce a
+        // terminal dwell here by accident.
+        let basis = BasisProfile {
+            speed_mps: 10.0,
+            dwell_s: 18,
+        };
+        let mut d = degenerate();
+        repair_pattern(&mut d, &SiblingTimes::new(), None, Some(basis)).unwrap();
+        let last = d.stops.last().unwrap();
+        assert_eq!(last.departure_s, last.arrival_s);
     }
 
     #[test]
