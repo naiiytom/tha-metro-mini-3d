@@ -53,9 +53,18 @@ export interface NightLift {
   /**
    * 0 during full day (`nightFactor(elevationDeg) === 0`) — deliberately,
    * since `CONTRAST_REFERENCE` has no relevance to what's actually behind a
-   * material until the basemap itself has begun blending toward it. Once any
-   * night blending has begun, driven by the contrast shortfall against that
-   * reference, up to 1 when it does not clear on the material's own colour.
+   * material until the basemap itself has begun blending toward it. Ramps
+   * CONTINUOUSLY from there — scaled by `nightFactor(elevationDeg)`, the
+   * same smoothstep curve the basemap's own darkening uses — up to the
+   * value that clears the floor (or the material's own hue cannot save)
+   * once nightFactor reaches 1 at full night. Not a step function: an
+   * earlier version of this gate was binary (full lift the instant
+   * nightFactor left zero), which popped the whole network discontinuously
+   * at the elevation boundary and, more importantly, force-whitened liveries
+   * throughout most of dusk against a backdrop that was still mostly its DAY
+   * colours. Fixed in code review 2026-08-15 — see `nightLift()`'s own
+   * comment on the fix and its honest limit (the "clears 3:1" guarantee is
+   * exact once nightFactor reaches 1, not at every intermediate value).
    *
    * An earlier version of this doc comment claimed this was "driven by the
    * contrast shortfall, NOT by the time of day," citing the deleted MVP 7
@@ -168,11 +177,49 @@ export function contrastRatio(a: number, b: number): number {
  */
 export const SHADING_SCALE = 1 / Math.PI;
 
+/**
+ * Straight alpha-over, in the SAME space the values already arrive in
+ * (packed 8-bit sRGB channels) — matching Three's default transparent-
+ * material blend: the fragment shader's own `colorspace_fragment` chunk
+ * already converts to sRGB before the GPU's fixed-function blend stage
+ * operates on it (this project never overrides `blending`, so it's
+ * `THREE.NormalBlending`), so the blend itself happens on sRGB-encoded
+ * values, not linear ones.
+ */
+function compositeOver(srcHex: number, alpha: number, dstHex: number): number {
+  const [sr, sg, sb] = channels(srcHex);
+  const [dr, dg, db] = channels(dstHex);
+  const mix = (s: number, d: number) => Math.round(alpha * s + (1 - alpha) * d);
+  return (mix(sr, dr) << 16) | (mix(sg, dg) << 8) | mix(sb, db);
+}
+
 export function predictRendered(
   albedo: number,
   palette: SkyPalette,
   ndotl: number,
   lift: NightLift,
+  /**
+   * The material's OWN opacity, as `ThreeLayer.applyUndergroundMode()` sets
+   * it (1 when the material's structure band is the one currently
+   * foregrounded; 0.35/0.3 for the deliberately-dimmed backgrounded band —
+   * see that function's own comment). Defaults to 1 (fully opaque), so
+   * every existing call site — including `nightLift()`'s own internal
+   * `clears()` solve, which intentionally always targets full opacity, see
+   * its doc comment — is unaffected.
+   *
+   * Added in code review 2026-08-15: this function previously had no
+   * opacity concept at all, so both it and the WCAG gate built on it
+   * silently assumed every material renders fully opaque. That is true for
+   * whichever band is currently FOREGROUNDED (which is what the gate
+   * actually asserts 3:1 for), but false for a line's BACKGROUNDED band —
+   * concretely, MRT Blue's underground half in the app's DEFAULT view
+   * (underground mode off) renders at 0.35 opacity, composited over the
+   * basemap, and the real on-screen contrast there is measurably lower than
+   * this function's opaque prediction (confirmed: 1.42:1 vs the opaque
+   * model's 3.01:1) — exactly the "measured the wrong pixel" failure class
+   * this whole PR exists to close for the deleted legibility harness.
+   */
+  opacity: number = 1,
 ): number {
   const [ar, ag, ab] = channels(albedo).map(toLinear);
   const [sr, sg, sb] = channels(palette.sun).map(toLinear);
@@ -185,7 +232,8 @@ export function predictRendered(
   const out = (a: number, sun: number, ambient: number, emissive: number) =>
     toSrgb(SHADING_SCALE * a * light(sun, ambient) + emissive * lift.intensity);
 
-  return pack(out(ar, sr, mr, er), out(ag, sg, mg, eg), out(ab, sb, mb, eb));
+  const opaque = pack(out(ar, sr, mr, er), out(ag, sg, mg, eg), out(ab, sb, mb, eb));
+  return opacity >= 1 ? opaque : compositeOver(opaque, opacity, CONTRAST_REFERENCE);
 }
 
 const NO_LIFT = (emissive: number): NightLift => ({ emissive, intensity: 0 });
@@ -221,18 +269,50 @@ export function nightLift(
   ndotl: number,
   elevationDeg: number,
 ): NightLift {
+  const nf = nightFactor(elevationDeg);
   // Full day: CONTRAST_REFERENCE isn't on screen yet (see its own comment),
   // so there is nothing meaningful to check against. Gated on the same
   // nightFactor threshold basemapTheme.ts uses for the basemap's own
   // darkening, so both night effects agree on when night begins.
-  if (nightFactor(elevationDeg) === 0) return NO_LIFT(albedo);
+  if (nf === 0) return NO_LIFT(albedo);
   if (clears(albedo, palette, ndotl, NO_LIFT(albedo))) return NO_LIFT(albedo);
+
+  // Both stages below solve for the intensity/whitening that would be
+  // needed if it WERE fully night (nf === 1), then scale the returned
+  // intensity by nf itself before returning.
+  //
+  // Found in code review 2026-08-15: the day gate above stops the noon
+  // regression, but on its own it is a hard step at nf === 0 — one instant
+  // past the threshold, nf is astronomically small (~2e-8 right at the
+  // elevation boundary) while the fully-solved lift still applied at FULL
+  // strength, popping the whole network from "no lift" to "fully lifted"
+  // discontinuously, and staying wrong (force-whitening toward the fully-
+  // NIGHT target against a backdrop that is still mostly its DAY colours)
+  // through most of the dusk band — not just a boundary sliver, confirmed by
+  // probing the real function: MRT Purple was still at intensity 1.0 all the
+  // way from elevation 2.999° down past 0°, only reaching genuine full
+  // strength (by design, correctly) once nf itself reaches 1 near -8°. That
+  // is exactly the class of "checking against a backdrop that isn't fully on
+  // screen yet" bug `CONTRAST_REFERENCE`'s own comment already names for
+  // noon — it just also applies, more softly, throughout dusk/dawn.
+  //
+  // Scaling intensity by nf (not re-solving the target colour at every nf)
+  // is the minimal fix: continuous, monotonic, and exact at both endpoints
+  // (nf=0 contributes zero emissive, matching the day gate above exactly;
+  // nf=1 is byte-identical to the pre-fix full-night behaviour, so DEEP_NIGHT
+  // test values are unaffected). It is NOT a proof that the result clears
+  // 3:1 at every intermediate nf — CONTRAST_REFERENCE itself is always the
+  // fully-night constant, never blended, so that guarantee only strictly
+  // holds once nf reaches 1. What it does guarantee is that the boost is
+  // never larger than how much night has actually arrived, closing the
+  // reviewer's "reduces real contrast for no benefit against a still-light
+  // backdrop" complaint by construction.
 
   // Stage 1: the material's own colour, as little of it as possible.
   const full: NightLift = { emissive: albedo, intensity: 1 };
   if (clears(albedo, palette, ndotl, full)) {
-    const intensity = smallest((t) => clears(albedo, palette, ndotl, { emissive: albedo, intensity: t }));
-    return { emissive: albedo, intensity };
+    const solved = smallest((t) => clears(albedo, palette, ndotl, { emissive: albedo, intensity: t }));
+    return { emissive: albedo, intensity: solved * nf };
   }
 
   // Stage 2: this livery cannot reach the floor as itself. Whiten by the
@@ -245,5 +325,5 @@ export function nightLift(
   // This is an intentional asymmetry with stage 1 (whose own ceiling is NOT
   // guaranteed to clear, hence its explicit check), not an oversight.
   const t = smallest((s) => clears(albedo, palette, ndotl, { emissive: whiten(albedo, s), intensity: 1 }));
-  return { emissive: whiten(albedo, t), intensity: 1 };
+  return { emissive: whiten(albedo, t), intensity: nf };
 }

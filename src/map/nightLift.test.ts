@@ -237,4 +237,111 @@ describe("night lift", () => {
     // script before changing this.
     expect(SHADING_SCALE).toBe(1 / Math.PI);
   });
+
+  describe("the twilight ramp (code review 2026-08-15)", () => {
+    // Direct elevation control, not via sunDirection/an epoch — these tests
+    // need exact points in the dusk band, not whatever a real clock produces.
+    const at = (elevationDeg: number) => ({
+      palette: skyPalette(elevationDeg),
+      ndotl: 0.05,
+      elevationDeg,
+    });
+
+    test("does not pop discontinuously the instant nightFactor leaves zero", () => {
+      // Found in code review: the old binary gate jumped MRT Purple from
+      // intensity 0 straight to full stage-2 whitening (emissive changed,
+      // intensity 1.0) between elevation 3.001° and 2.999° — a single
+      // instant, not a fade. At 2.999° nightFactor is ~2.5e-8: the basemap
+      // is still ~100% its day colours there.
+      const purple = 0x660066;
+      const justAfter = at(2.999);
+      const lift = nightLift(purple, justAfter.palette, justAfter.ndotl, justAfter.elevationDeg);
+      expect(lift.intensity).toBeGreaterThan(0); // some lift now applies...
+      expect(lift.intensity).toBeLessThan(0.001); // ...but a negligible amount, not full strength
+    });
+
+    test("intensity rises monotonically as elevation falls through the dusk band", () => {
+      const purple = 0x660066;
+      const elevations = [3, 2, 1, 0, -2, -4, -6, -8];
+      const intensities = elevations.map((e) => {
+        const p = at(e);
+        return nightLift(purple, p.palette, p.ndotl, p.elevationDeg).intensity;
+      });
+      for (let i = 1; i < intensities.length; i++) {
+        expect(intensities[i]).toBeGreaterThanOrEqual(intensities[i - 1]);
+      }
+      expect(intensities[0]).toBe(0); // elevation 3 = full day, still gated
+      expect(intensities[intensities.length - 1]).toBeCloseTo(1, 5); // elevation -8 = full night
+    });
+
+    test("full-night behaviour is byte-identical to before this fix", () => {
+      // nightFactor(elevationDeg) === 1 at full night, so scaling by it must
+      // be a no-op — this pins that the DEEP_NIGHT-based tests elsewhere in
+      // this file were not silently weakened by the twilight fix.
+      const blue = 0x1964b7;
+      const deepNight = at(-40);
+      const lift = nightLift(blue, deepNight.palette, deepNight.ndotl, deepNight.elevationDeg);
+      expect(lift.intensity).toBe(1);
+    });
+
+    test("a mid-dusk lift is smaller than the full-night lift for the same livery", () => {
+      // The concrete complaint: force-whitening toward the full-night target
+      // at elevation +2° "reduces real contrast and costs hue for no
+      // benefit" against a backdrop that's still mostly light. Scaling by
+      // nightFactor means the emissive CONTRIBUTION (emissive * intensity)
+      // at +2° must be small relative to full night, even though the target
+      // `emissive` colour itself is the same fully-solved value at both.
+      const purple = 0x660066;
+      const midDusk = at(2);
+      const deepNight = at(-40);
+      const mid = nightLift(purple, midDusk.palette, midDusk.ndotl, midDusk.elevationDeg);
+      const full = nightLift(purple, deepNight.palette, deepNight.ndotl, deepNight.elevationDeg);
+      expect(mid.intensity).toBeLessThan(full.intensity);
+      expect(mid.intensity).toBeLessThan(0.05);
+    });
+  });
+
+  describe("opacity-composited contrast (code review 2026-08-15)", () => {
+    // The gate above ("EVERY registry line clears WCAG 3:1") only ever
+    // solves and checks at opacity 1 — the FOREGROUNDED structure band.
+    // `applyUndergroundMode()` renders the BACKGROUNDED band translucent
+    // (0.35 for sub-surface track/stations when underground mode is off —
+    // the app's default — composited over the basemap), and nightLift()'s
+    // emissive solve has no opacity awareness: it targets full-opacity
+    // contrast, so a backgrounded material's real on-screen contrast is
+    // lower than what the gate above verifies. `predictRendered`'s opacity
+    // parameter models this accurately (see its own doc comment); these
+    // tests pin the real, currently-unclosed gap it exposes, so the
+    // shortfall is measured rather than silently unmeasured — the same
+    // "disclosed and pinned, not fixed by weakening the floor" precedent
+    // CLAUDE.md already documents for NF1 and the pre-fix WCAG failures.
+    // Left failing-the-floor on purpose: MIN_CONTRAST is never weakened.
+    test("compositing over CONTRAST_REFERENCE at reduced opacity lowers contrast versus opaque", () => {
+      const blue = 0x1964b7;
+      const { palette, ndotl, elevationDeg } = paletteAt(DEEP_NIGHT);
+      const lift = nightLift(blue, palette, ndotl, elevationDeg);
+      const opaque = predictRendered(blue, palette, ndotl, lift, 1);
+      const backgrounded = predictRendered(blue, palette, ndotl, lift, 0.35);
+      const opaqueRatio = contrastRatio(opaque, CONTRAST_REFERENCE);
+      const backgroundedRatio = contrastRatio(backgrounded, CONTRAST_REFERENCE);
+      expect(opaqueRatio).toBeGreaterThanOrEqual(MIN_CONTRAST);
+      expect(backgroundedRatio).toBeLessThan(opaqueRatio);
+    });
+
+    test("MRT Blue's default-view underground band (0.35 opacity) does not clear WCAG 3:1 at night — known, disclosed gap", () => {
+      // Concretely the case named in code review: underground mode OFF (the
+      // app's default) leaves MRT Blue's sub-surface half at 0.35 opacity
+      // at all times, including deep night. Pinned here so a future change
+      // to nightLift()/applyUndergroundMode() that happens to close this
+      // gap is visible (this test would start failing its own upper bound
+      // and should be revisited), rather than the gap silently reopening or
+      // closing unnoticed.
+      const blue = 0x1964b7;
+      const { palette, ndotl, elevationDeg } = paletteAt(DEEP_NIGHT);
+      const lift = nightLift(blue, palette, ndotl, elevationDeg);
+      const backgrounded = predictRendered(blue, palette, ndotl, lift, 0.35);
+      const ratio = contrastRatio(backgrounded, CONTRAST_REFERENCE);
+      expect(ratio).toBeLessThan(MIN_CONTRAST);
+    });
+  });
 });
