@@ -83,10 +83,25 @@ fn is_fully_degenerate(p: &PatternDoc) -> bool {
     p.stops.len() > 1 && (1..p.stops.len()).all(|i| transit(p, i) <= 0)
 }
 
-/// Index every healthy pattern's real leg times by station pair.
+/// Index every real (positive-transit) leg time by station pair, drawn from
+/// ANY pattern — not just wholesale-healthy ones.
+///
+/// Filters per LEG (`if t > 0`), not per PATTERN. An earlier version also
+/// excluded a whole pattern via `.filter(|p| !is_degenerate(p))` if it had
+/// ANY degenerate leg, discarding every one of that pattern's genuinely real
+/// legs along with the broken one — a pattern's real legs are just as
+/// trustworthy regardless of whether some OTHER leg in the same pattern
+/// happens to be broken; there's no coupling between them. Found in code
+/// review: today MRT Blue has 18 fully-healthy patterns so this never bit,
+/// but a hypothetical line whose patterns each carry one DIFFERENT
+/// zero-transit leg would have produced an empty sibling index and hard-
+/// failed the build, even though every leg's real time existed somewhere on
+/// the line. Filtering per-leg only ever ADDS previously-excluded real data;
+/// it cannot introduce a degenerate leg, since the same `if t > 0` guard that
+/// already ran inside the old per-pattern filter still runs here.
 pub fn sibling_times(patterns: &[&PatternDoc]) -> SiblingTimes {
     let mut out: SiblingTimes = HashMap::new();
-    for p in patterns.iter().filter(|p| !is_degenerate(p)) {
+    for p in patterns.iter() {
         for i in 1..p.stops.len() {
             let t = transit(p, i);
             if t > 0 {
@@ -98,16 +113,34 @@ pub fn sibling_times(patterns: &[&PatternDoc]) -> SiblingTimes {
     out
 }
 
-/// A line's own median dwell, from its healthy patterns only.
+/// A line's own median dwell, from every real (non-negative) dwell value on
+/// a pattern that is NOT fully degenerate.
+///
+/// Deliberately NOT the same per-value-only filter `sibling_times` uses.
+/// Transit and dwell have different granularity here: a leg's transit is a
+/// property of that ONE leg, with no coupling to any other leg in the same
+/// pattern, so filtering it per-leg is strictly safe (see `sibling_times`'s
+/// doc comment). A stop's DWELL is not like that — on a FULLY degenerate
+/// pattern (`is_fully_degenerate`, the "one minute per station" placeholder
+/// shape), every recorded dwell value is ALSO placeholder, not real
+/// information, exactly as `repair_pattern`'s own fully-degenerate branch
+/// already treats it. Filtering dwell per-value with no pattern gate at all
+/// was tried in code review and found wrong by its own test: it let a
+/// fully-degenerate pattern's 60-second placeholder dwells vote in the
+/// median alongside genuinely real ones. `!is_fully_degenerate(p)` is the
+/// correct middle ground: excludes a fully-degenerate pattern's placeholder
+/// dwells (matching the old behaviour), while still including a PARTIALLY
+/// degenerate pattern's real dwells (fixing the actual bug found — those
+/// were wrongly excluded by the old, stricter `!is_degenerate(p)`).
 ///
 /// A malformed stop (`departure_s < arrival_s`) is skipped rather than
-/// erroring: this function only ever reads HEALTHY patterns — never one
-/// `repair_pattern` is about to rewrite — so a bad row here has no trip to
-/// blame and no corruption path to guard against. It just doesn't get a
-/// vote in the median.
+/// erroring: this function only ever reads dwells that will not themselves
+/// be rewritten by `repair_pattern` — see `basis_profile`'s use below — so a
+/// bad row here has no trip to blame and no corruption path to guard
+/// against. It just doesn't get a vote in the median.
 pub fn sibling_dwell(patterns: &[&PatternDoc]) -> Option<u32> {
     let mut dwells: Vec<u32> = Vec::new();
-    for p in patterns.iter().filter(|p| !is_degenerate(p)) {
+    for p in patterns.iter().filter(|p| !is_fully_degenerate(p)) {
         let last = p.stops.len().saturating_sub(1);
         for i in 0..last {
             let d = dwell(p, i);
@@ -123,11 +156,12 @@ pub fn sibling_dwell(patterns: &[&PatternDoc]) -> Option<u32> {
     }
 }
 
-/// Speed and dwell implied by a basis line's own healthy rows.
+/// Speed and dwell implied by a basis line's own real (positive-transit)
+/// legs — per-leg, not per-pattern, same reasoning as `sibling_times`.
 pub fn basis_profile(patterns: &[&PatternDoc]) -> Result<BasisProfile, String> {
     let mut arc_m = 0f64;
     let mut secs = 0f64;
-    for p in patterns.iter().filter(|p| !is_degenerate(p)) {
+    for p in patterns.iter() {
         for i in 1..p.stops.len() {
             let t = transit(p, i);
             if t > 0 {
@@ -365,6 +399,87 @@ mod tests {
         repair_pattern(&mut d, &siblings, sibling_dwell(&[&a, &b, &c]), None).unwrap();
         // transits are 100 / 200 / 300; the median is 200.
         assert_eq!(d.stops[1].arrival_s - d.stops[0].departure_s, 200);
+    }
+
+    #[test]
+    fn a_healthy_leg_survives_in_a_pattern_that_also_has_a_degenerate_one() {
+        // Found in code review: an earlier version filtered sibling_times by
+        // WHOLE PATTERN (`!is_degenerate(p)`), so a pattern with even one
+        // zero-transit leg lost ALL of its real legs to the sibling pool,
+        // not just the broken one. This pattern has a real 150 s leg and a
+        // degenerate one; the real leg must still be indexed.
+        let mixed = pattern(
+            "mixed",
+            vec![
+                stop(0, 0, 0, 0.0),
+                stop(1, 150, 150, 1000.0), // real leg
+                stop(2, 150, 150, 2000.0), // degenerate leg
+            ],
+        );
+        assert!(is_degenerate(&mixed), "fixture must actually be degenerate");
+        let siblings = sibling_times(&[&mixed]);
+        let key = pair_key(0, 1);
+        assert_eq!(
+            siblings.get(&key),
+            Some(&vec![150]),
+            "the real leg must be indexed despite the pattern's OTHER leg being degenerate"
+        );
+        assert!(
+            !siblings.contains_key(&pair_key(1, 2)),
+            "the degenerate leg itself must never be indexed"
+        );
+    }
+
+    #[test]
+    fn basis_profile_uses_a_healthy_leg_from_an_otherwise_degenerate_pattern() {
+        // Same defect, through basis_profile: a line whose every pattern
+        // carries one different zero-transit leg would previously have
+        // produced an EMPTY sibling index (every pattern excluded wholesale)
+        // and hard-failed as "no healthy legs to calibrate from," even
+        // though real transit time existed on every pattern, just not
+        // without a broken sibling somewhere else in the same pattern.
+        let mixed = pattern(
+            "mixed",
+            vec![
+                stop(0, 0, 0, 0.0),
+                stop(1, 100, 100, 1000.0), // real: 100 s over 1000 m
+                stop(2, 100, 100, 1500.0), // degenerate
+            ],
+        );
+        assert!(is_degenerate(&mixed), "fixture must actually be degenerate");
+        let profile = basis_profile(&[&mixed]).expect("must calibrate from the one real leg");
+        assert!((profile.speed_mps - 10.0).abs() < 1e-9); // 1000 m / 100 s
+    }
+
+    #[test]
+    fn sibling_dwell_excludes_a_fully_degenerate_patterns_placeholder_dwells() {
+        // The subtlety a first pass of this fix got wrong: transit is
+        // per-leg (no coupling between legs), but dwell on a FULLY
+        // degenerate pattern is placeholder everywhere, not just near a
+        // broken leg — degenerate()'s 60 s "dwells" are the same "one minute
+        // per station" shape as its zero-transit legs, not real data.
+        let d = degenerate();
+        assert_eq!(
+            sibling_dwell(&[&d]),
+            None,
+            "a fully-degenerate pattern must contribute NO dwell votes"
+        );
+    }
+
+    #[test]
+    fn sibling_dwell_includes_a_partially_degenerate_patterns_real_dwell() {
+        // The actual bug: a PARTIALLY degenerate pattern's dwells are real
+        // (only its transit is broken somewhere), so they must still count.
+        let mixed = pattern(
+            "mixed",
+            vec![
+                stop(0, 0, 45, 0.0),       // real 45 s dwell
+                stop(1, 145, 145, 1000.0), // real 100 s leg
+                stop(2, 145, 145, 2000.0), // degenerate leg
+            ],
+        );
+        assert!(is_degenerate(&mixed) && !is_fully_degenerate(&mixed));
+        assert_eq!(sibling_dwell(&[&mixed]), Some(45));
     }
 
     #[test]
