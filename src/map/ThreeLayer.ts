@@ -14,6 +14,13 @@ import { materialAlbedo } from "./materialAlbedo";
 import type { SkyPalette } from "./sun";
 import type { VehicleManager } from "./VehicleManager";
 
+/** `applyUndergroundMode()`'s opacity for a sub-surface material when the
+ *  mode is OFF (the app's default) — its worst case across both states,
+ *  fed to `nightLift()` so the emissive floor is solved for real. */
+const SUBSURFACE_BACKGROUNDED_OPACITY = 0.35;
+/** Same, for a surface material when the mode is ON. */
+const SURFACE_BACKGROUNDED_OPACITY = 0.3;
+
 /**
  * Custom MapLibre layer hosting the Three.js scene (SRS §3A.4).
  *
@@ -51,6 +58,16 @@ export class NetworkLayer implements CustomLayerInterface {
    *  basemap). The Line2 centerlines are deliberately absent — LineMaterial is
    *  unlit, so it already renders at full colour and needs no floor. */
   private litMaterials: THREE.MeshLambertMaterial[] = [];
+  /**
+   * Worst-case opacity each lit material can render at across BOTH
+   * underground-mode states — populated in `indexMaterialsByBand()`, fed to
+   * `nightLift()` in `setSun()` so the emissive floor is solved against the
+   * translucent state too, not just the always-opaque assumption the model
+   * had before code review 2026-08-15. A material absent from this map (a
+   * vehicle, which `applyUndergroundMode()` never touches) is always fully
+   * opaque, hence the `?? 1` at every lookup site rather than a default entry.
+   */
+  private litMaterialWorstOpacity = new WeakMap<THREE.MeshLambertMaterial, number>();
   private undergroundMode = false;
   private skyDome: SkyDome | null = null;
 
@@ -168,7 +185,14 @@ export class NetworkLayer implements CustomLayerInterface {
     // the sun does.
     const ndotl = Math.max(dir.up, 0.05);
     for (const m of this.litMaterials) {
-      const lift = nightLift(materialAlbedo(m), palette, ndotl, elevationDeg);
+      // Solve against this material's WORST-CASE opacity (its band's
+      // backgrounded state, or 1 for a vehicle — see the field's own
+      // comment), not the frame's current opacity: `applyUndergroundMode()`
+      // and `setSun()` run independently, so the lift must already hold for
+      // whichever state the underground toggle is in when it's NEXT flipped,
+      // not just the one active right now.
+      const opacity = this.litMaterialWorstOpacity.get(m) ?? 1;
+      const lift = nightLift(materialAlbedo(m), palette, ndotl, elevationDeg, opacity);
       m.emissive.setHex(lift.emissive);
       m.emissiveIntensity = lift.intensity;
     }
@@ -214,11 +238,15 @@ export class NetworkLayer implements CustomLayerInterface {
       group.traverse((obj) => {
         if (!(obj instanceof THREE.Mesh) && !(obj instanceof THREE.InstancedMesh)) return;
         const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
-        const band =
-          obj.userData?.structure === "underground" ? this.subsurfaceMaterials : this.surfaceMaterials;
+        const underground = obj.userData?.structure === "underground";
+        const band = underground ? this.subsurfaceMaterials : this.surfaceMaterials;
         band.push(...mats);
+        const worstOpacity = underground ? SUBSURFACE_BACKGROUNDED_OPACITY : SURFACE_BACKGROUNDED_OPACITY;
         for (const m of mats) {
-          if (m instanceof THREE.MeshLambertMaterial) this.litMaterials.push(m);
+          if (m instanceof THREE.MeshLambertMaterial) {
+            this.litMaterials.push(m);
+            this.litMaterialWorstOpacity.set(m, worstOpacity);
+          }
         }
       });
     }
@@ -244,14 +272,14 @@ export class NetworkLayer implements CustomLayerInterface {
     const cap = (opacity: number, m: THREE.Material) =>
       m.userData?.preRevenue ? Math.min(opacity, PRE_REVENUE_OPACITY) : opacity;
     for (const m of this.subsurfaceMaterials) {
-      const opacity = cap(on ? 1 : 0.35, m);
+      const opacity = cap(on ? 1 : SUBSURFACE_BACKGROUNDED_OPACITY, m);
       m.transparent = opacity < 1;
       m.opacity = opacity;
       m.depthWrite = on;
       m.needsUpdate = true;
     }
     for (const m of this.surfaceMaterials) {
-      const opacity = cap(on ? 0.3 : 1, m);
+      const opacity = cap(on ? SURFACE_BACKGROUNDED_OPACITY : 1, m);
       m.transparent = opacity < 1;
       m.opacity = opacity;
       m.depthWrite = !on;

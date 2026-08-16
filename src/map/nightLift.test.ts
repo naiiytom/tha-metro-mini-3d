@@ -301,47 +301,59 @@ describe("night lift", () => {
     });
   });
 
-  describe("opacity-composited contrast (code review 2026-08-15)", () => {
+  describe("opacity-aware contrast (code review 2026-08-15)", () => {
     // The gate above ("EVERY registry line clears WCAG 3:1") only ever
-    // solves and checks at opacity 1 — the FOREGROUNDED structure band.
+    // solved and checked at opacity 1 — the FOREGROUNDED structure band.
     // `applyUndergroundMode()` renders the BACKGROUNDED band translucent
     // (0.35 for sub-surface track/stations when underground mode is off —
-    // the app's default — composited over the basemap), and nightLift()'s
-    // emissive solve has no opacity awareness: it targets full-opacity
-    // contrast, so a backgrounded material's real on-screen contrast is
-    // lower than what the gate above verifies. `predictRendered`'s opacity
-    // parameter models this accurately (see its own doc comment); these
-    // tests pin the real, currently-unclosed gap it exposes, so the
-    // shortfall is measured rather than silently unmeasured — the same
-    // "disclosed and pinned, not fixed by weakening the floor" precedent
-    // CLAUDE.md already documents for NF1 and the pre-fix WCAG failures.
-    // Left failing-the-floor on purpose: MIN_CONTRAST is never weakened.
-    test("compositing over CONTRAST_REFERENCE at reduced opacity lowers contrast versus opaque", () => {
+    // the app's default — composited over the basemap). `nightLift()` now
+    // takes the material's worst-case opacity and solves against it
+    // directly, so the emissive floor is genuinely enough for the
+    // backgrounded state too, not just modeled/predicted for it.
+    test("solving against 0.35 opacity actually clears 3:1 where solving against 1 alone would not have been enough", () => {
+      // MRT Blue is the concrete case named in code review: opaque-only
+      // solving left its default-view (mode off) underground half well
+      // under the floor (measured pre-fix at 1.42:1 against an opaque
+      // model that itself reported 3.01:1 — the "measured the wrong pixel"
+      // gap). Solving with opacity threaded through must close it for real.
       const blue = 0x1964b7;
       const { palette, ndotl, elevationDeg } = paletteAt(DEEP_NIGHT);
-      const lift = nightLift(blue, palette, ndotl, elevationDeg);
-      const opaque = predictRendered(blue, palette, ndotl, lift, 1);
-      const backgrounded = predictRendered(blue, palette, ndotl, lift, 0.35);
-      const opaqueRatio = contrastRatio(opaque, CONTRAST_REFERENCE);
-      const backgroundedRatio = contrastRatio(backgrounded, CONTRAST_REFERENCE);
-      expect(opaqueRatio).toBeGreaterThanOrEqual(MIN_CONTRAST);
-      expect(backgroundedRatio).toBeLessThan(opaqueRatio);
+      const lift = nightLift(blue, palette, ndotl, elevationDeg, 0.35);
+      const rendered = predictRendered(blue, palette, ndotl, lift, 0.35);
+      expect(contrastRatio(rendered, CONTRAST_REFERENCE)).toBeGreaterThanOrEqual(MIN_CONTRAST);
     });
 
-    test("MRT Blue's default-view underground band (0.35 opacity) does not clear WCAG 3:1 at night — known, disclosed gap", () => {
-      // Concretely the case named in code review: underground mode OFF (the
-      // app's default) leaves MRT Blue's sub-surface half at 0.35 opacity
-      // at all times, including deep night. Pinned here so a future change
-      // to nightLift()/applyUndergroundMode() that happens to close this
-      // gap is visible (this test would start failing its own upper bound
-      // and should be revisited), rather than the gap silently reopening or
-      // closing unnoticed.
+    test("EVERY registry line's sub-surface band clears WCAG 3:1 at its real 0.35 worst-case opacity, at 02:00", () => {
+      const { palette, ndotl, elevationDeg } = paletteAt(DEEP_NIGHT);
+      const failures: string[] = [];
+      for (const line of network.lines) {
+        const albedo = parseInt(line.color.slice(1), 16);
+        const lift = nightLift(albedo, palette, ndotl, elevationDeg, 0.35);
+        const rendered = predictRendered(albedo, palette, ndotl, lift, 0.35);
+        const ratio = contrastRatio(rendered, CONTRAST_REFERENCE);
+        if (ratio < MIN_CONTRAST) failures.push(`${line.key}: ${ratio.toFixed(2)}:1`);
+      }
+      expect(failures).toEqual([]);
+    });
+
+    test("0.3 opacity (the elevated band's worst case, underground mode ON) is unreachable even at pure white — a hard compositing ceiling, not a chase-able bug", () => {
+      // Probed directly: white composited at 0.3 over CONTRAST_REFERENCE
+      // tops out around 2.69:1, never 3:1, regardless of livery or emissive
+      // strength — the diffuse term can only ADD toward the same clamp
+      // white's emissive term alone already saturates. nightLift() detects
+      // this via `bestReachable` and falls back to solving at full opacity
+      // instead of forcing pointless full-strength whitening for a target
+      // it can never hit. This test pins that the fallback is happening —
+      // MRT Blue at 0.3 must NOT differ from its opaque (1.0) solve, proving
+      // the unreachable target was never actually chased.
       const blue = 0x1964b7;
       const { palette, ndotl, elevationDeg } = paletteAt(DEEP_NIGHT);
-      const lift = nightLift(blue, palette, ndotl, elevationDeg);
-      const backgrounded = predictRendered(blue, palette, ndotl, lift, 0.35);
-      const ratio = contrastRatio(backgrounded, CONTRAST_REFERENCE);
-      expect(ratio).toBeLessThan(MIN_CONTRAST);
+      const atOpaque = nightLift(blue, palette, ndotl, elevationDeg, 1);
+      const atUnreachable = nightLift(blue, palette, ndotl, elevationDeg, 0.3);
+      expect(atUnreachable).toEqual(atOpaque);
+
+      const rendered = predictRendered(blue, palette, ndotl, atUnreachable, 0.3);
+      expect(contrastRatio(rendered, CONTRAST_REFERENCE)).toBeLessThan(MIN_CONTRAST);
     });
   });
 });

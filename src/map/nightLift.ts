@@ -202,22 +202,22 @@ export function predictRendered(
    * The material's OWN opacity, as `ThreeLayer.applyUndergroundMode()` sets
    * it (1 when the material's structure band is the one currently
    * foregrounded; 0.35/0.3 for the deliberately-dimmed backgrounded band —
-   * see that function's own comment). Defaults to 1 (fully opaque), so
-   * every existing call site — including `nightLift()`'s own internal
-   * `clears()` solve, which intentionally always targets full opacity, see
-   * its doc comment — is unaffected.
+   * see that function's own comment). Defaults to 1 (fully opaque), so every
+   * pre-existing call site is unaffected.
    *
    * Added in code review 2026-08-15: this function previously had no
    * opacity concept at all, so both it and the WCAG gate built on it
-   * silently assumed every material renders fully opaque. That is true for
-   * whichever band is currently FOREGROUNDED (which is what the gate
-   * actually asserts 3:1 for), but false for a line's BACKGROUNDED band —
-   * concretely, MRT Blue's underground half in the app's DEFAULT view
-   * (underground mode off) renders at 0.35 opacity, composited over the
-   * basemap, and the real on-screen contrast there is measurably lower than
-   * this function's opaque prediction (confirmed: 1.42:1 vs the opaque
-   * model's 3.01:1) — exactly the "measured the wrong pixel" failure class
-   * this whole PR exists to close for the deleted legibility harness.
+   * silently assumed every material renders fully opaque — true for
+   * whichever band is currently FOREGROUNDED, false for a line's
+   * BACKGROUNDED band. `nightLift()` now takes this same parameter and
+   * solves against it directly (see its own doc comment), which closes the
+   * gap for real wherever it's mathematically reachable — sub-surface
+   * material's 0.35 worst case included, concretely MRT Blue's underground
+   * half in the app's DEFAULT view (underground mode off). What remains is
+   * only the surface band's 0.3 worst case (underground mode ON), which is
+   * unreachable even at pure white — see `bestReachable`'s comment — so
+   * `nightLift()` deliberately falls back to the full-opacity target there
+   * instead of forcing needless whitening.
    */
   opacity: number = 1,
 ): number {
@@ -238,8 +238,29 @@ export function predictRendered(
 
 const NO_LIFT = (emissive: number): NightLift => ({ emissive, intensity: 0 });
 
-function clears(albedo: number, palette: SkyPalette, ndotl: number, lift: NightLift): boolean {
-  return contrastRatio(predictRendered(albedo, palette, ndotl, lift), CONTRAST_REFERENCE) >= MIN_CONTRAST;
+function clears(
+  albedo: number,
+  palette: SkyPalette,
+  ndotl: number,
+  lift: NightLift,
+  opacity: number,
+): boolean {
+  return contrastRatio(predictRendered(albedo, palette, ndotl, lift, opacity), CONTRAST_REFERENCE) >= MIN_CONTRAST;
+}
+
+/**
+ * The absolute best contrast ANY albedo/lift combination can reach at a
+ * given opacity: pure white (`0xffffff`) at `intensity = 1`. The diffuse
+ * term (`SHADING_SCALE * a * light(...)`) is always >= 0, and white's
+ * emissive contribution alone (`toLinear(255) * 1 = 1.0` per channel) is
+ * already at the top of the clamp `toSrgb` applies — so ANY albedo added on
+ * top still clamps to exactly the same ceiling. Used to detect an opacity
+ * target that is mathematically unreachable (e.g. 0.3, the elevated band's
+ * worst case under underground-mode-ON — probed at ~2.69:1, never 3:1, no
+ * matter the livery) BEFORE wasting a bisection search chasing it.
+ */
+function bestReachable(palette: SkyPalette, ndotl: number, opacity: number): boolean {
+  return clears(0xffffff, palette, ndotl, { emissive: 0xffffff, intensity: 1 }, opacity);
 }
 
 /**
@@ -268,6 +289,30 @@ export function nightLift(
   palette: SkyPalette,
   ndotl: number,
   elevationDeg: number,
+  /**
+   * The WORST-CASE opacity this material can render at across every reachable
+   * view-mode state (default 1, fully opaque — every pre-existing call site
+   * is unaffected). Solving against this, instead of always assuming full
+   * opacity, is the actual fix for the gap `predictRendered`'s own opacity
+   * parameter only MODELED before this: `applyUndergroundMode()`'s
+   * backgrounded band renders translucent, so its real on-screen contrast is
+   * lower than an opaque prediction — see that function's doc comment.
+   *
+   * Concretely: sub-surface (underground) materials' worst case is 0.35
+   * (underground mode off, the app's default) and now genuinely clear 3:1
+   * at that opacity — probed ceiling ~3.17:1 at full white, so reachable.
+   * Surface (elevated) materials' worst case is 0.3 (underground mode ON)
+   * — probed ceiling only ~2.69:1 EVEN AT PURE WHITE, a hard compositing
+   * limit no emissive amount can cross (see `bestReachable`'s own comment).
+   * Solving against an unreachable opacity would only force full-strength
+   * whitening for zero benefit, so `bestReachable` gates it: unreachable
+   * targets fall back to the achievable full-opacity (1) solve instead —
+   * the same "don't chase what can't be caught" principle
+   * `CONTRAST_REFERENCE` and the twilight ramp already apply. That surface-
+   * band shortfall is a real, disclosed, physically-bounded remainder, not
+   * something this change claims to close.
+   */
+  opacity: number = 1,
 ): NightLift {
   const nf = nightFactor(elevationDeg);
   // Full day: CONTRAST_REFERENCE isn't on screen yet (see its own comment),
@@ -275,7 +320,9 @@ export function nightLift(
   // nightFactor threshold basemapTheme.ts uses for the basemap's own
   // darkening, so both night effects agree on when night begins.
   if (nf === 0) return NO_LIFT(albedo);
-  if (clears(albedo, palette, ndotl, NO_LIFT(albedo))) return NO_LIFT(albedo);
+
+  const effectiveOpacity = bestReachable(palette, ndotl, opacity) ? opacity : 1;
+  if (clears(albedo, palette, ndotl, NO_LIFT(albedo), effectiveOpacity)) return NO_LIFT(albedo);
 
   // Both stages below solve for the intensity/whitening that would be
   // needed if it WERE fully night (nf === 1), then scale the returned
@@ -310,8 +357,10 @@ export function nightLift(
 
   // Stage 1: the material's own colour, as little of it as possible.
   const full: NightLift = { emissive: albedo, intensity: 1 };
-  if (clears(albedo, palette, ndotl, full)) {
-    const solved = smallest((t) => clears(albedo, palette, ndotl, { emissive: albedo, intensity: t }));
+  if (clears(albedo, palette, ndotl, full, effectiveOpacity)) {
+    const solved = smallest((t) =>
+      clears(albedo, palette, ndotl, { emissive: albedo, intensity: t }, effectiveOpacity),
+    );
     return { emissive: albedo, intensity: solved * nf };
   }
 
@@ -319,11 +368,14 @@ export function nightLift(
   // minimum that does, and accept the identity cost knowingly.
   //
   // Unlike stage 1, there is no explicit `clears(whiten(albedo, 1))` guard
-  // before searching — whiten(albedo, 1) is pure white, and white provably
-  // clears any fixed, dark CONTRAST_REFERENCE (0x1c222c's luminance is far
-  // below white's 1.0), so `smallest` always has a satisfying upper bound.
-  // This is an intentional asymmetry with stage 1 (whose own ceiling is NOT
-  // guaranteed to clear, hence its explicit check), not an oversight.
-  const t = smallest((s) => clears(albedo, palette, ndotl, { emissive: whiten(albedo, s), intensity: 1 }));
+  // before searching — whiten(albedo, 1) is pure white, and `effectiveOpacity`
+  // is already guaranteed reachable by white (that's exactly what
+  // `bestReachable` checked above, falling back to 1 otherwise), so
+  // `smallest` always has a satisfying upper bound. This is an intentional
+  // asymmetry with stage 1 (whose own ceiling is NOT guaranteed to clear,
+  // hence its explicit check), not an oversight.
+  const t = smallest((s) =>
+    clears(albedo, palette, ndotl, { emissive: whiten(albedo, s), intensity: 1 }, effectiveOpacity),
+  );
   return { emissive: whiten(albedo, t), intensity: nf };
 }
