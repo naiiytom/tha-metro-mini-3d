@@ -114,6 +114,22 @@ export const LINES = [
     vehicleType: "monorail",
     gtfsRouteId: "2436",
     preRevenue: false,
+    // ---- ESTIMATED RUN TIMES, NOT PUBLISHED DATA -------------------------
+    // The Namtang feed gives this route ZERO seconds of transit on every
+    // leg: `14630 arr 00:00:00 / dep 00:01:00`, `16936 arr 00:01:00 / dep
+    // 00:02:00` — the whole inter-station minute parked in the dwell column,
+    // so a train dwells and teleports instead of moving. All 66 of the
+    // route's legs are like this, and unlike MRT Blue (whose degenerate
+    // patterns can be repaired from its own healthy ones) NONE of Pink's 31
+    // stop pairs has a real time anywhere in the feed.
+    //
+    // Yellow is the basis because it is the same Alstom straddle-beam
+    // monorail on comparable elevated alignment with similar station
+    // spacing, and its own rows are clean. Only the POINTER lives here — the
+    // speed and dwell are derived from Yellow's real feed rows at preprocess
+    // time (rust-engine/preprocessor/src/runtimes.rs), so no invented number
+    // is stored anywhere. Disclosed to the user via ESTIMATED_RUN_TIMES_NOTE.
+    estimatedRunTimes: { basisLine: "yellow" },
     osm: { relationId: 16740886, match: /pink/i },
     // The Namtang feed bundles the Muang Thong Thani spur's 4 shuttle trip
     // patterns (stop_ids 16936 "Impact Muang Thong Thani" / 16937 "Lake
@@ -377,6 +393,10 @@ export const LINES = [
     // stops only that branch reaches.
     claimGtfsStopIds: ["16936", "16937"],
     preRevenue: false,
+    // Inherits the trunk's defect: the spur's 4 trips carry the same
+    // zero-transit rows, and its own 2 stop pairs appear nowhere healthy.
+    // Same basis and same disclosure as `pink` above.
+    estimatedRunTimes: { basisLine: "yellow" },
     // A clean PTv2 relation, unlike the Orange/Purple-Phase-2 construction
     // ways: route=monorail, ref="IMPACT Link", 3 way members and 3 stop node
     // members (verified 2026-08-09), ~2.67 km. The reverse-direction twin is
@@ -526,6 +546,39 @@ export function assertRegistryValid(lines = LINES) {
       if (s.runtimeSec <= 0) throw new Error(`${l.key}: syntheticSchedule.runtimeSec must be > 0`);
       if (s.endSec <= s.startSec) {
         throw new Error(`${l.key}: syntheticSchedule.endSec must be after startSec`);
+      }
+    }
+    if (l.estimatedRunTimes !== undefined && l.estimatedRunTimes !== null) {
+      const e = l.estimatedRunTimes;
+      if (typeof e.basisLine !== "string" || e.basisLine.length === 0) {
+        throw new Error(`${l.key}: estimatedRunTimes.basisLine must be a non-empty string`);
+      }
+      if (l.gtfsRouteId === null) {
+        throw new Error(
+          `${l.key}: estimatedRunTimes only means something for a GTFS line — a line with ` +
+            `no gtfsRouteId has no feed rows to repair`,
+        );
+      }
+      if (e.basisLine === l.key) {
+        throw new Error(`${l.key}: estimatedRunTimes.basisLine points at itself`);
+      }
+      const basis = lines.find((b) => b.key === e.basisLine);
+      if (!basis) {
+        throw new Error(
+          `${l.key}: estimatedRunTimes.basisLine '${e.basisLine}' is not a registry line`,
+        );
+      }
+      if (basis.gtfsRouteId === null) {
+        throw new Error(
+          `${l.key}: estimatedRunTimes basis '${e.basisLine}' must have a gtfsRouteId — ` +
+            `its own real feed times are what the calibration is derived from`,
+        );
+      }
+      if (basis.estimatedRunTimes) {
+        throw new Error(
+          `${l.key}: estimatedRunTimes basis '${e.basisLine}' cannot itself have ` +
+            `estimatedRunTimes — calibrating an estimate from an estimate compounds it`,
+        );
       }
     }
     if (l.osm?.extraStationNodeIds !== undefined) {

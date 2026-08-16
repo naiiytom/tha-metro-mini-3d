@@ -3,7 +3,7 @@ import type { StationBoard as StationBoardData, StationInfo } from "../sim/proto
 import { activeSimClient } from "../sim/SimClient";
 import { formatCountdown, formatServiceSec } from "../sim/time";
 import { useAppStore } from "../stores/useAppStore";
-import { SYNTHETIC_SCHEDULE_NOTE } from "../types";
+import { ESTIMATED_RUN_TIMES_NOTE, SYNTHETIC_SCHEDULE_NOTE } from "../types";
 
 /** `${route_idx}:${station_idx}` — the natural key for cross-route station lookup. */
 function stationKey(routeIdx: number, stationIdx: number): string {
@@ -118,6 +118,17 @@ export function StationBoard() {
             className="mx-2 mb-1 rounded bg-sky-50 px-2 py-1 text-[10px] leading-snug text-sky-800"
           >
             {SYNTHETIC_SCHEDULE_NOTE}
+          </p>
+        )}
+        {/* Same box as the syntheticSchedule note directly above — this card
+         * is light (bg-white/70), so this note needs the same dark-on-light
+         * treatment, not the white-on-white this originally shipped with. */}
+        {routes[selectedStation.routeIdx]?.estimatedRunTimes != null && (
+          <p
+            data-testid="estimated-run-times-note"
+            className="mx-2 mb-1 rounded bg-sky-50 px-2 py-1 text-[10px] leading-snug text-sky-800"
+          >
+            {ESTIMATED_RUN_TIMES_NOTE}
           </p>
         )}
         {!board ? (

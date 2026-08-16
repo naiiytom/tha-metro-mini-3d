@@ -1,7 +1,7 @@
 {
-  "bytes": 601731,
+  "bytes": 601841,
   "feed_version": "20260808",
-  "gzip_bytes": 351363,
+  "gzip_bytes": 351578,
   "interchanges": [
     {
       "a": "sukhumvit/Samrong",
@@ -82,18 +82,18 @@
   "max_snap_m": 109.47373318622579,
   "pattern_arc_fallbacks": 0,
   "patterns": 64,
-  "peak_concurrent": 250,
+  "peak_concurrent": 285,
   "peak_concurrent_date": 20260722,
   "peak_concurrent_time": 70200,
   "peak_concurrent_weekday": {
     "date": 20260722,
-    "peak": 250,
+    "peak": 285,
     "time": 70200
   },
   "peak_concurrent_weekend": {
     "date": 20260725,
-    "peak": 177,
-    "time": 67200
+    "peak": 207,
+    "time": 65700
   },
   "per_route": [
     {
@@ -223,6 +223,29 @@
       "track_points": 107
     }
   ],
+  "run_time_repairs": {
+    "blue": {
+      "basis_dwell_s": null,
+      "basis_line": null,
+      "basis_speed_mps": null,
+      "estimated_legs": 0,
+      "recovered_legs": 87
+    },
+    "pink": {
+      "basis_dwell_s": 18,
+      "basis_line": "yellow",
+      "basis_speed_mps": 7.249283669211648,
+      "estimated_legs": 58,
+      "recovered_legs": 0
+    },
+    "pink-spur": {
+      "basis_dwell_s": 18,
+      "basis_line": "yellow",
+      "basis_speed_mps": 7.249283669211648,
+      "estimated_legs": 8,
+      "recovered_legs": 0
+    }
+  },
   "runs": 9609,
   "services": 6,
   "snap_warnings": [

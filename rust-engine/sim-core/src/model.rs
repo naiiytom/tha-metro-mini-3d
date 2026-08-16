@@ -89,7 +89,7 @@ pub struct ServiceDoc {
     pub removed_dates: Vec<u32>, // calendar_dates exception_type 2
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PatternDoc {
     pub gtfs_trip_id: String,
     pub route_idx: u8, // index into routes
@@ -99,7 +99,7 @@ pub struct PatternDoc {
     pub stops: Vec<PatternStop>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PatternStop {
     pub station_idx: u16, // index into routes[route_idx].stations
     pub arrival_s: u32,   // offset from run start (first stop = 0)

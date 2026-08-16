@@ -11,6 +11,7 @@
 //!     --out public/data/network.tmb [--report public/data/network.report.json]
 
 mod gtfs;
+mod runtimes;
 mod spline;
 mod synthetic;
 
@@ -187,6 +188,19 @@ struct LineGeometry {
     /// See the `synthetic` module for why this exists and how it is disclosed.
     #[serde(default)]
     synthetic_schedule: Option<synthetic::SyntheticSchedule>,
+    /// Present when this line's feed rows carry no usable transit times and
+    /// must be estimated from a sibling line's calibration. Only MRT Pink is
+    /// in this position — see `runtimes.rs`. Its presence is what the UI
+    /// discloses; it is NOT a speed, only a pointer to the basis line whose
+    /// own real rows the speed is derived from.
+    #[serde(default)]
+    estimated_run_times: Option<EstimatedRunTimes>,
+}
+
+#[derive(Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct EstimatedRunTimes {
+    basis_line: String,
 }
 
 /// One track vertex from network.json: [lng, lat, altitude_m, structure].
@@ -458,6 +472,62 @@ fn parse_args() -> Result<Args, String> {
         out: out.ok_or("--out is required")?,
         report,
     })
+}
+
+/// Resolve one line's `estimatedRunTimes` basis, if it declares one.
+///
+/// Pure and independent of iteration order: `patterns_snapshot` must be a
+/// snapshot taken BEFORE any in-place repair mutation, so a basis line that
+/// itself needed repair is always read in its pre-repair state regardless of
+/// where it falls in registry order relative to `line_idx` (see the repair
+/// loop's own comment on `patterns_snapshot` in `run()` for the failure mode
+/// this avoids).
+///
+/// Also hard-errors if the resolved basis line itself carries
+/// `estimatedRunTimes` — calibrating an estimate from an estimate compounds
+/// it. `assertRegistryValid` (`tools/lines.config.mjs`) enforces the same
+/// contract, but only on a re-fetch; the preprocessor is routinely run
+/// against a committed, hand-edited `network.json` that never re-invokes it,
+/// so this is re-checked Rust-side — same precedent as `TripRouter`'s and
+/// `synthetic.rs`'s own duplicated contract checks.
+fn resolve_repair_basis(
+    lines: &[LineGeometry],
+    patterns_snapshot: &[PatternDoc],
+    line_idx: usize,
+) -> Result<Option<runtimes::BasisProfile>, String> {
+    let line = &lines[line_idx];
+    let cfg = match &line.estimated_run_times {
+        None => return Ok(None),
+        Some(cfg) => cfg,
+    };
+    let basis_idx = lines
+        .iter()
+        .position(|l| l.key == cfg.basis_line)
+        .ok_or(format!(
+            "line '{}': estimatedRunTimes.basisLine '{}' is not a registry line",
+            line.key, cfg.basis_line
+        ))?;
+    if basis_idx == line_idx {
+        return Err(format!(
+            "line '{}': estimatedRunTimes.basisLine points at itself",
+            line.key
+        ));
+    }
+    if let Some(basis_cfg) = &lines[basis_idx].estimated_run_times {
+        return Err(format!(
+            "line '{}': estimatedRunTimes.basisLine '{}' itself has estimatedRunTimes \
+             (basisLine '{}') — a basis line must calibrate from its own real rows, not \
+             another line's estimate",
+            line.key, cfg.basis_line, basis_cfg.basis_line
+        ));
+    }
+    let basis_patterns: Vec<&PatternDoc> = patterns_snapshot
+        .iter()
+        .filter(|p| p.route_idx as usize == basis_idx)
+        .collect();
+    let profile = runtimes::basis_profile(&basis_patterns)
+        .map_err(|e| format!("line '{}': {e}", line.key))?;
+    Ok(Some(profile))
 }
 
 fn main() -> ExitCode {
@@ -1105,6 +1175,70 @@ fn run() -> Result<(), String> {
         });
     }
 
+    // ---- Repair degenerate ("dwell and teleport") stop times ---------------
+    // Must run AFTER the loop above (it needs every pattern's resolved arc_m)
+    // and BEFORE run expansion. See runtimes.rs for the two tiers.
+    //
+    // `patterns_snapshot` is taken ONCE, before this loop mutates anything,
+    // and every basis-line lookup reads from it rather than from the live
+    // `patterns`. Without this, `is_degenerate`/`basis_profile` can't tell a
+    // genuinely real leg from one an EARLIER iteration of this same loop
+    // already repaired (a repaired leg has transit > 0 too) — so a basis
+    // line that itself needed repair and sorts before its dependent in
+    // registry order would silently calibrate speed/dwell from
+    // recovered-or-invented numbers instead of real rows. Snapshotting makes
+    // the result independent of registry order, which is the actual
+    // invariant wanted, not "basis lines happen to sort later." A full clone
+    // is affordable here — on the order of 40 patterns of at most 47 stops,
+    // computed once at build time.
+    let patterns_snapshot: Vec<PatternDoc> = patterns.clone();
+    let line_keys: Vec<String> = track_file.lines.iter().map(|l| l.key.clone()).collect();
+    let mut run_time_repairs = serde_json::Map::new();
+    for (line_idx, line) in track_file.lines.iter().enumerate() {
+        let of_this_route: Vec<&PatternDoc> = patterns_snapshot
+            .iter()
+            .filter(|p| p.route_idx as usize == line_idx)
+            .collect();
+        if !of_this_route.iter().any(|p| runtimes::is_degenerate(p)) {
+            continue;
+        }
+        let siblings = runtimes::sibling_times(&of_this_route);
+        let own_dwell = runtimes::sibling_dwell(&of_this_route);
+
+        let basis = resolve_repair_basis(&track_file.lines, &patterns_snapshot, line_idx)?;
+
+        let mut total = runtimes::RepairOutcome::default();
+        for p in patterns
+            .iter_mut()
+            .filter(|p| p.route_idx as usize == line_idx)
+        {
+            let out = runtimes::repair_pattern(p, &siblings, own_dwell, basis)
+                .map_err(|e| format!("line '{}': {e}", line.key))?;
+            total.recovered_legs += out.recovered_legs;
+            total.estimated_legs += out.estimated_legs;
+        }
+        eprintln!(
+            "note: line '{}' — repaired zero-transit stop times: {} legs recovered from its \
+             own healthy patterns, {} legs ESTIMATED{}",
+            line.key,
+            total.recovered_legs,
+            total.estimated_legs,
+            basis
+                .map(|b| format!(" at {:.2} m/s / {} s dwell", b.speed_mps, b.dwell_s))
+                .unwrap_or_default(),
+        );
+        run_time_repairs.insert(
+            line.key.clone(),
+            serde_json::json!({
+                "recovered_legs": total.recovered_legs,
+                "estimated_legs": total.estimated_legs,
+                "basis_line": line.estimated_run_times.as_ref().map(|c| c.basis_line.clone()),
+                "basis_speed_mps": basis.map(|b| b.speed_mps),
+                "basis_dwell_s": basis.map(|b| b.dwell_s),
+            }),
+        );
+    }
+
     // ---- Runs (frequency expansion, or one run per scheduled trip) --------
     // (original_service_idx, single-day bit) -> synthetic service_idx, so
     // every trip sharing the same split (e.g. all of MRT Blue's Saturday
@@ -1177,6 +1311,15 @@ fn run() -> Result<(), String> {
             line.key, sched.headway_sec
         );
     }
+
+    // Must run AFTER the synthetic pass above, not just after the GTFS
+    // repair loop: a synthetic pattern's legs are appended to `patterns` by
+    // that pass, and a future synthetic line whose stations resolve to the
+    // same arc (or whose declared speed/runtime yields a sub-second leg)
+    // would otherwise ship in network.tmb with the exact defect this gate
+    // exists to close, unchecked. Found in code review — the gate call used
+    // to sit right after the GTFS repair loop, before this pass ran.
+    runtimes::assert_no_zero_transit(&patterns, &line_keys)?;
 
     if runs.is_empty() {
         return Err("expansion produced zero runs".into());
@@ -1336,6 +1479,7 @@ fn run() -> Result<(), String> {
         "peak_concurrent_date": peak_concurrent_date,
         "peak_concurrent_weekday": {"date": PEAK_SAMPLE_WEEKDAY, "peak": weekday_peak, "time": weekday_peak_sec},
         "peak_concurrent_weekend": {"date": PEAK_SAMPLE_WEEKEND, "peak": weekend_peak, "time": weekend_peak_sec},
+        "run_time_repairs": run_time_repairs,
     });
     let report_str = serde_json::to_string_pretty(&report).unwrap();
     if let Some(path) = &args.report {
@@ -2449,5 +2593,140 @@ mod tests {
             matches!(verdict, SnapVerdict::Disclosed { .. }),
             "allowLargeSnapStopIds must also satisfy the warn band, got {verdict:?}"
         );
+    }
+
+    #[test]
+    fn estimated_run_times_deserialises_from_a_network_json_line() {
+        // Double-hash delimiter: the JSON contains `"#CD4692"` (a `"`
+        // immediately followed by `#`), which would close a single-hash
+        // r#"..."# raw string early — same gotcha as track_json() above.
+        let json = r##"{
+            "key": "pink",
+            "name": "MRT Pink Line",
+            "color": "#CD4692",
+            "gtfsRouteId": "2436",
+            "track": [],
+            "stations": [],
+            "estimatedRunTimes": { "basisLine": "yellow" }
+        }"##;
+        let line: LineGeometry = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            line.estimated_run_times.map(|e| e.basis_line),
+            Some("yellow".to_string())
+        );
+    }
+
+    #[test]
+    fn a_line_without_estimated_run_times_deserialises_to_none() {
+        let json = r##"{
+            "key": "blue",
+            "name": "MRT Blue Line",
+            "color": "#1964B7",
+            "gtfsRouteId": "3",
+            "track": [],
+            "stations": []
+        }"##;
+        let line: LineGeometry = serde_json::from_str(json).unwrap();
+        assert!(line.estimated_run_times.is_none());
+    }
+
+    /// A minimal `LineGeometry` naming a basis line (or not), for
+    /// `resolve_repair_basis` tests — reuses the deserialization path rather
+    /// than a struct literal, since `EstimatedRunTimes` has no public
+    /// constructor and this exercises the real parsing route besides.
+    fn line_with_basis(key: &str, basis_line: Option<&str>) -> LineGeometry {
+        let basis_json = basis_line
+            .map(|b| format!(r#","estimatedRunTimes":{{"basisLine":"{b}"}}"#))
+            .unwrap_or_default();
+        let json = format!(
+            r##"{{"key":"{key}","name":"{key}","color":"#111111","gtfsRouteId":"1",
+                 "track":[],"stations":[]{basis_json}}}"##
+        );
+        serde_json::from_str(&json).unwrap()
+    }
+
+    fn basis_stop(station_idx: u16, arrival_s: u32, departure_s: u32, arc_m: f32) -> PatternStop {
+        PatternStop {
+            station_idx,
+            arrival_s,
+            departure_s,
+            arc_m,
+        }
+    }
+
+    /// A healthy (non-degenerate) two-stop pattern on `route_idx`: 1000 m in
+    /// 100 s, real times throughout — enough for `basis_profile` to
+    /// calibrate from.
+    fn healthy_pattern_doc(route_idx: u8) -> PatternDoc {
+        PatternDoc {
+            gtfs_trip_id: format!("t{route_idx}"),
+            route_idx,
+            direction: 0,
+            headsign_en: "T".to_string(),
+            stops: vec![basis_stop(0, 0, 0, 0.0), basis_stop(1, 100, 100, 1000.0)],
+        }
+    }
+
+    #[test]
+    fn a_basis_line_that_itself_has_estimated_run_times_is_rejected_naming_both_lines() {
+        // pink -> yellow -> gold: yellow is a legal-looking basis for pink,
+        // but yellow itself is only estimated (from gold), so it must not
+        // be usable as anyone else's basis.
+        let lines = vec![
+            line_with_basis("pink", Some("yellow")),
+            line_with_basis("yellow", Some("gold")),
+            line_with_basis("gold", None),
+        ];
+        // Content is irrelevant: the check fires before any pattern is read.
+        let err = resolve_repair_basis(&lines, &[], 0).unwrap_err();
+        assert!(err.contains("pink"), "must name the dependent line: {err}");
+        assert!(err.contains("yellow"), "must name the basis line: {err}");
+    }
+
+    #[test]
+    fn a_basis_line_with_no_estimated_run_times_of_its_own_is_accepted() {
+        let lines = vec![
+            line_with_basis("pink", Some("yellow")),
+            line_with_basis("yellow", None),
+        ];
+        let snapshot = vec![healthy_pattern_doc(1)];
+        let basis = resolve_repair_basis(&lines, &snapshot, 0).unwrap();
+        assert!(basis.is_some());
+    }
+
+    #[test]
+    fn resolve_repair_basis_is_unaffected_by_a_later_mutation_of_a_separate_live_copy() {
+        // Simulates the actual failure mode the snapshot defends against:
+        // a caller (the repair loop in `run()`) takes one snapshot up
+        // front, then mutates its own separate live `patterns` vec as it
+        // repairs each line in turn. resolve_repair_basis must only ever
+        // see what was in the snapshot at the moment it was taken, not
+        // whatever the live vec looks like by the time it's called for a
+        // later line.
+        let lines = vec![
+            line_with_basis("pink", Some("yellow")),
+            line_with_basis("yellow", None),
+        ];
+        let snapshot = vec![healthy_pattern_doc(1)];
+        let before = resolve_repair_basis(&lines, &snapshot, 0).unwrap().unwrap();
+
+        // A caller's own live copy, repaired (mutated) AFTER the snapshot
+        // was taken — resolve_repair_basis is never given this one.
+        let mut mutated_after_snapshot = snapshot.clone();
+        mutated_after_snapshot[0].stops[1].arrival_s = 999_999;
+
+        let after = resolve_repair_basis(&lines, &snapshot, 0).unwrap().unwrap();
+        assert_eq!(
+            before.speed_mps, after.speed_mps,
+            "resolving from the same untouched snapshot twice must agree"
+        );
+        assert_eq!(before.dwell_s, after.dwell_s);
+
+        // Not vacuous: resolving from the mutated copy really would have
+        // produced a different number, so the equality above is meaningful.
+        let from_mutated = resolve_repair_basis(&lines, &mutated_after_snapshot, 0)
+            .unwrap()
+            .unwrap();
+        assert_ne!(before.speed_mps, from_mutated.speed_mps);
     }
 }
