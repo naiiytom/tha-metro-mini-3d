@@ -164,3 +164,69 @@ describe("VehicleManager per-instance emissive boost", () => {
     expect(attr.version).toBeGreaterThan(before);
   });
 });
+
+describe("VehicleManager stale-tail clearing (code review 2026-08-15)", () => {
+  function manager() {
+    return new VehicleManager([{ color: "#1964B7", vehicleType: "heavy" }]);
+  }
+
+  function instanceEmissiveAt(mesh: THREE.InstancedMesh, slot: number): [number, number, number] {
+    const attr = mesh.geometry.attributes.instanceEmissive as THREE.InstancedBufferAttribute;
+    return [attr.getX(slot), attr.getY(slot), attr.getZ(slot)];
+  }
+
+  function instanceColorAt(mesh: THREE.InstancedMesh, slot: number): [number, number, number] {
+    const attr = mesh.instanceColor!;
+    return [attr.getX(slot), attr.getY(slot), attr.getZ(slot)];
+  }
+
+  test("a slot that held the boost is cleared once the fleet shrinks below it and the selection is dropped, in one frame", () => {
+    const m = manager();
+    const mesh = m.meshes[0];
+    const tenActive = new Float32Array(
+      Array.from({ length: 10 }, (_, i) => vehicleRow(0, i)).flat(),
+    );
+    m.update(tenActive, 10, /* selectedRunIdx */ 7); // run 7 packs into slot 7
+    expect(instanceEmissiveAt(mesh, 7).some((c) => c > 0)).toBe(true);
+
+    const sixActive = new Float32Array(
+      Array.from({ length: 6 }, (_, i) => vehicleRow(0, i)).flat(),
+    );
+    m.update(sixActive, 6, null); // shrink AND deselect together
+    expect(instanceEmissiveAt(mesh, 7)).toEqual([0, 0, 0]);
+    expect(instanceColorAt(mesh, 7)).toEqual([1, 1, 1]);
+  });
+
+  test("the reported multi-frame sequence: shrink while still selected, deselect, then regrow with nothing selected", () => {
+    // The exact scenario from the review: (1) 10 active, run 7 selected,
+    // packs into slot 7; (2) fleet shrinks to 6 — run 7 drops off the
+    // active list too, but selectedRunIdx is unchanged, so writeTints stays
+    // true and slots 0-5 get rewritten, slot 7 untouched by the per-vehicle
+    // loop (nothing packs there this frame); (3) user deselects — one more
+    // writeTints=true frame, still only 6 active, slot 7 still not reached
+    // by the per-vehicle loop; (4) fleet grows back to 10 with NOTHING
+    // selected throughout — writeTints is false the whole time, so if slot
+    // 7 were still stale from step 1, it would silently reappear here.
+    const m = manager();
+    const mesh = m.meshes[0];
+    const withRun7AtSlot7 = new Float32Array(
+      Array.from({ length: 10 }, (_, i) => vehicleRow(0, i === 7 ? 7 : 100 + i)).flat(),
+    );
+    m.update(withRun7AtSlot7, 10, 7);
+    expect(instanceEmissiveAt(mesh, 7).some((c) => c > 0)).toBe(true);
+
+    const sixOthersNoRun7 = new Float32Array(
+      Array.from({ length: 6 }, (_, i) => vehicleRow(0, 200 + i)).flat(),
+    );
+    m.update(sixOthersNoRun7, 6, 7); // shrink; run 7 still "selected" but absent
+    m.update(sixOthersNoRun7, 6, null); // deselect
+
+    const tenOthersNoneSelected = new Float32Array(
+      Array.from({ length: 10 }, (_, i) => vehicleRow(0, 300 + i)).flat(),
+    );
+    m.update(tenOthersNoneSelected, 10, null); // regrow past slot 7, nothing selected
+
+    expect(instanceEmissiveAt(mesh, 7)).toEqual([0, 0, 0]);
+    expect(instanceColorAt(mesh, 7)).toEqual([1, 1, 1]);
+  });
+});

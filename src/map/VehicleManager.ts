@@ -111,9 +111,17 @@ export class VehicleManager {
   private tintedFor: number | null = null;
   /** Reused per frame — sized to the route count, never reallocated. */
   private counts: number[];
+  /**
+   * Per-route active-slot count as of the last frame tints were actually
+   * written — NOT the same as `counts` (this frame's count), and not
+   * updated on a skipped (writeTints === false) frame. See the stale-tail
+   * clearing pass in `update()` for why this exists.
+   */
+  private lastTintedCounts: number[];
 
   constructor(routes: VehicleRoute[]) {
     this.counts = new Array(routes.length).fill(0);
+    this.lastTintedCounts = new Array(routes.length).fill(0);
     this.meshes = routes.map((route, routeIdx) => {
       const material = new THREE.MeshLambertMaterial({ vertexColors: true });
       // vertexColors means material.color stays white — the real livery lives
@@ -205,12 +213,35 @@ export class VehicleManager {
       const mesh = this.meshes[r];
       mesh.count = counts[r];
       mesh.instanceMatrix.needsUpdate = true;
-      // Allocated lazily by the first setColorAt; absent if no vehicle drew.
-      if (writeTints && mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
       if (writeTints) {
-        (
-          mesh.geometry.attributes.instanceEmissive as THREE.InstancedBufferAttribute
-        ).needsUpdate = true;
+        // Stale-tail clearing (found in code review 2026-08-15): slot
+        // packing is per-frame order, not a stable per-vehicle identity —
+        // the loop above only rewrites slots 0..counts[r]-1, so a slot that
+        // held a selection tint/boost from an EARLIER, larger-fleet frame
+        // and then fell outside the active range is never explicitly reset.
+        // While writeTints keeps firing every frame (something stays
+        // selected) that's harmless — a shrunk-then-regrown slot is either
+        // still being rewritten (if within the new count) or still outside
+        // the rendered range (mesh.count caps what's drawn). The gap is
+        // specifically the transition INTO the "nothing selected, skip the
+        // whole per-instance write" steady state: the deselect frame is the
+        // LAST one to actually touch these attributes for a while, so any
+        // slot beyond THIS frame's count but within the LAST TINTED frame's
+        // count must be explicitly zeroed here, or a later regrow (with
+        // writeTints staying false throughout, since nothing reselects)
+        // silently un-hides the stale boost on an arbitrary train.
+        // instanceColor and instanceEmissive share the exact same hazard —
+        // same per-frame packing, same "only 0..count-1 gets touched" loop.
+        const colorAttr = mesh.instanceColor; // allocated lazily by the first setColorAt
+        const emissiveAttr = mesh.geometry.attributes
+          .instanceEmissive as THREE.InstancedBufferAttribute;
+        for (let slot = counts[r]; slot < this.lastTintedCounts[r]; slot++) {
+          colorAttr?.setXYZ(slot, TINT_PLAIN.r, TINT_PLAIN.g, TINT_PLAIN.b);
+          emissiveAttr.setXYZ(slot, 0, 0, 0);
+        }
+        this.lastTintedCounts[r] = counts[r];
+        if (colorAttr) colorAttr.needsUpdate = true;
+        emissiveAttr.needsUpdate = true;
       }
     }
   }
