@@ -343,7 +343,8 @@ export class SimClient {
     for (let i = 0; i < a.count && n < MAX_VEHICLES; i++) {
       const oa = i * VEHICLE_STRIDE;
       if (b.byRun.has(a.data[oa + LANE_RUN_IDX])) continue;
-      out.set(a.data.subarray(oa, oa + VEHICLE_STRIDE), n * VEHICLE_STRIDE);
+      const oo = n * VEHICLE_STRIDE;
+      for (let k = 0; k < VEHICLE_STRIDE; k++) out[oo + k] = a.data[oa + k];
       n++;
     }
     return { vehicles: out, count: n };
