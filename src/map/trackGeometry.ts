@@ -441,7 +441,6 @@ export function buildStationMarkers(lines: LineGeometry[]): THREE.Object3D {
   const stations = lines.flatMap((line) =>
     line.stations.map((s) => ({ ...s, color: new THREE.Color(line.color) })),
   );
-  if (stations.length === 0) return group;
 
   const underground = stations.filter((s) => s.position[2] < 0);
   const surface = stations.filter((s) => s.position[2] >= 0);
