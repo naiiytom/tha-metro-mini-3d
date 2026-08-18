@@ -692,6 +692,10 @@ fn finish(
         }
     }
 
+    // No target label in any round. This is an ANSWER, not a failure: legs
+    // empty, unreachable true, times pinned at the query instant so the UI
+    // can render "no route found within N minutes" rather than an error card.
+    // Only a bad route/station index makes plan() return None.
     let Some((k, stop, arrive)) = chosen else {
         return Some(RoutePlan {
             depart_sec: t0,
@@ -1413,5 +1417,90 @@ mod plan_tests {
         let complex = super::expand_complex(&idx, a2);
         assert!(complex.contains(&a2) && complex.contains(&b0));
         assert!(!complex.contains(&b1), "one hop, not a transitive closure");
+    }
+
+    #[test]
+    fn max_wait_is_enforced_per_boarding_not_as_a_journey_budget() {
+        let doc = routing_doc();
+        // 08:20. The first departure is 36030, a 6030 s wait — over the 5400 s
+        // default, so nothing is boardable.
+        let mut req = request((0, 0), (0, 2), 30_000.0);
+        assert!(planned(&doc, &req).unreachable);
+        req.max_wait_s = 7_200;
+        let p = planned(&doc, &req);
+        assert!(!p.unreachable);
+        assert_eq!(p.depart_sec, 36_030);
+
+        // Per boarding, not cumulative: the two-leg journey's own waits are
+        // 1030 s then 450 s. A 1200 s cap admits both even though they sum to
+        // more than 1200 — a whole-journey budget would reject it.
+        let mut req = request((0, 0), (1, 1), 35_000.0);
+        req.max_wait_s = 1_200;
+        let p = planned(&doc, &req);
+        assert!(!p.unreachable, "each wait is under the cap");
+        assert_eq!(p.legs.len(), 3);
+    }
+
+    #[test]
+    fn nothing_in_the_near_future_is_unreachable_not_none() {
+        // 22:13, long after the last usable departure. A well-formed request
+        // that simply does not connect must be an ANSWER, so the UI can say
+        // "no route in the near future" instead of looking broken.
+        let doc = routing_doc();
+        let idx = RouteIndex::build(&doc);
+        let p = plan(&doc, &idx, &request((0, 0), (0, 2), 80_000.0)).expect("well-formed");
+        assert!(p.unreachable);
+        assert!(p.legs.is_empty());
+        assert_eq!(p.transfers, 0);
+        assert_eq!(
+            (p.depart_sec, p.arrive_sec, p.duration_s),
+            (80_000, 80_000, 0)
+        );
+        assert!(p.transfer_times_estimated, "the flag is a model property");
+    }
+
+    #[test]
+    fn an_inactive_calendar_day_contributes_no_boardable_runs() {
+        // The fixture's services are bounded by start/end_date; a query
+        // outside that window simply finds nothing. No special-casing — the
+        // same mechanism service_active_on already provides.
+        let doc = routing_doc();
+        let mut req = request((0, 0), (0, 2), 35_000.0);
+        req.date_yyyymmdd = 20_400_101;
+        let p = planned(&doc, &req);
+        assert!(p.unreachable);
+        assert!(p.legs.is_empty());
+    }
+
+    #[test]
+    fn a_track_only_routes_station_cannot_be_requested_at_all() {
+        // orange / purple-ext have zero stations, so they are structurally
+        // absent from the routing graph — a bad index, not a special case.
+        let mut doc = routing_doc();
+        doc.routes.push(crate::model::RouteDoc {
+            gtfs_route_id: String::new(),
+            line_key: "orange".into(),
+            simulated: false,
+            name_en: "Orange".into(),
+            color_rgb: 0xF57C00,
+            track_xyz: vec![[0.0, 0.0, 15.0], [1000.0, 0.0, 15.0]],
+            track_arc_m: vec![0.0, 1000.0],
+            stations: Vec::new(),
+        });
+        let idx = RouteIndex::build(&doc);
+        assert!(plan(&doc, &idx, &request((2, 0), (0, 2), 35_000.0)).is_none());
+        assert!(plan(&doc, &idx, &request((0, 0), (2, 0), 35_000.0)).is_none());
+    }
+
+    #[test]
+    fn a_wait_exactly_at_the_cap_is_still_boardable() {
+        // Boundary: the cap is inclusive, so "90 minutes" means a 90-minute
+        // wait qualifies rather than missing by one second.
+        let doc = routing_doc();
+        let mut req = request((0, 0), (0, 2), 30_000.0);
+        req.max_wait_s = 6_030; // exactly 36030 - 30000
+        assert!(!planned(&doc, &req).unreachable);
+        req.max_wait_s = 6_029;
+        assert!(planned(&doc, &req).unreachable);
     }
 }
