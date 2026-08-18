@@ -118,16 +118,102 @@ export interface StationInfo {
   interchanges: InterchangeRef[];
 }
 
+// ---- Route search (roadmap item 8) -----------------------------------------
+// NOTE the camelCase keys below. Every other §7 shape mirrors serde's
+// snake_case verbatim; these deliberately do not, because a route plan is
+// consumed by a React component rather than mapped field-for-field. The Rust
+// side carries `#[serde(rename_all = "camelCase")]` to match, and the
+// deviation is called out in ENGINE_CONTRACT.md §7.1.
+
+/** One boarded leg. `boardArcM`/`alightArcM` are the PATTERN's resolved arcs
+ *  (`PatternStop::arc_m`), never the station's — the two diverge on a
+ *  self-approaching alignment, and the map highlight draws on these. */
+export interface PlanLegRide {
+  kind: "ride";
+  routeIdx: number;
+  routeName: string;
+  /** `#RRGGBB`, already formatted for CSS (unlike RunDetail's numeric color_rgb). */
+  colorRgb: string;
+  headsign: string;
+  direction: number;
+  runIdx: number;
+  boardStationIdx: number;
+  boardName: string;
+  boardSec: number;
+  boardArcM: number;
+  alightStationIdx: number;
+  alightName: string;
+  alightSec: number;
+  alightArcM: number;
+  intermediateStops: string[];
+}
+
+/** One change between rides. `walkM` is display context only — the routing
+ *  cost is `transferS`, one flat buffer applied to every interchange
+ *  regardless of distance (0 for a same-platform pattern change). */
+export interface PlanLegTransfer {
+  kind: "transfer";
+  fromRouteIdx: number;
+  fromStationIdx: number;
+  toRouteIdx: number;
+  toStationIdx: number;
+  walkM: number;
+  transferS: number;
+  waitS: number;
+}
+
+export type PlanLeg = PlanLegRide | PlanLegTransfer;
+
+/** Times are seconds in the QUERIED day's frame, so they may exceed 86400 for
+ *  a journey crossing midnight — same convention as `BoardEntry.arrival_sec`.
+ *  `unreachable: true` with empty legs is an ANSWER ("nothing connects"), as
+ *  distinct from a null plan ("the request was malformed"). */
+export interface RoutePlan {
+  departSec: number;
+  arriveSec: number;
+  durationS: number;
+  transfers: number;
+  /** Always true today: every transfer uses one fixed estimate, never a
+   *  distance- or publisher-derived time. The disclosure hook. */
+  transferTimesEstimated: boolean;
+  legs: PlanLeg[];
+  unreachable: boolean;
+}
+
+/** Routing-model defaults. These are GLOBAL model parameters, not per-line
+ *  displayed-timetable data, so they live here rather than in
+ *  tools/lines.config.mjs — the registry rule exists for things like the
+ *  APM's synthetic headway, where a per-line value is being asserted about
+ *  the real world. Keeping them in the TS caller keeps them visible and
+ *  tunable with no cache regeneration and no Rust change. */
+export const DEFAULT_MAX_TRANSFERS = 4;
+/** 90 minutes. Give up rather than propose an unreasonable overnight wait. */
+export const DEFAULT_MAX_WAIT_S = 90 * 60;
+/** 3 minutes, charged at every footpath. */
+export const DEFAULT_TRANSFER_BUFFER_S = 3 * 60;
+
 /** Query request payloads (main -> worker). */
 export type SimQuery =
   | { kind: "runDetail"; runIdx: number; simEpochMs: number }
   | { kind: "stationBoard"; routeIdx: number; stationIdx: number; simEpochMs: number; limit: number }
+  | {
+      kind: "routePlan";
+      fromRouteIdx: number;
+      fromStationIdx: number;
+      toRouteIdx: number;
+      toStationIdx: number;
+      simEpochMs: number;
+      maxTransfers?: number;
+      maxWaitS?: number;
+      transferBufferS?: number;
+    }
   | { kind: "stations" };
 
 /** Query result payloads (worker -> main), keyed by request id. */
 export type SimQueryResult =
   | { kind: "runDetail"; detail: RunDetail | null }
   | { kind: "stationBoard"; board: StationBoard | null }
+  | { kind: "routePlan"; plan: RoutePlan | null }
   | { kind: "stations"; stations: StationInfo[] };
 
 /** Raw snake_case shape emitted by the Rust side; the worker maps it. */
