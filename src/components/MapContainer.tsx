@@ -14,6 +14,7 @@ import { styleUrl } from "../map/basemapStyles";
 import { installCameraControls } from "../map/cameraControls";
 import { FollowCamera } from "../map/followCamera";
 import { pickAt } from "../map/selection";
+import { highlightSpans } from "../map/routeHighlight";
 import { skyPalette, sunDirection } from "../map/sun";
 import { bindStyle, type StyleBinding } from "../map/styleBinding";
 import { TrainTooltip } from "../map/trainTooltip";
@@ -207,6 +208,10 @@ export function MapContainer() {
         activeSimClient.current?.setTickMs(state.ecoMode ? ECO_TICK_MS : DEFAULT_TICK_MS);
         map.triggerRepaint(); // repaint once immediately on exit
       }
+      if (state.routePlan !== prev.routePlan) {
+        layer?.setRouteHighlight(highlightSpans(state.routePlan));
+        map.triggerRepaint();
+      }
     });
 
     map.on("style.load", () => {
@@ -242,6 +247,9 @@ export function MapContainer() {
       }
       // Re-attach the per-frame hook to the NEW layer instance.
       layer.beforeRender = beforeRender;
+      // A style swap rebuilds the Three layer from scratch; the plan lives in
+      // the store, which survives it.
+      layer.setRouteHighlight(highlightSpans(useAppStore.getState().routePlan));
 
       if (simInitialised) {
         // Style swap: the Three layer and paint snapshots are rebuilt above;

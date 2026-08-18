@@ -5,8 +5,10 @@ import type {
 } from "maplibre-gl";
 import * as THREE from "three";
 import type { NetworkData } from "../types";
-import type { LineMaterial } from "three/addons/lines/LineMaterial.js";
+import { Line2 } from "three/addons/lines/Line2.js";
+import { LineMaterial } from "three/addons/lines/LineMaterial.js";
 import { MERC_PER_METER, ORIGIN_MERC } from "./coordinates";
+import { buildHighlightLine, type RouteHighlightSpan } from "./routeHighlight";
 import { buildSkyDome, type SkyDome } from "./skyDome";
 import { PRE_REVENUE_OPACITY, buildStationMarkers, buildTrackDeck, buildTrackLine } from "./trackGeometry";
 import { nightLift } from "./nightLift";
@@ -70,6 +72,12 @@ export class NetworkLayer implements CustomLayerInterface {
   private litMaterialWorstOpacity = new WeakMap<THREE.MeshLambertMaterial, number>();
   private undergroundMode = false;
   private skyDome: SkyDome | null = null;
+  /** Planned-route highlight, rebuilt wholesale on every plan change. Kept in
+   *  its own group and its own material list so it never enters the
+   *  underground-band or night-lift passes — it is an unlit overlay, not
+   *  network geometry. */
+  private highlightGroup: THREE.Group | null = null;
+  private highlightMaterials: LineMaterial[] = [];
 
   /**
    * Per-frame hook, invoked at the start of every render() before drawing —
@@ -314,6 +322,38 @@ export class NetworkLayer implements CustomLayerInterface {
     if (group) group.visible = visible;
   }
 
+  /** Draw one white overlay per planned ride leg. Passing an empty array
+   *  clears the highlight — which is what closing the panel does. */
+  setRouteHighlight(spans: RouteHighlightSpan[]): void {
+    this.clearRouteHighlight();
+    if (!this.scene || spans.length === 0) return;
+    const group = new THREE.Group();
+    group.name = "route-highlight";
+    for (const span of spans) {
+      const line = this.data.lines[span.routeIdx];
+      if (!line) continue;
+      const built = buildHighlightLine(line, span.fromArcM, span.toArcM);
+      if (!built) continue;
+      group.add(built.line);
+      this.highlightMaterials.push(built.material);
+    }
+    if (group.children.length === 0) return;
+    this.scene.add(group);
+    this.highlightGroup = group;
+  }
+
+  private clearRouteHighlight(): void {
+    if (this.highlightGroup) {
+      this.scene?.remove(this.highlightGroup);
+      this.highlightGroup.traverse((obj) => {
+        if (obj instanceof Line2) obj.geometry.dispose();
+      });
+      this.highlightGroup = null;
+    }
+    for (const m of this.highlightMaterials) m.dispose();
+    this.highlightMaterials = [];
+  }
+
   render(_gl: WebGL2RenderingContext, options: CustomRenderMethodInput): void {
     if (!this.renderer || !this.scene) return;
     this.beforeRender?.();
@@ -324,11 +364,13 @@ export class NetworkLayer implements CustomLayerInterface {
     this.camera.projectionMatrix = this.projection;
     const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
     for (const m of this.lineMaterials) m.resolution.copy(size);
+    for (const m of this.highlightMaterials) m.resolution.copy(size);
     this.renderer.resetState();
     this.renderer.render(this.scene, this.camera);
   }
 
   onRemove(): void {
+    this.clearRouteHighlight();
     this.scene?.traverse((obj) => {
       if (obj instanceof THREE.Mesh) {
         obj.geometry.dispose();
