@@ -160,6 +160,11 @@ export function MapContainer() {
           layer?.setLineVisible(i, visible);
           vehicleManager?.setRouteVisible(i, visible);
         }
+        // A route highlight is drawn per LEG, on track this loop may have
+        // just hidden — so it has to be rebuilt here too, or hiding a line
+        // after planning leaves that leg's white span stranded over track
+        // that is no longer there (and unhiding never brings it back).
+        layer?.setRouteHighlight(highlightSpans(state.routePlan, state.hiddenRoutes));
         map.triggerRepaint();
       }
       if (state.undergroundMode !== prev.undergroundMode) {
@@ -209,7 +214,7 @@ export function MapContainer() {
         map.triggerRepaint(); // repaint once immediately on exit
       }
       if (state.routePlan !== prev.routePlan) {
-        layer?.setRouteHighlight(highlightSpans(state.routePlan));
+        layer?.setRouteHighlight(highlightSpans(state.routePlan, state.hiddenRoutes));
         map.triggerRepaint();
       }
     });
@@ -249,7 +254,10 @@ export function MapContainer() {
       layer.beforeRender = beforeRender;
       // A style swap rebuilds the Three layer from scratch; the plan lives in
       // the store, which survives it.
-      layer.setRouteHighlight(highlightSpans(useAppStore.getState().routePlan));
+      {
+        const s = useAppStore.getState();
+        layer.setRouteHighlight(highlightSpans(s.routePlan, s.hiddenRoutes));
+      }
 
       if (simInitialised) {
         // Style swap: the Three layer and paint snapshots are rebuilt above;

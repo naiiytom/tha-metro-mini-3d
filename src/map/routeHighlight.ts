@@ -69,11 +69,24 @@ export function arcSpanPositions(
   return out;
 }
 
-/** The ride legs of a plan as drawable spans. Walking legs have no track. */
-export function highlightSpans(plan: RoutePlan | null): RouteHighlightSpan[] {
+/**
+ * The ride legs of a plan as drawable spans. Walking legs have no track.
+ *
+ * `hiddenRoutes` filters here rather than in the layer because it is a
+ * DRAWING concern only: the plan itself stays factual regardless of what is
+ * currently shown, exactly as `RoutePlanner`'s own `visibleStations` filters
+ * what can be PICKED without filtering what the engine may route through.
+ * Without it a leg on a hidden line drew its white highlight over invisible
+ * track, and hiding a line after planning left that span stranded on the map.
+ */
+export function highlightSpans(
+  plan: RoutePlan | null,
+  hiddenRoutes: readonly number[] = [],
+): RouteHighlightSpan[] {
   if (!plan || plan.unreachable) return [];
   return plan.legs
     .filter((l): l is PlanLegRide => l.kind === "ride")
+    .filter((l) => !hiddenRoutes.includes(l.routeIdx))
     .map((l) => ({ routeIdx: l.routeIdx, fromArcM: l.boardArcM, toArcM: l.alightArcM }));
 }
 

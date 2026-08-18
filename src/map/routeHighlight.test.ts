@@ -135,4 +135,24 @@ describe("highlightSpans", () => {
     expect(highlightSpans(null)).toEqual([]);
     expect(highlightSpans({ ...plan, legs: [], unreachable: true })).toEqual([]);
   });
+
+  it("draws no span for a leg on a hidden route", () => {
+    // The plan itself stays factual — only the OVERLAY respects visibility,
+    // so a leg whose track is hidden must not leave a white highlight
+    // floating over nothing.
+    expect(highlightSpans(plan, [1])).toEqual([
+      { routeIdx: 0, fromArcM: 500, toArcM: 1500 },
+    ]);
+    expect(highlightSpans(plan, [0])).toEqual([
+      { routeIdx: 1, fromArcM: 0, toArcM: 900 },
+    ]);
+    expect(highlightSpans(plan, [0, 1])).toEqual([]);
+  });
+
+  it("draws everything when nothing is hidden", () => {
+    // The default argument and an explicit empty list must agree, so the
+    // existing call sites keep their behaviour exactly.
+    expect(highlightSpans(plan, [])).toEqual(highlightSpans(plan));
+    expect(highlightSpans(plan, [7])).toEqual(highlightSpans(plan));
+  });
 });

@@ -96,14 +96,43 @@ function StationPicker({
   );
 }
 
-function LegRow({ leg, routes }: { leg: PlanLeg; routes: LineGeometry[] }) {
+function LegRow({
+  leg,
+  routes,
+  rideBefore,
+  rideAfter,
+}: {
+  leg: PlanLeg;
+  routes: LineGeometry[];
+  rideBefore: boolean;
+  rideAfter: boolean;
+}) {
   if (leg.kind === "transfer") {
+    // A transfer leg is no longer always BETWEEN two rides. The engine gates
+    // interchange-complex expansion on real walking distance, so an
+    // INTERCHANGE_OVERRIDES-class link (300-555 m — genuinely separate
+    // stations) now surfaces as a leading walk to the first train, a trailing
+    // walk to the picked destination, or, between two such stations, the
+    // whole plan. Saying "Change trains" in those cases would describe a
+    // train change that does not happen.
+    //
+    // No station NAMES here on purpose: `routes` is network.json geometry,
+    // whose station indices are NOT the cache's, so resolving
+    // `toStationIdx` against it would print the wrong station.
+    const label = rideBefore
+      ? rideAfter
+        ? "Change trains"
+        : "Walk to your destination"
+      : rideAfter
+        ? "Walk to your first train"
+        : "Walk to your destination";
     return (
       <li className="flex items-start gap-2 px-4 py-2 text-xs text-slate-600">
         <span className="mt-0.5 inline-block h-2 w-4 shrink-0" aria-hidden />
         <span>
-          Change trains — {formatCountdown(leg.transferS)} allowed, then wait{" "}
-          {formatCountdown(leg.waitS)} (≈{Math.round(leg.walkM)} m)
+          {label} — {formatCountdown(leg.transferS)} allowed
+          {rideAfter ? <>, then wait {formatCountdown(leg.waitS)}</> : null} (≈
+          {Math.round(leg.walkM)} m)
         </span>
       </li>
     );
@@ -287,7 +316,13 @@ export function RoutePlanner() {
             )}
             <ul className="divide-y divide-slate-200/70">
               {plan.legs.map((leg, i) => (
-                <LegRow key={`${leg.kind}-${i}`} leg={leg} routes={routes} />
+                <LegRow
+                  key={`${leg.kind}-${i}`}
+                  leg={leg}
+                  routes={routes}
+                  rideBefore={plan.legs.slice(0, i).some((l) => l.kind === "ride")}
+                  rideAfter={plan.legs.slice(i + 1).some((l) => l.kind === "ride")}
+                />
               ))}
             </ul>
           </>
