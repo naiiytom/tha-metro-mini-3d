@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import type { RoutePlan } from "../sim/protocol";
 import { useAppStore } from "./useAppStore";
 
 describe("line visibility", () => {
@@ -119,5 +120,82 @@ describe("search/selection mutual exclusion", () => {
     useAppStore.getState().selectRun(3);
     expect(useAppStore.getState().searchOpen).toBe(false);
     expect(useAppStore.getState().selectedRunIdx).toBe(3);
+  });
+});
+
+const PLAN: RoutePlan = {
+  departSec: 0,
+  arriveSec: 60,
+  durationS: 60,
+  transfers: 0,
+  transferTimesEstimated: true,
+  unreachable: false,
+  legs: [],
+};
+
+describe("route planner store slice", () => {
+  beforeEach(() => {
+    useAppStore.setState({
+      routePlannerOpen: false,
+      routePlan: null,
+      searchOpen: false,
+      selectedRunIdx: null,
+      selectedStation: null,
+      following: false,
+    });
+  });
+
+  it("defaults to closed with no plan", () => {
+    expect(useAppStore.getState().routePlannerOpen).toBe(false);
+    expect(useAppStore.getState().routePlan).toBeNull();
+  });
+
+  it("opening it clears any selection, follow state, and open search", () => {
+    // Same mutual exclusion setSearchOpen already enforces: without it the
+    // planner stacks on an open TrainInspector/StationBoard and overflows the
+    // mobile bottom-sheet stack.
+    useAppStore.setState({
+      searchOpen: true,
+      selectedRunIdx: 7,
+      selectedStation: { routeIdx: 1, stationIdx: 2 },
+      following: true,
+    });
+    useAppStore.getState().setRoutePlannerOpen(true);
+    const s = useAppStore.getState();
+    expect(s.routePlannerOpen).toBe(true);
+    expect(s.searchOpen).toBe(false);
+    expect(s.selectedRunIdx).toBeNull();
+    expect(s.selectedStation).toBeNull();
+    expect(s.following).toBe(false);
+  });
+
+  it("closing it drops the plan, so the map highlight clears with the panel", () => {
+    useAppStore.getState().setRoutePlannerOpen(true);
+    useAppStore.getState().setRoutePlan(PLAN);
+    useAppStore.getState().setRoutePlannerOpen(false);
+    expect(useAppStore.getState().routePlan).toBeNull();
+  });
+
+  it("selecting a train or a station closes the planner and drops the plan", () => {
+    for (const act of [
+      () => useAppStore.getState().selectRun(3),
+      () => useAppStore.getState().selectStation({ routeIdx: 0, stationIdx: 0 }),
+      () => useAppStore.getState().setSearchOpen(true),
+    ]) {
+      useAppStore.getState().setRoutePlannerOpen(true);
+      useAppStore.getState().setRoutePlan(PLAN);
+      act();
+      expect(useAppStore.getState().routePlannerOpen).toBe(false);
+      expect(useAppStore.getState().routePlan).toBeNull();
+    }
+  });
+
+  it("setRoutePlan replaces rather than merges, so a new search clears the old highlight", () => {
+    useAppStore.getState().setRoutePlan(PLAN);
+    useAppStore.getState().setRoutePlan(null);
+    expect(useAppStore.getState().routePlan).toBeNull();
+    const other = { ...PLAN, arriveSec: 999 };
+    useAppStore.getState().setRoutePlan(other);
+    expect(useAppStore.getState().routePlan).toBe(other);
   });
 });
