@@ -697,10 +697,27 @@ Three differences from the two queries above, all deliberate:
   true today.
 
 Endpoints expand to their whole interchange complex (the picked stop plus its
-direct `interchanges` neighbours, one hop): every origin-complex stop is
-seeded at the query time with zero boardings and any destination-complex stop
-counts as arrival, so picking `silom/Siam` instead of `sukhumvit/Siam` never
-costs a spurious transfer.
+direct `interchanges` neighbours, one hop), and that expansion is **gated on
+real walking distance** by `SAME_STATION_COMPLEX_M` (150 m):
+
+- **Under 150 m** the neighbour is the same physical station reached through a
+  different stop object — `silom/Siam` vs `sukhumvit/Siam`. It is seeded at the
+  query time with zero boardings, and counts as arrival at zero cost, so
+  picking either side never costs a spurious transfer.
+- **At or above 150 m** the link is a real walk between two *separate*
+  stations. Every `INTERCHANGE_OVERRIDES` entry in the registry is in this
+  class (Silom↔Blue 319 m, ARL↔Blue 305 m, ARL↔APM 332 m, Purple↔Pink 555 m) —
+  they exist precisely because those pairs fall just outside the 300 m
+  auto-link radius. On the ORIGIN side such a neighbour is seeded at
+  `t0 + transfer_buffer_s` as a `Via::Walk`, so a departure from it earlier
+  than that is genuinely not selectable — the gate is in the SEARCH, not a
+  label applied afterwards. On the DESTINATION side the walk is appended as a
+  trailing `PlanLeg::Transfer` and its buffer added to `arrive_sec`.
+
+A consequence worth knowing at the TS boundary: `legs[0]` and `legs.last()` can
+both be a `Transfer`, and a plan with **no ride at all** (two override-linked
+stations 300 m apart) is a legal one-leg walking answer — not the empty
+`{ legs: [], unreachable: false }` that means "you are already there."
 
 `PlanLeg::Ride`'s `board_arc_m`/`alight_arc_m` come from **`PatternStop::arc_m`,
 never `StationDoc::arc_m`** — the two legitimately diverge on a

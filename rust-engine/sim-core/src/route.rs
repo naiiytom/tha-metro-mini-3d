@@ -266,10 +266,10 @@ enum Via {
         board_pos: usize,
         alight_pos: usize,
     },
-    /// Not constructed until Task 4's transfer relaxation — this task only
-    /// ever builds `Via::Ride` labels. `reconstruct` already matches on it,
-    /// so the shape is final now; only its construction site is deferred.
-    #[allow(dead_code)]
+    /// Built in two places: mid-journey footpath relaxation inside `plan`'s
+    /// round loop, and the round-0 seeding of an origin-complex neighbour
+    /// that is a real walk away rather than the same physical station (see
+    /// `SAME_STATION_COMPLEX_M`).
     Walk {
         from_stop: usize,
         walk_m: f64,
@@ -350,6 +350,7 @@ fn reconstruct(
     k: usize,
     stop: usize,
     buffer_s: u32,
+    t0: i64,
 ) -> Vec<PlanLeg> {
     let mut steps: Vec<Step> = Vec::new();
     let mut k = k;
@@ -428,13 +429,29 @@ fn reconstruct(
                 let board_sec = run.start_sec as i64 + board.departure_s as i64 + offset;
                 let alight_sec = run.start_sec as i64 + alight.arrival_s as i64 + offset;
 
-                if let Some(prev_sec) = prev_alight {
+                // `prev_alight.is_some()` is the mid-journey case; `pending`
+                // alone is a LEADING walk — possible now that an origin
+                // complex neighbour a real distance away is seeded as a
+                // `Via::Walk`. Guarding on `prev_alight` alone silently
+                // dropped that leg, hiding the walk the plan depends on.
+                if prev_alight.is_some() || pending.is_some() {
+                    // The reference instant for a leading walk is the query
+                    // time itself: the neighbour's label was seeded at
+                    // `t0 + transfer_buffer_s`, so `t0` is the moment the
+                    // walk became possible, and the same
+                    // `board - prev - transfer` wait formula applies.
+                    let prev_sec = prev_alight.unwrap_or(t0);
                     // A same-stop pattern change has no footpath, so it costs
                     // nothing (already on the platform) — but it is still a
                     // transfer the user has to make, so it still gets a leg.
-                    let here = idx.stop_of(pattern.route_idx as usize, board.station_idx as usize);
-                    let (from_stop, to_stop, walk_m, transfer_s) =
-                        pending.take().unwrap_or((here, here, 0.0, 0));
+                    let (from_stop, to_stop, walk_m, transfer_s) = match pending.take() {
+                        Some(p) => p,
+                        None => {
+                            let here =
+                                idx.stop_of(pattern.route_idx as usize, board.station_idx as usize);
+                            (here, here, 0.0, 0)
+                        }
+                    };
                     let (from_route_idx, from_station_idx) = idx.unpack(from_stop);
                     let (to_route_idx, to_station_idx) = idx.unpack(to_stop);
                     legs.push(PlanLeg::Transfer {
@@ -472,10 +489,45 @@ fn reconstruct(
             }
         }
     }
+    // A walk with no ride after it (the journey ENDS on foot) would otherwise
+    // be swallowed — the same class of silent disappearance as the leading
+    // walk above, just at the other end. `finish` covers the usual shape of
+    // this (a target-complex member a real distance from the picked stop);
+    // this covers a chain whose last hop is a footpath the winning label was
+    // reached by, e.g. a one-directional interchange link.
+    if let Some((from_stop, to_stop, walk_m, transfer_s)) = pending.take() {
+        let (from_route_idx, from_station_idx) = idx.unpack(from_stop);
+        let (to_route_idx, to_station_idx) = idx.unpack(to_stop);
+        legs.push(PlanLeg::Transfer {
+            from_route_idx,
+            from_station_idx,
+            to_route_idx,
+            to_station_idx,
+            walk_m,
+            transfer_s,
+            wait_s: 0,
+        });
+    }
     legs
 }
 
-/// The picked stop plus its ONE-HOP interchange neighbours.
+/// Below this, a complex neighbour is treated as the SAME physical station
+/// (a different stop object for one real platform — e.g. Siam on two
+/// lines) and expansion stays free, exactly as `expand_complex`'s own doc
+/// comment describes. AT OR ABOVE it, the link is a real walk between two
+/// separate stations: every `INTERCHANGE_OVERRIDES` entry in the current
+/// registry is >= 300 m (they exist specifically for near-misses just
+/// outside the 300 m auto-link radius — genuinely different stations, not
+/// platform splits), well clear of this margin, and must cost a disclosed
+/// transfer leg rather than resolving for free.
+const SAME_STATION_COMPLEX_M: f64 = 150.0;
+
+/// The picked stop plus its ONE-HOP interchange neighbours, each paired
+/// with its real walking distance from the picked stop (`0.0` for the
+/// picked stop itself). The distance is what `plan()` uses to decide
+/// whether a neighbour resolves for free (same station) or costs a
+/// disclosed transfer (a real walk to a different station) — see
+/// `SAME_STATION_COMPLEX_M`.
 ///
 /// `filterStations` does not dedupe interchange stations — "Siam" appears
 /// once per line, and the UI lets the user pick either — so a search from
@@ -487,12 +539,12 @@ fn reconstruct(
 /// arbitrarily long chain of walks free, which is not what a shared station
 /// concourse is. Mid-journey footpaths keep paying the flat buffer (they are
 /// relaxed to a fixed point in `plan`'s round loop); only the two ENDPOINTS
-/// get this free expansion.
-fn expand_complex(idx: &RouteIndex, stop: usize) -> Vec<usize> {
-    let mut out = vec![stop];
-    for &(to, _walk_m) in idx.transfers_at(stop) {
-        if !out.contains(&to) {
-            out.push(to);
+/// get this expansion.
+fn expand_complex(idx: &RouteIndex, stop: usize) -> Vec<(usize, f64)> {
+    let mut out = vec![(stop, 0.0)];
+    for &(to, walk_m) in idx.transfers_at(stop) {
+        if !out.iter().any(|&(s, _)| s == to) {
+            out.push((to, walk_m));
         }
     }
     out
@@ -530,16 +582,29 @@ pub fn plan(doc: &CacheDoc, idx: &RouteIndex, req: &PlanRequest) -> Option<Route
     let mut best = vec![UNREACHED; n];
     let mut rounds: Vec<Vec<Option<Label>>> = Vec::new();
     let mut round0: Vec<Option<Label>> = vec![None; n];
-    for &s in &origin_stops {
-        round0[s] = Some(Label {
-            arrival: t0,
-            via: Via::Origin,
-        });
-        best[s] = t0;
+    for &(s, walk_m) in &origin_stops {
+        // Same-station members are free (Task 5's original guarantee,
+        // unchanged); a real-distance neighbour only becomes boardable
+        // after walking there, so its label carries the buffer and is a
+        // Walk, not an Origin — this is what makes an otherwise-too-early
+        // departure from that neighbour correctly ineligible.
+        let (arrival, via) = if walk_m < SAME_STATION_COMPLEX_M {
+            (t0, Via::Origin)
+        } else {
+            (
+                t0 + req.transfer_buffer_s as i64,
+                Via::Walk {
+                    from_stop: origin,
+                    walk_m,
+                },
+            )
+        };
+        round0[s] = Some(Label { arrival, via });
+        best[s] = arrival;
     }
     rounds.push(round0);
 
-    let mut marked: Vec<usize> = origin_stops.clone();
+    let mut marked: Vec<usize> = origin_stops.iter().map(|&(s, _)| s).collect();
     for k in 1..=(req.max_transfers as usize + 1) {
         let prev = rounds[k - 1].clone();
         let mut cur = prev.clone();
@@ -666,7 +731,7 @@ pub fn plan(doc: &CacheDoc, idx: &RouteIndex, req: &PlanRequest) -> Option<Route
         marked = next_marked;
     }
 
-    finish(doc, idx, &rounds, &target_stops, t0, req)
+    finish(doc, idx, &rounds, &target_stops, target, t0, req)
 }
 
 /// Pick the best target label across rounds and turn it into a `RoutePlan`.
@@ -677,17 +742,20 @@ fn finish(
     doc: &CacheDoc,
     idx: &RouteIndex,
     rounds: &[Vec<Option<Label>>],
-    target_stops: &[usize],
+    target_stops: &[(usize, f64)],
+    // The stop the USER picked — the trailing transfer's destination when
+    // the winning complex member turns out to be a real walk away.
+    target: usize,
     t0: i64,
     req: &PlanRequest,
 ) -> Option<RoutePlan> {
-    let mut chosen: Option<(usize, usize, i64)> = None;
+    let mut chosen: Option<(usize, usize, i64, f64)> = None;
     for (k, labels) in rounds.iter().enumerate() {
-        for &s in target_stops {
+        for &(s, walk_m) in target_stops {
             if let Some(l) = &labels[s]
-                && chosen.is_none_or(|(_, _, a)| l.arrival < a)
+                && chosen.is_none_or(|(_, _, a, _)| l.arrival < a)
             {
-                chosen = Some((k, s, l.arrival));
+                chosen = Some((k, s, l.arrival, walk_m));
             }
         }
     }
@@ -696,7 +764,7 @@ fn finish(
     // empty, unreachable true, times pinned at the query instant so the UI
     // can render "no route found within N minutes" rather than an error card.
     // Only a bad route/station index makes plan() return None.
-    let Some((k, stop, arrive)) = chosen else {
+    let Some((k, stop, arrive, dest_walk_m)) = chosen else {
         return Some(RoutePlan {
             depart_sec: t0,
             arrive_sec: t0,
@@ -708,7 +776,26 @@ fn finish(
         });
     };
 
-    let legs = reconstruct(doc, idx, rounds, k, stop, req.transfer_buffer_s);
+    let mut legs = reconstruct(doc, idx, rounds, k, stop, req.transfer_buffer_s, t0);
+    // The winning target-complex member is a real walk from the stop the user
+    // actually picked, so the journey is not over on alighting: disclose the
+    // walk as a leg and charge it, rather than silently reporting an arrival
+    // at a different station on a different line.
+    let mut arrive_sec = arrive;
+    if dest_walk_m >= SAME_STATION_COMPLEX_M {
+        let (from_route_idx, from_station_idx) = idx.unpack(stop);
+        let (to_route_idx, to_station_idx) = idx.unpack(target);
+        legs.push(PlanLeg::Transfer {
+            from_route_idx,
+            from_station_idx,
+            to_route_idx,
+            to_station_idx,
+            walk_m: dest_walk_m,
+            transfer_s: req.transfer_buffer_s,
+            wait_s: 0,
+        });
+        arrive_sec += req.transfer_buffer_s as i64;
+    }
     let ride_count = legs
         .iter()
         .filter(|l| matches!(l, PlanLeg::Ride { .. }))
@@ -720,7 +807,11 @@ fn finish(
             _ => None,
         })
         .unwrap_or(t0);
-    let arrive_sec = if ride_count == 0 { t0 } else { arrive };
+    // Only a genuinely trivial same-stop plan (no legs at all — origin and
+    // destination resolved to the identical complex-free stop) pins both
+    // times to the query instant; a real walk-only or ride-bearing plan
+    // reports its true arrival, computed above.
+    let arrive_sec = if legs.is_empty() { t0 } else { arrive_sec };
     Some(RoutePlan {
         depart_sec,
         arrive_sec,
@@ -836,6 +927,20 @@ pub(crate) mod tests_support {
                 run(1, 1, 36_800),
             ],
         }
+    }
+
+    /// `routing_doc()` with Line B's track pushed east so the A2 <-> B0
+    /// interchange link spans 400 m instead of 100 m — the real shape of an
+    /// `INTERCHANGE_OVERRIDES` entry (Silom<->Blue 319 m, ARL<->Blue 305 m,
+    /// ARL<->APM 332 m, Purple<->Pink 555 m): two genuinely SEPARATE stations
+    /// linked because they are just outside the 300 m auto-link radius, not
+    /// one physical station split across two stop objects. Everything else —
+    /// patterns, runs, services — is untouched, so a plan's difference
+    /// against `routing_doc()` is attributable to the distance alone.
+    pub(crate) fn far_interchange_doc() -> CacheDoc {
+        let mut doc = routing_doc();
+        doc.routes[1].track_xyz = vec![[2400.0, 0.0, 15.0], [3400.0, 0.0, 15.0]];
+        doc
     }
 
     /// One pattern that calls the SAME stop twice (A0 -> A1 -> A0 -> A2). No
@@ -1043,7 +1148,7 @@ mod index_tests {
 
 #[cfg(test)]
 mod plan_tests {
-    use super::tests_support::routing_doc;
+    use super::tests_support::{far_interchange_doc, routing_doc};
     use super::{PlanLeg, PlanRequest, RouteIndex, plan};
     use crate::model::CacheDoc;
 
@@ -1415,8 +1520,16 @@ mod plan_tests {
         let b0 = idx.stop_id(&doc, 1, 0).unwrap();
         let b1 = idx.stop_id(&doc, 1, 1).unwrap();
         let complex = super::expand_complex(&idx, a2);
-        assert!(complex.contains(&a2) && complex.contains(&b0));
-        assert!(!complex.contains(&b1), "one hop, not a transitive closure");
+        assert!(complex.iter().any(|&(s, _)| s == a2));
+        assert!(complex.iter().any(|&(s, _)| s == b0));
+        assert!(
+            !complex.iter().any(|&(s, _)| s == b1),
+            "one hop, not a transitive closure"
+        );
+        // The picked stop itself carries zero walking distance; the neighbour
+        // carries the real one, which is what gates the free expansion.
+        assert_eq!(complex.iter().find(|&&(s, _)| s == a2).unwrap().1, 0.0);
+        assert!((complex.iter().find(|&&(s, _)| s == b0).unwrap().1 - 100.0).abs() < 1e-3);
     }
 
     #[test]
@@ -1490,6 +1603,166 @@ mod plan_tests {
         let idx = RouteIndex::build(&doc);
         assert!(plan(&doc, &idx, &request((2, 0), (0, 2), 35_000.0)).is_none());
         assert!(plan(&doc, &idx, &request((0, 0), (2, 0), 35_000.0)).is_none());
+    }
+
+    #[test]
+    fn a_far_destination_complex_member_costs_a_disclosed_trailing_transfer() {
+        // Reproduction (b): "Phaya Thai (ARL) -> Suvarnabhumi Main Terminal
+        // (APM)" used to alight at ARL Suvarnabhumi — a DIFFERENT station
+        // 332 m away on a different line — and report that as the arrival,
+        // with no transfer leg and no disclosure. The winning
+        // target-complex member is only free when it is the same physical
+        // station; at a real distance it has to be walked to, and the walk
+        // has to be both charged and shown.
+        let doc = far_interchange_doc();
+        let p = planned(&doc, &request((0, 0), (1, 0), 35_000.0));
+        assert!(!p.unreachable);
+        assert_eq!(
+            p.legs.len(),
+            2,
+            "ride then the disclosed walk: {:?}",
+            p.legs
+        );
+
+        let PlanLeg::Ride {
+            route_idx,
+            alight_station_idx,
+            alight_sec,
+            ..
+        } = p.legs[0]
+        else {
+            panic!("leg 0 must be the ride, got {:?}", p.legs[0]);
+        };
+        assert_eq!((route_idx, alight_station_idx), (0, 2), "alights at A2");
+        assert_eq!(alight_sec, 36_600);
+
+        let PlanLeg::Transfer {
+            from_route_idx,
+            from_station_idx,
+            to_route_idx,
+            to_station_idx,
+            walk_m,
+            transfer_s,
+            wait_s,
+        } = p.legs[1]
+        else {
+            panic!("leg 1 must be the trailing transfer, got {:?}", p.legs[1]);
+        };
+        assert_eq!((from_route_idx, from_station_idx), (0, 2));
+        assert_eq!(
+            (to_route_idx, to_station_idx),
+            (1, 0),
+            "and it ends at the stop the user actually picked"
+        );
+        assert!((walk_m - 400.0).abs() < 1e-3, "the real distance, {walk_m}");
+        assert_eq!(transfer_s, 180);
+        assert_eq!(wait_s, 0, "nothing to wait for once you are there");
+
+        assert_eq!(
+            p.arrive_sec, 36_780,
+            "arrival includes the buffer, not the 36600 alighting at A2"
+        );
+        assert_eq!(p.depart_sec, 36_030);
+        assert_eq!(p.duration_s, 750);
+
+        // The 100 m version of the identical query keeps the old, correct
+        // behaviour: same station, no leg, no added cost.
+        let near = planned(&routing_doc(), &request((0, 0), (1, 0), 35_000.0));
+        assert_eq!(near.legs.len(), 1);
+        assert_eq!(near.arrive_sec, 36_600);
+    }
+
+    #[test]
+    fn a_far_origin_complex_member_is_only_boardable_after_walking_there() {
+        // Reproduction (c): "MRT Nonthaburi Civic Center (Pink) -> Siam"
+        // boarded a train from PURPLE's platform 555 m away at zero cost — a
+        // departure a user standing on the Pink platform cannot physically
+        // make. A post-hoc "append a Transfer leg" fix would have labelled
+        // that departure without making it ineligible, which is why the fix
+        // is in the SEEDING: the far neighbour's round-0 label carries the
+        // buffer, so an earlier departure from it is simply not reachable.
+        let doc = far_interchange_doc();
+        // 10:10:00. Pattern 1 departs B0 at 36630 (run 2) and 37230 (run 3);
+        // the 36830 run is Sunday-only and WED is a Wednesday.
+        let p = planned(&doc, &request((0, 2), (1, 1), 36_600.0));
+        assert!(!p.unreachable);
+        assert_eq!(p.legs.len(), 2, "the walk then the ride: {:?}", p.legs);
+
+        let PlanLeg::Transfer {
+            from_route_idx,
+            from_station_idx,
+            to_route_idx,
+            to_station_idx,
+            walk_m,
+            transfer_s,
+            wait_s,
+        } = p.legs[0]
+        else {
+            panic!("leg 0 must be the leading transfer, got {:?}", p.legs[0]);
+        };
+        assert_eq!((from_route_idx, from_station_idx), (0, 2));
+        assert_eq!((to_route_idx, to_station_idx), (1, 0));
+        assert!((walk_m - 400.0).abs() < 1e-3);
+        assert_eq!(transfer_s, 180);
+        // 37230 (board) - 36600 (query instant) - 180 (buffer) = 450.
+        assert_eq!(wait_s, 450);
+
+        assert_ne!(
+            p.depart_sec, 36_630,
+            "the 36630 departure leaves 30 s after the query — unreachable \
+             on foot from 400 m away, so it must not be selected"
+        );
+        assert_eq!(p.depart_sec, 37_230, "the first genuinely catchable one");
+        assert_eq!(p.arrive_sec, 37_500);
+
+        // The paired positive: at 100 m the SAME query does take the 36630
+        // departure, with no leading leg. So the exclusion above is caused by
+        // the distance, not by anything else in the fixture or the timing.
+        let near = planned(&routing_doc(), &request((0, 2), (1, 1), 36_600.0));
+        assert_eq!(near.legs.len(), 1, "no leading walk: {:?}", near.legs);
+        assert_eq!(near.depart_sec, 36_630);
+        assert_eq!(near.arrive_sec, 36_900);
+    }
+
+    #[test]
+    fn two_far_linked_endpoints_are_a_real_walking_plan_not_an_empty_one() {
+        // Reproduction (a): "ARL Makkasan -> MRT Phetchaburi" (304.8 m apart,
+        // different names, different lines) returned
+        // {departSec: t, arriveSec: t, durationS: 0, legs: []} — byte-for-byte
+        // indistinguishable from "you are already there", when the real answer
+        // is a three-minute walk. It is a one-leg plan, not a zero-leg one.
+        let doc = far_interchange_doc();
+        let p = planned(&doc, &request((0, 2), (1, 0), 35_000.0));
+        assert!(!p.unreachable);
+        assert_eq!(p.legs.len(), 1, "one walking leg: {:?}", p.legs);
+        let PlanLeg::Transfer {
+            from_route_idx,
+            from_station_idx,
+            to_route_idx,
+            to_station_idx,
+            walk_m,
+            transfer_s,
+            ..
+        } = p.legs[0]
+        else {
+            panic!("the only leg must be the walk, got {:?}", p.legs[0]);
+        };
+        assert_eq!((from_route_idx, from_station_idx), (0, 2));
+        assert_eq!((to_route_idx, to_station_idx), (1, 0));
+        assert!((walk_m - 400.0).abs() < 1e-3);
+        assert_eq!(transfer_s, 180);
+        assert_eq!(
+            (p.depart_sec, p.arrive_sec, p.duration_s),
+            (35_000, 35_180, 180),
+            "the walk really takes time"
+        );
+        assert_eq!(p.transfers, 0, "no train was boarded, so no train changed");
+
+        // And the same-station case it must NOT disturb: at 100 m this stays
+        // the trivial zero-leg plan it has always been.
+        let near = planned(&routing_doc(), &request((0, 2), (1, 0), 35_000.0));
+        assert!(near.legs.is_empty());
+        assert_eq!((near.depart_sec, near.arrive_sec), (35_000, 35_000));
     }
 
     #[test]

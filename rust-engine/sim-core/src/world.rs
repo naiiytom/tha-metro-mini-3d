@@ -837,4 +837,228 @@ mod tests {
             .unwrap();
         assert!(!p.unreachable);
     }
+
+    // ---- Real-committed-cache tests -------------------------------------
+    //
+    // Every other test in this file (and in route.rs) runs against a hand-made
+    // fixture. That is why the interchange-complex bug below survived 17 tasks
+    // of task-scoped review: the fixture's one interchange link is ~100 m, a
+    // genuine same-station split, while the REGISTRY's INTERCHANGE_OVERRIDES
+    // are all >= 300 m — real walks between separate stations. No fixture the
+    // feature's own authors would naturally write contains that shape, so it
+    // has to be exercised against the committed cache itself.
+    //
+    // `public/data/network.tmb` is committed (so `npm run dev` works with no
+    // Rust toolchain), which makes reading it from a unit test legitimate and
+    // hermetic — no network, no GTFS feed, no preprocessor run.
+
+    fn real_world() -> SimWorld {
+        let bytes = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../public/data/network.tmb"
+        ))
+        .expect("public/data/network.tmb is committed alongside src/sim/pkg");
+        SimWorld::from_bytes(&bytes).expect("the committed cache decodes")
+    }
+
+    /// Resolve `(route_idx, station_idx)` by registry line key and English
+    /// station name, so a cache regeneration that reorders stations makes this
+    /// test fail loudly on the lookup rather than silently plan a different
+    /// journey.
+    fn real_stop(w: &SimWorld, line_key: &str, station: &str) -> (u8, u16) {
+        let (ri, route) = w
+            .doc
+            .routes
+            .iter()
+            .enumerate()
+            .find(|(_, r)| r.line_key == line_key)
+            .unwrap_or_else(|| panic!("no registry line {line_key:?} in the committed cache"));
+        let si = route
+            .stations
+            .iter()
+            .position(|s| s.name_en == station)
+            .unwrap_or_else(|| panic!("no station {station:?} on {line_key:?}"));
+        (ri as u8, si as u16)
+    }
+
+    /// A Wednesday inside the committed feed's calendar window (services run
+    /// 20230101..20261231), 10:00 local — ordinary weekday daytime service.
+    const REAL_WED: u32 = 20260819;
+
+    #[test]
+    fn a_real_arl_to_apm_plan_actually_reaches_the_apm() {
+        // REGRESSION, whole-branch review finding 1(b). The APM's only
+        // interchange is ARL Suvarnabhumi, 332 m away — an
+        // INTERCHANGE_OVERRIDES-class link between two SEPARATE stations, not
+        // a platform split. Before the fix this plan's single leg alighted at
+        // ARL Suvarnabhumi and reported that as the arrival: a different
+        // station, on a different line, with no transfer leg and no
+        // disclosure that the trip never reached the picked destination.
+        let w = real_world();
+        let from = real_stop(&w, "arl", "Phaya Thai");
+        let to = real_stop(&w, "apm", "Suvarnabhumi Main Terminal");
+        let p = w
+            .plan_route(&crate::route::PlanRequest {
+                from,
+                to,
+                date_yyyymmdd: REAL_WED,
+                sec_of_day: 36_000.0,
+                max_transfers: 4,
+                max_wait_s: 5_400,
+                transfer_buffer_s: 180,
+            })
+            .expect("a real station pair is structurally valid");
+        assert!(!p.unreachable, "the ARL runs all day on a weekday");
+
+        // The journey must END at the stop the user picked. It is legitimate
+        // for the last RIDE to alight elsewhere (the APM's own trains are
+        // synthesized and not needed here) — but only if the remaining walk
+        // is spelled out as a leg.
+        let last = p.legs.last().expect("a reachable plan has legs");
+        match last {
+            crate::route::PlanLeg::Ride {
+                route_idx,
+                alight_station_idx,
+                ..
+            } => assert_eq!(
+                (*route_idx, *alight_station_idx),
+                to,
+                "a plan ending on a ride must alight at the picked stop"
+            ),
+            crate::route::PlanLeg::Transfer {
+                to_route_idx,
+                to_station_idx,
+                walk_m,
+                transfer_s,
+                ..
+            } => {
+                assert_eq!(
+                    (*to_route_idx, *to_station_idx),
+                    to,
+                    "the trailing walk must end at the picked stop"
+                );
+                assert!(
+                    (*walk_m - 332.0).abs() < 5.0,
+                    "the real ARL<->APM override distance, got {walk_m}"
+                );
+                assert_eq!(*transfer_s, 180, "and it is charged, not free");
+            }
+        }
+
+        // The arrival must include that walk. Before the fix it was the
+        // alighting instant at ARL Suvarnabhumi.
+        let last_alight = p
+            .legs
+            .iter()
+            .filter_map(|l| match l {
+                crate::route::PlanLeg::Ride { alight_sec, .. } => Some(*alight_sec),
+                _ => None,
+            })
+            .next_back()
+            .expect("at least one ride");
+        assert!(
+            p.arrive_sec > last_alight,
+            "arrive_sec {} must be later than the last alighting {last_alight}",
+            p.arrive_sec
+        );
+    }
+
+    #[test]
+    fn two_real_override_linked_stations_are_a_walking_plan_not_an_empty_one() {
+        // REGRESSION, whole-branch review finding 1(a). ARL Makkasan and MRT
+        // Phetchaburi are 304.8 m apart with different names on different
+        // lines, linked by an INTERCHANGE_OVERRIDES entry precisely because
+        // they fall just outside the 300 m auto-link radius. Before the fix
+        // this returned {departSec: t, arriveSec: t, durationS: 0, legs: []} —
+        // byte-for-byte the "you are already there" answer.
+        let w = real_world();
+        let from = real_stop(&w, "arl", "ARL Makkasan");
+        let to = real_stop(&w, "blue", "Phetchaburi");
+        let p = w
+            .plan_route(&crate::route::PlanRequest {
+                from,
+                to,
+                date_yyyymmdd: REAL_WED,
+                sec_of_day: 36_000.0,
+                max_transfers: 4,
+                max_wait_s: 5_400,
+                transfer_buffer_s: 180,
+            })
+            .expect("a real station pair is structurally valid");
+        assert!(!p.unreachable);
+        assert_eq!(p.legs.len(), 1, "one walking leg, not zero: {:?}", p.legs);
+        let crate::route::PlanLeg::Transfer {
+            from_route_idx,
+            from_station_idx,
+            to_route_idx,
+            to_station_idx,
+            walk_m,
+            transfer_s,
+            ..
+        } = p.legs[0]
+        else {
+            panic!("the only leg must be the walk, got {:?}", p.legs[0]);
+        };
+        assert_eq!((from_route_idx, from_station_idx), from);
+        assert_eq!((to_route_idx, to_station_idx), to);
+        assert!(
+            (walk_m - 304.8).abs() < 5.0,
+            "the real override distance, got {walk_m}"
+        );
+        assert_eq!(transfer_s, 180);
+        assert_eq!(
+            (p.depart_sec, p.arrive_sec, p.duration_s),
+            (36_000, 36_180, 180),
+            "the walk really takes time"
+        );
+    }
+
+    #[test]
+    fn a_real_far_origin_complex_member_discloses_the_walk_to_its_platform() {
+        // REGRESSION, whole-branch review finding 1(c). MRT Pink's Nonthaburi
+        // Civic Center and MRT Purple's are 554.5 m apart — the widest
+        // override in the registry, two platforms that share a GTFS stop id
+        // but not a building. Before the fix a plan starting on the Pink
+        // platform boarded a Purple train with zero added time and no leg
+        // saying you had to walk half a kilometre first.
+        let w = real_world();
+        let from = real_stop(&w, "pink", "MRT Nonthaburi Civic Center");
+        let to = real_stop(&w, "sukhumvit", "Siam");
+        let p = w
+            .plan_route(&crate::route::PlanRequest {
+                from,
+                to,
+                date_yyyymmdd: REAL_WED,
+                sec_of_day: 36_000.0,
+                max_transfers: 4,
+                max_wait_s: 5_400,
+                transfer_buffer_s: 180,
+            })
+            .expect("a real station pair is structurally valid");
+        assert!(!p.unreachable);
+        let crate::route::PlanLeg::Transfer {
+            from_route_idx,
+            from_station_idx,
+            walk_m,
+            transfer_s,
+            ..
+        } = p.legs[0]
+        else {
+            panic!("leg 0 must be the leading walk, got {:?}", p.legs[0]);
+        };
+        assert_eq!((from_route_idx, from_station_idx), from);
+        assert!(
+            (walk_m - 554.5).abs() < 5.0,
+            "the real override distance, got {walk_m}"
+        );
+        assert_eq!(transfer_s, 180);
+
+        // And the first boarding is genuinely catchable on foot: it cannot be
+        // earlier than the query instant plus the buffer.
+        assert!(
+            p.depart_sec >= 36_000 + 180,
+            "departs {} — before the walk could finish",
+            p.depart_sec
+        );
+    }
 }
