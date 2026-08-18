@@ -14,5 +14,5 @@ pub use model::{
     TMB_VERSION,
 };
 pub use query::{BoardEntry, RunDetail, StationBoard, StationInfo, StopCall};
-pub use route::RouteIndex;
+pub use route::{PlanLeg, PlanRequest, RouteIndex, RoutePlan, plan};
 pub use world::{CacheError, MAX_VEHICLES, SimWorld, VEHICLE_STRIDE, ValidationSummary};
