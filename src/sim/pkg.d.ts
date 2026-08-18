@@ -41,6 +41,21 @@ declare module "*/pkg/metro_sim_wasm" {
     /** All stations with ENU positions, as JSON. */
     stations_json(): string;
 
+    /** `RoutePlan` as JSON (camelCase keys — a deliberate deviation from
+     * contract §7's snake_case convention, documented there and in
+     * CLAUDE.md), or "null" for a structurally invalid request. */
+    plan_route_json(
+      from_route_idx: number,
+      from_station_idx: number,
+      to_route_idx: number,
+      to_station_idx: number,
+      date_yyyymmdd: number,
+      sec_of_day: number,
+      max_transfers: number,
+      max_wait_s: number,
+      transfer_buffer_s: number,
+    ): string;
+
     free(): void;
   }
 }

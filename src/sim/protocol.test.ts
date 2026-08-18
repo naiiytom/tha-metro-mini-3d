@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { ECO_TICK_MS, DEFAULT_TICK_MS, type MainToWorker, type WorkerToMain } from "./protocol";
 
@@ -29,5 +30,29 @@ describe("tick-rate control", () => {
     // union uses `kind` and a mismatch would silently never match.
     const msg: MainToWorker = { kind: "tickRate", tickMs: ECO_TICK_MS };
     expect(msg.kind).toBe("tickRate");
+  });
+});
+
+describe("wasm ambient typings", () => {
+  it("mirrors every Engine method the worker calls", () => {
+    // src/sim/pkg.d.ts is the fallback that keeps `tsc` green when
+    // src/sim/pkg/ has not been generated. Forgetting to mirror a new method
+    // breaks the no-Rust-toolchain build path while local builds stay green —
+    // exactly the failure this pins.
+    const dts = readFileSync(new URL("./pkg.d.ts", import.meta.url), "utf8");
+    const rust = readFileSync(
+      new URL("../../rust-engine/wasm/src/lib.rs", import.meta.url),
+      "utf8",
+    );
+    for (const method of [
+      "validation_json",
+      "run_detail_json",
+      "station_board_json",
+      "stations_json",
+      "plan_route_json",
+    ]) {
+      expect(rust, `${method} in lib.rs`).toContain(`pub fn ${method}(`);
+      expect(dts, `${method} in pkg.d.ts`).toContain(`${method}(`);
+    }
   });
 });
