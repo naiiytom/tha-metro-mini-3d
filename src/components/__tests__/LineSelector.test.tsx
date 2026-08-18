@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LineSelector } from "../LineSelector";
 import { useAppStore } from "../../stores/useAppStore";
@@ -28,7 +28,7 @@ describe("LineSelector search button", () => {
       })),
     });
 
-    useAppStore.setState({ searchOpen: false, routes: [], mapReady: true, uiHidden: false });
+    useAppStore.setState({ searchOpen: false, routePlannerOpen: false, routePlan: null, routes: [], mapReady: true, uiHidden: false });
   });
 
   it("opens the search panel on click", () => {
@@ -49,6 +49,24 @@ describe("LineSelector search button", () => {
     useAppStore.setState({ uiHidden: true });
     render(<LineSelector />);
     expect(screen.queryByRole("button", { name: /search stations/i })).toBeNull();
+  });
+
+  it("opens the route planner from the header", () => {
+    render(<LineSelector />);
+    const button = screen.getByRole("button", { name: "Plan a route" });
+    expect(button.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(button);
+    expect(useAppStore.getState().routePlannerOpen).toBe(true);
+    expect(screen.getByRole("button", { name: "Close route planner" })).toBeTruthy();
+  });
+
+  it("hides the route trigger while the UI is hidden", () => {
+    // Same rule the search and collapse buttons already follow: the panel is
+    // collapsed by a CSS ancestor, so a tappable control here would flip
+    // state with no visible effect.
+    act(() => useAppStore.getState().setUiHidden(true));
+    render(<LineSelector />);
+    expect(screen.queryByRole("button", { name: "Plan a route" })).toBeNull();
   });
 });
 
