@@ -1,6 +1,12 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { assertRegistryValid, LINES, STRUCTURE_ALTITUDE_M, structureOfWay } from "./lines.config.mjs";
+import {
+  assertRegistryValid,
+  INTERCHANGE_OVERRIDES,
+  LINES,
+  STRUCTURE_ALTITUDE_M,
+  structureOfWay,
+} from "./lines.config.mjs";
 
 describe("line registry", () => {
   it("is internally consistent", () => {
@@ -146,5 +152,30 @@ describe("line registry", () => {
     const pink = LINES.filter((l) => l.key === "pink" || l.key === "pink-spur");
     expect(pink.length).toBe(2);
     for (const l of pink) expect(l.estimatedRunTimes?.basisLine).toBe("yellow");
+  });
+});
+
+describe("interchange overrides", () => {
+  /** The preprocessor reads overrides from network.json's own copy, NOT from
+   *  the registry — editing only the registry silently no-ops with every step
+   *  still reporting success. This is that footgun, made into a gate. */
+  it("are byte-for-byte in sync with network.json's own copy", () => {
+    const network = JSON.parse(
+      readFileSync(new URL("../src/data/network.json", import.meta.url), "utf8"),
+    );
+    expect(network.interchangeOverrides).toEqual(INTERCHANGE_OVERRIDES);
+  });
+
+  it("links the Suvarnabhumi APM to the Airport Rail Link", () => {
+    // Without this the APM is a permanently disconnected component of the
+    // routing graph and every plan to or from its two stations reports "no
+    // route". The APM has no GTFS route, so its stations carry their OSM node
+    // ids as stop ids — hence the very different-looking b-side value.
+    expect(INTERCHANGE_OVERRIDES).toContainEqual({
+      aLine: "arl",
+      aStop: "326",
+      bLine: "apm",
+      bStop: "13373875189",
+    });
   });
 });
