@@ -8,6 +8,7 @@ pub mod query;
 pub mod route;
 pub mod world;
 
+pub use calendar::{Frame, next_date, service_day_frames};
 pub use model::{
     CacheDoc, PatternDoc, PatternStop, RouteDoc, RunDoc, ServiceDoc, StationDoc, TMB_MAGIC,
     TMB_VERSION,

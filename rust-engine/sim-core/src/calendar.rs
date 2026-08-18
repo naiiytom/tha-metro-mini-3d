@@ -51,6 +51,61 @@ pub fn previous_date(date_yyyymmdd: u32) -> u32 {
     join_yyyymmdd(py, pm, pd)
 }
 
+/// The civil date one day after `date_yyyymmdd`.
+pub fn next_date(date_yyyymmdd: u32) -> u32 {
+    let (y, m, d) = split_yyyymmdd(date_yyyymmdd);
+    let (ny, nm, nd) = civil_from_days(days_from_civil(y, m, d) + 1);
+    join_yyyymmdd(ny, nm, nd)
+}
+
+/// Which service-day frame a run falls in for a given local date/time.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Frame {
+    /// The service day whose calendar decides whether a run is active here.
+    pub date_yyyymmdd: u32,
+    /// The query instant, in seconds since THIS frame's service-day midnight.
+    pub t_abs: f64,
+    /// Add to a run-frame second to express it in the QUERIED day's frame.
+    pub to_query_frame: i64,
+}
+
+/// The three service-day frames a forward search must consider, ordered
+/// yesterday -> today -> tomorrow.
+///
+/// `evaluate()` and `run_detail` use only the first two (today at
+/// `sec_of_day`, the previous service day at `sec_of_day + 86400`) because
+/// they only ever answer "what is live right now." A forward search needs the
+/// third: a 00:10 departure is filed on its OWN service day, so at 23:55 the
+/// next train exists only in the D+1 frame.
+///
+/// This is the same structural gap `station_board` had until this helper
+/// landed — its two-frame set meant a 23:00 board could not show a 00:10
+/// departure no matter how large `HORIZON_S` was.
+///
+/// Ordering is load-bearing. `RunDoc::start_sec` is always < 86400, so each
+/// frame's departures occupy a disjoint ascending window; searching frames in
+/// this order and taking the first hit is globally the earliest, which is
+/// what `route::earliest_trip` relies on instead of merging three lists.
+pub fn service_day_frames(date_yyyymmdd: u32, sec_of_day: f64) -> [Frame; 3] {
+    [
+        Frame {
+            date_yyyymmdd: previous_date(date_yyyymmdd),
+            t_abs: sec_of_day + 86_400.0,
+            to_query_frame: -86_400,
+        },
+        Frame {
+            date_yyyymmdd,
+            t_abs: sec_of_day,
+            to_query_frame: 0,
+        },
+        Frame {
+            date_yyyymmdd: next_date(date_yyyymmdd),
+            t_abs: sec_of_day - 86_400.0,
+            to_query_frame: 86_400,
+        },
+    ]
+}
+
 /// GTFS service-day resolution: calendar_dates exceptions override the
 /// weekday mask + date range.
 pub fn service_active_on(svc: &ServiceDoc, date_yyyymmdd: u32) -> bool {
@@ -160,5 +215,67 @@ mod tests {
         assert!(expand_frequency(100, 100, 60).is_empty());
         assert!(expand_frequency(100, 90, 60).is_empty());
         assert!(expand_frequency(0, 100, 0).is_empty());
+    }
+
+    #[test]
+    fn next_date_rollovers() {
+        assert_eq!(next_date(20260729), 20260730);
+        assert_eq!(next_date(20251231), 20260101);
+        assert_eq!(next_date(20260228), 20260301);
+        assert_eq!(next_date(20240228), 20240229); // leap year
+        assert_eq!(next_date(20240229), 20240301);
+    }
+
+    #[test]
+    fn previous_and_next_date_are_inverses() {
+        for d in [20260101, 20260301, 20261231, 20240229] {
+            assert_eq!(previous_date(next_date(d)), d);
+            assert_eq!(next_date(previous_date(d)), d);
+        }
+    }
+
+    #[test]
+    fn service_day_frames_span_yesterday_today_and_tomorrow() {
+        // 2026-07-22 at 23:00 (82800 s).
+        let f = service_day_frames(20260722, 82_800.0);
+        assert_eq!(f[0].date_yyyymmdd, 20260721);
+        assert_eq!(f[1].date_yyyymmdd, 20260722);
+        assert_eq!(f[2].date_yyyymmdd, 20260723);
+
+        // t_abs is the query instant expressed in each frame's OWN service day.
+        assert_eq!(f[0].t_abs, 82_800.0 + 86_400.0);
+        assert_eq!(f[1].t_abs, 82_800.0);
+        assert_eq!(f[2].t_abs, 82_800.0 - 86_400.0);
+
+        // to_query_frame converts a run-frame second back into the queried day.
+        assert_eq!(f[0].to_query_frame, -86_400);
+        assert_eq!(f[1].to_query_frame, 0);
+        assert_eq!(f[2].to_query_frame, 86_400);
+    }
+
+    #[test]
+    fn frames_are_ordered_so_the_first_hit_is_the_earliest() {
+        // RunDoc::start_sec is always < 86400, so each frame's departures
+        // occupy a disjoint ascending window: yesterday [-86400, 0), today
+        // [0, 86400), tomorrow [86400, 172800). Searching frames in this
+        // order and taking the first hit is therefore globally earliest —
+        // the property route::earliest_trip depends on.
+        let f = service_day_frames(20260722, 0.0);
+        assert!(f[0].to_query_frame < f[1].to_query_frame);
+        assert!(f[1].to_query_frame < f[2].to_query_frame);
+    }
+
+    #[test]
+    fn a_post_midnight_departure_is_only_findable_in_the_tomorrow_frame() {
+        // The concrete gap this helper closes: at 23:00 on the 22nd, a 00:10
+        // departure is filed on the 23rd's service day at sec 600. Only the
+        // D+1 frame puts it ahead of the query instant.
+        let f = service_day_frames(20260722, 82_800.0);
+        let departure_in_query_frame = 600i64 + f[2].to_query_frame;
+        assert_eq!(departure_in_query_frame, 87_000);
+        assert!(departure_in_query_frame > 82_800, "still in the future");
+        // The same run read in TODAY's frame is already 22h50m in the past —
+        // which is exactly why the two-frame rule could never see it.
+        assert!(600i64 + f[1].to_query_frame < 82_800);
     }
 }
