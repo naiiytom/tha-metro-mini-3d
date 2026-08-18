@@ -399,6 +399,11 @@ impl SimWorld {
     /// concurrently. MVP 5 Task 8 — previously overflow was silent and looked
     /// like a data bug (trains simply missing).
     pub fn last_truncated(&self) -> bool;
+
+    /// Plan a journey between two stations (contract §7.1). `None` ONLY for a
+    /// structurally invalid request; an unconnectable-but-valid one comes
+    /// back as `RoutePlan { unreachable: true, legs: [] }`.
+    pub fn plan_route(&self, req: &PlanRequest) -> Option<RoutePlan>;
 }
 ```
 
@@ -657,6 +662,91 @@ TS mirrors of the Rust structs live in `src/sim/protocol.ts` and keep serde's
 **snake_case** field names verbatim — they are the wire format, not idiomatic
 TS. Changing a field name in `query.rs` breaks the UI silently unless both move
 together.
+
+### 7.1 Route search (A → B)
+
+```rust
+pub fn plan(doc: &CacheDoc, idx: &RouteIndex, req: &PlanRequest) -> Option<RoutePlan>;
+```
+
+RAPTOR over the cache. `RouteIndex` (`sim-core/src/route.rs`) is built once in
+`SimWorld::from_doc`, beside `pattern_dur`, and is **not serialized** —
+everything it holds is derived from data the cache already carries, so
+`TMB_VERSION` stays at 3. Each `PatternDoc` is a RAPTOR "route"; a pattern's
+runs are FIFO by construction, which is what makes the per-pattern earliest-trip
+binary search valid. The round index IS the boarding count, so
+earliest-arrival-tied-broken-by-fewest-transfers is the native output.
+
+Three differences from the two queries above, all deliberate:
+
+- **Three service-day frames, not two.** `calendar::service_day_frames` returns
+  yesterday / today / tomorrow. A forward search needs D+1 (a 00:10 departure
+  is filed on its own service day). `station_board` uses the same helper as of
+  this change — before it, a 23:00 board structurally could not show a 00:10
+  departure. `run_detail` deliberately keeps the two-frame rule so it still
+  matches `evaluate()`'s liveness exactly.
+- **`None` and `unreachable` mean different things.** `None` (`"null"` on the
+  wasm surface) is a structurally invalid request — a bad route or station
+  index. `RoutePlan { unreachable: true, legs: [] }` is a well-formed request
+  nothing connects within `max_wait_s`. The UI says different things for each.
+- **Transfer time is a FLAT per-request buffer** (`transfer_buffer_s`, default
+  180 s), applied identically at every interchange. `PlanLeg::Transfer.walk_m`
+  is re-derived from `position_at_arc` — the same call `link_interchanges()`
+  used — and is display context only; it never enters the time model.
+  `RoutePlan.transfer_times_estimated` is the disclosure hook and is always
+  true today.
+
+Endpoints expand to their whole interchange complex (the picked stop plus its
+direct `interchanges` neighbours, one hop): every origin-complex stop is
+seeded at the query time with zero boardings and any destination-complex stop
+counts as arrival, so picking `silom/Siam` instead of `sukhumvit/Siam` never
+costs a spurious transfer.
+
+`PlanLeg::Ride`'s `board_arc_m`/`alight_arc_m` come from **`PatternStop::arc_m`,
+never `StationDoc::arc_m`** — the two legitimately diverge on a
+self-approaching alignment (MRT Blue at Tha Phra), and the pattern's value is
+the one the vehicle buffer interpolates along, so it is the one the map
+highlight must draw.
+
+Wasm surface:
+
+```rust
+pub fn plan_route_json(
+    &self,
+    from_route_idx: u8,
+    from_station_idx: u16,
+    to_route_idx: u8,
+    to_station_idx: u16,
+    date_yyyymmdd: u32,
+    sec_of_day: f64,
+    max_transfers: u8,
+    max_wait_s: u32,
+    transfer_buffer_s: u32,
+) -> String;
+```
+
+Worker protocol:
+
+```ts
+// SimQuery +=
+| { kind: "routePlan"; fromRouteIdx: number; fromStationIdx: number;
+    toRouteIdx: number; toStationIdx: number; simEpochMs: number;
+    maxTransfers?: number; maxWaitS?: number; transferBufferS?: number }
+// SimQueryResult +=
+| { kind: "routePlan"; plan: RoutePlan | null }
+```
+
+**Casing deviation, stated plainly:** the `RoutePlan`/`PlanLeg` mirrors in
+`src/sim/protocol.ts` are **camelCase**, unlike every other mirror in this
+section, because `route.rs` serializes with `#[serde(rename_all =
+"camelCase")]`. The rule is unchanged in substance — the TS shape is serde's
+output verbatim, and renaming a field on either side breaks the UI silently
+unless both move together.
+
+The three routing parameters' defaults (`maxTransfers: 4`, `maxWaitS: 5400`,
+`transferBufferS: 180`) live in `src/sim/protocol.ts`, **not** in the registry
+and **not** hardcoded in Rust: they are global search parameters, not per-line
+displayed timetable data, so they stay tunable without a cache regeneration.
 
 ### Frontend (MVP 4)
 

@@ -68,12 +68,14 @@ Features to close parity with [nagix/mini-tokyo-3d](https://github.com/nagix/min
 - Language switcher in the UI
 - Station names should display in the selected language
 
-### 8. Route Search (A → B)
-- Search panel with origin and destination station inputs
-- Pathfinding over the station graph using interchange metadata (already auto-linked within 300 m + manual overrides)
-- BFS/Dijkstra weighted by scheduled travel times from the binary timetable
-- Display route with transfer instructions, estimated travel time, and departure/arrival times
-- Highlight the route on the map
+### 8. Route Search (A → B) — ✅ delivered 2026-08-16
+- ✅ Search panel with origin and destination station pickers (`RoutePlanner.tsx`), reusing `filterStations` and StationSearch's result-row UX; triggered from `LineSelector`'s header
+- ✅ **Full schedule-aware planning, not a static "typical travel time"**: RAPTOR over the real timetable (`sim-core/src/route.rs`), against the app's scrubbed clock, so a plan made at a scrubbed 23:50 is the plan for 23:50
+- ✅ Earliest arrival, tied-broken by fewest transfers — RAPTOR's native output, since the round index is the boarding count
+- ✅ Leg-by-leg transfer instructions, board/alight times, total duration and transfer count; map highlight of each ride leg's arc span
+- ✅ Suvarnabhumi APM is plannable, via a new ARL↔APM interchange override (332 m, just outside the 300 m auto-link radius) — it was a disconnected component of the routing graph before
+- ✅ **Incidental fix**: `station_board` now shows post-midnight departures late at night. It shared the two-service-day-frame rule and structurally could not show a 00:10 departure at 23:00
+- ⚠️ **Honest limitations**: one route is returned, not a ranked set (no Pareto frontier — RAPTOR's round structure leaves McRAPTOR open later). **Transfer time is one FLAT allowance** at every interchange regardless of walking distance, disclosed in the panel via `TRANSFER_TIMES_ESTIMATED_NOTE`; distance-derived times were considered and declined, since there is no per-interchange data to calibrate against. Interchange complexes expand **one hop** — a three-line complex whose outer pair is not directly linked is not treated as one complex. Leg instructions are English only (item 7). Track-only lines (`orange`, `purple-ext`) are structurally absent from the graph: they have zero stations.
 
 ### 9. Plugin Architecture
 - Formal plugin interface (register/unregister, lifecycle hooks)
