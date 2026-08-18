@@ -5,6 +5,7 @@ pub mod calendar;
 pub mod geo;
 pub mod model;
 pub mod query;
+pub mod route;
 pub mod world;
 
 pub use model::{
@@ -12,4 +13,5 @@ pub use model::{
     TMB_VERSION,
 };
 pub use query::{BoardEntry, RunDetail, StationBoard, StationInfo, StopCall};
+pub use route::RouteIndex;
 pub use world::{CacheError, MAX_VEHICLES, SimWorld, VEHICLE_STRIDE, ValidationSummary};
