@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RoutePlanner } from "../RoutePlanner";
 import { useAppStore } from "../../stores/useAppStore";
@@ -146,5 +146,57 @@ describe("RoutePlanner", () => {
     fireEvent.click(screen.getByRole("button", { name: "Find route" }));
     await screen.findByTestId("route-plan-summary");
     expect(screen.queryByTestId("transfer-times-note")).toBeNull();
+  });
+
+  it("lets a picked station be changed by editing the field again, not permanently pinning it", async () => {
+    render(<RoutePlanner />);
+    fireEvent.change(screen.getByLabelText("From station"), { target: { value: "alpha" } });
+    fireEvent.click(screen.getByText("Alpha"));
+
+    // Regression guard: the picked value used to permanently override the
+    // input's `value` prop, so typing again had no visible effect and the
+    // dropdown could never reopen. Typing here must re-filter and re-open it.
+    fireEvent.change(screen.getByLabelText("From station"), { target: { value: "bravo" } });
+    expect(screen.getByLabelText("From station")).toHaveValue("bravo");
+    fireEvent.click(screen.getByText("Bravo"));
+
+    fireEvent.change(screen.getByLabelText("To station"), { target: { value: "alpha" } });
+    fireEvent.click(screen.getByText("Alpha"));
+    fireEvent.click(screen.getByRole("button", { name: "Find route" }));
+
+    // Confirms the SECOND pick (Bravo) genuinely replaced the first (Alpha)
+    // as "From" — a stuck picker would still submit Alpha's indices here.
+    const client = activeSimClient.current!;
+    expect(client.getRoutePlan).toHaveBeenCalledWith(0, 1, 0, 0, 1_800_000_000_000);
+  });
+
+  it("resets to a fresh state when the panel is closed and reopened", async () => {
+    (activeSimClient.current!.getRoutePlan as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    render(<RoutePlanner />);
+    fireEvent.change(screen.getByLabelText("From station"), { target: { value: "alpha" } });
+    fireEvent.click(screen.getByText("Alpha"));
+    fireEvent.change(screen.getByLabelText("To station"), { target: { value: "bravo" } });
+    fireEvent.click(screen.getByText("Bravo"));
+    fireEvent.click(screen.getByRole("button", { name: "Find route" }));
+    expect(await screen.findByText(/Couldn't plan a route/)).toBeTruthy();
+
+    // Close, then reopen — same store transition a real close (via the
+    // panel's own × button, which only calls setRoutePlannerOpen) then a
+    // later reopen (e.g. from LineSelector) would produce. Each transition is
+    // wrapped in its own `act` so React actually commits and runs the reset
+    // effect at `open: false` before flipping back — two bare setState calls
+    // in a row get batched into a single commit that never visits `false`,
+    // which would make this test pass for the wrong reason (no reset ever
+    // exercised).
+    act(() => {
+      useAppStore.setState({ routePlannerOpen: false });
+    });
+    act(() => {
+      useAppStore.setState({ routePlannerOpen: true });
+    });
+
+    expect(screen.queryByText(/Couldn't plan a route/)).toBeNull();
+    expect(screen.getByLabelText("From station")).toHaveValue("");
+    expect(screen.getByLabelText("To station")).toHaveValue("");
   });
 });

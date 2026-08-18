@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { filterStations } from "../search/stationSearch";
 import { activeSimClient } from "../sim/SimClient";
 import type { PlanLeg, StationInfo } from "../sim/protocol";
@@ -40,6 +40,12 @@ function StationPicker({
   stations: StationInfo[];
   routes: LineGeometry[];
 }) {
+  // `value` (the parent's picked station) no longer drives the input's
+  // display — see the fix note on the input below — but stays in the prop
+  // signature since the parent still needs somewhere to hand its pick to a
+  // future consumer of this component; reserved the same way LegRow reserves
+  // its own unused `routes` prop.
+  void value;
   const [query, setQuery] = useState("");
   const results = useMemo(() => (query.trim() === "" ? [] : filterStations(stations, query)), [
     query,
@@ -53,11 +59,10 @@ function StationPicker({
         <input
           type="text"
           aria-label={`${label} station`}
-          value={value ? value.name_en : query}
+          value={query}
           onChange={(e) => {
             setQuery(e.target.value);
           }}
-          onFocus={() => setQuery(value ? value.name_en : query)}
           placeholder="Search stations…"
           className="mt-1 block w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm text-slate-900"
         />
@@ -70,7 +75,7 @@ function StationPicker({
                 type="button"
                 onClick={() => {
                   onPick(s);
-                  setQuery("");
+                  setQuery(s.name_en);
                 }}
                 className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-slate-700 hover:bg-slate-200"
               >
@@ -162,6 +167,19 @@ export function RoutePlanner() {
   );
 
   const disclosures = useMemo(() => planDisclosures(plan, routes), [plan, routes]);
+
+  // The panel only gates its OWN render on `open` (below) — it stays mounted
+  // the whole page lifetime, so its local from/to/status state would
+  // otherwise survive a close/reopen cycle and show a stale prior search
+  // immediately on reopen. Runs before the early return since hooks must run
+  // unconditionally on every render.
+  useEffect(() => {
+    if (!open) {
+      setFrom(null);
+      setTo(null);
+      setStatus({ kind: "idle" });
+    }
+  }, [open]);
 
   if (!open) return null;
 
