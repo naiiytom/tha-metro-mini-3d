@@ -25,6 +25,8 @@
 //! Walking distances are re-derived from `position_at_arc`, the same call
 //! `link_interchanges()` already used to create the links being walked.
 
+use std::collections::HashMap;
+
 use serde::Serialize;
 
 use crate::calendar::{Frame, service_active_on, service_day_frames};
@@ -512,53 +514,131 @@ pub fn plan(doc: &CacheDoc, idx: &RouteIndex, req: &PlanRequest) -> Option<Route
     }
     rounds.push(round0);
 
-    // One round for now — a single boarding, no transfers. Task 4 turns this
-    // into the real K-round loop; the label/round shape is already final so
-    // reconstruction does not change.
-    {
-        let prev = rounds[0].clone();
+    let mut marked: Vec<usize> = origin_stops.clone();
+    for k in 1..=(req.max_transfers as usize + 1) {
+        let prev = rounds[k - 1].clone();
         let mut cur = prev.clone();
-        for &stop in &origin_stops {
+        let mut next_marked: Vec<usize> = Vec::new();
+
+        // Each pattern is scanned once, from the EARLIEST marked position it
+        // calls — the round's whole cost, and why RAPTOR is linear in stops
+        // per round rather than quadratic.
+        let mut queue: HashMap<u16, usize> = HashMap::new();
+        for &stop in &marked {
             for &(pattern_idx, pos) in idx.patterns_at(stop) {
-                let Some(ready) = prev[stop].as_ref().map(|l| l.arrival) else {
-                    continue;
-                };
-                let Some((run_idx, offset)) = earliest_trip(
-                    doc,
-                    idx,
-                    &active,
-                    &frames,
-                    pattern_idx,
-                    pos as usize,
-                    ready,
-                    req.max_wait_s,
-                ) else {
-                    continue;
-                };
-                let pattern = &doc.patterns[pattern_idx as usize];
-                let run = &doc.runs[run_idx as usize];
-                for later in (pos as usize + 1)..pattern.stops.len() {
-                    let pstop = &pattern.stops[later];
-                    let to = idx.stop_of(pattern.route_idx as usize, pstop.station_idx as usize);
+                let pos = pos as usize;
+                queue
+                    .entry(pattern_idx)
+                    .and_modify(|p| {
+                        if pos < *p {
+                            *p = pos;
+                        }
+                    })
+                    .or_insert(pos);
+            }
+        }
+        // Sorted before use: a HashMap's iteration order is seeded per
+        // process, so an arrival-time tie would otherwise resolve differently
+        // run to run.
+        let mut scan: Vec<(u16, usize)> = queue.into_iter().collect();
+        scan.sort_unstable();
+
+        for (pattern_idx, start_pos) in scan {
+            let pattern = &doc.patterns[pattern_idx as usize];
+            // The run currently being ridden: (run, frame offset, boarding
+            // position, boarding stop). None until we board.
+            let mut trip: Option<(u32, i64, usize, usize)> = None;
+
+            for pos in start_pos..pattern.stops.len() {
+                let pstop = &pattern.stops[pos];
+                let stop = idx.stop_of(pattern.route_idx as usize, pstop.station_idx as usize);
+
+                if let Some((run_idx, offset, board_pos, board_stop)) = trip {
+                    let run = &doc.runs[run_idx as usize];
                     let arrival = run.start_sec as i64 + pstop.arrival_s as i64 + offset;
-                    if arrival < best[to] {
-                        best[to] = arrival;
-                        cur[to] = Some(Label {
+                    if arrival < best[stop] {
+                        best[stop] = arrival;
+                        cur[stop] = Some(Label {
                             arrival,
                             via: Via::Ride {
                                 pattern_idx,
                                 run_idx,
                                 offset,
-                                board_stop: stop,
-                                board_pos: pos as usize,
-                                alight_pos: later,
+                                board_stop,
+                                board_pos,
+                                alight_pos: pos,
                             },
                         });
+                        next_marked.push(stop);
+                    }
+                }
+
+                // Can we board something earlier here than what we are on?
+                // A same-stop pattern change costs nothing extra — we are
+                // already on the platform — which is why `ready` carries no
+                // buffer; only footpaths below add one.
+                let Some(ready) = prev[stop].as_ref().map(|l| l.arrival) else {
+                    continue;
+                };
+                let current_dep = trip.map(|(run_idx, offset, _, _)| {
+                    doc.runs[run_idx as usize].start_sec as i64 + pstop.departure_s as i64 + offset
+                });
+                if current_dep.is_some_and(|d| ready > d) {
+                    continue; // cannot improve on the trip we are riding
+                }
+                if let Some((run_idx, offset)) = earliest_trip(
+                    doc,
+                    idx,
+                    &active,
+                    &frames,
+                    pattern_idx,
+                    pos,
+                    ready,
+                    req.max_wait_s,
+                ) {
+                    let dep = doc.runs[run_idx as usize].start_sec as i64
+                        + pstop.departure_s as i64
+                        + offset;
+                    if current_dep.is_none_or(|d| dep < d) {
+                        trip = Some((run_idx, offset, pos, stop));
                     }
                 }
             }
         }
+
+        // Footpaths, relaxed to a fixed point INSIDE the round: walking is
+        // not a boarding, so it must not consume a round. `transfer_buffer_s`
+        // makes each hop strictly later, and `best` only accepts strict
+        // improvements, so this terminates even at a buffer of zero.
+        let mut work: Vec<usize> = next_marked.clone();
+        while let Some(stop) = work.pop() {
+            let Some(from) = cur[stop].as_ref().map(|l| l.arrival) else {
+                continue;
+            };
+            for &(to, walk_m) in idx.transfers_at(stop) {
+                let arrival = from + req.transfer_buffer_s as i64;
+                if arrival < best[to] {
+                    best[to] = arrival;
+                    cur[to] = Some(Label {
+                        arrival,
+                        via: Via::Walk {
+                            from_stop: stop,
+                            walk_m,
+                        },
+                    });
+                    next_marked.push(to);
+                    work.push(to);
+                }
+            }
+        }
+
         rounds.push(cur);
+        next_marked.sort_unstable();
+        next_marked.dedup();
+        if next_marked.is_empty() {
+            break; // nothing improved: no later round can improve either
+        }
+        marked = next_marked;
     }
 
     finish(doc, idx, &rounds, &target_stops, t0, req)
@@ -1088,5 +1168,147 @@ mod plan_tests {
         let doc = routing_doc();
         assert!(planned(&doc, &request((0, 0), (0, 2), 35_000.0)).transfer_times_estimated);
         assert!(planned(&doc, &request((0, 1), (0, 1), 35_000.0)).transfer_times_estimated);
+    }
+
+    #[test]
+    fn a_two_leg_plan_transfers_across_the_interchange() {
+        let doc = routing_doc();
+        // A0 -> B1. Ride pattern 0 (36030 -> A2 at 36600), walk to B0 with the
+        // 180 s buffer (ready 36780), so pattern 1's 36600 run — departing B0
+        // at 36630 — is NOT catchable; the 37200 run is.
+        let p = planned(&doc, &request((0, 0), (1, 1), 35_000.0));
+        assert!(!p.unreachable);
+        assert_eq!(p.transfers, 1);
+        assert_eq!(p.legs.len(), 3, "ride, transfer, ride");
+        assert_eq!(p.depart_sec, 36_030);
+        assert_eq!(p.arrive_sec, 37_500);
+        assert_eq!(p.duration_s, 1_470);
+
+        let PlanLeg::Transfer {
+            from_route_idx,
+            from_station_idx,
+            to_route_idx,
+            to_station_idx,
+            walk_m,
+            transfer_s,
+            wait_s,
+        } = p.legs[1]
+        else {
+            panic!("leg 1 must be the transfer, got {:?}", p.legs[1]);
+        };
+        assert_eq!((from_route_idx, from_station_idx), (0, 2));
+        assert_eq!((to_route_idx, to_station_idx), (1, 0));
+        assert_eq!(transfer_s, 180, "the flat buffer, charged as routing cost");
+        assert!((walk_m - 100.0).abs() < 1e-3, "display-only context");
+        // 37230 (board) - 36600 (alight) - 180 (buffer) = 450.
+        assert_eq!(wait_s, 450);
+
+        let PlanLeg::Ride {
+            run_idx, route_idx, ..
+        } = p.legs[2]
+        else {
+            panic!("leg 2 must be a ride");
+        };
+        assert_eq!((route_idx, run_idx), (1, 3));
+    }
+
+    #[test]
+    fn walking_distance_never_changes_the_routing_cost() {
+        // Distance-derived transfer time was considered and declined. Blow the
+        // walk up 40x by moving Line B's track: the plan must be identical.
+        let mut doc = routing_doc();
+        doc.routes[1].track_xyz = vec![[6000.0, 0.0, 15.0], [7000.0, 0.0, 15.0]];
+        let p = planned(&doc, &request((0, 0), (1, 1), 35_000.0));
+        let PlanLeg::Transfer {
+            walk_m,
+            transfer_s,
+            wait_s,
+            ..
+        } = p.legs[1]
+        else {
+            panic!("expected a transfer leg");
+        };
+        assert!((walk_m - 4000.0).abs() < 1e-3, "distance really did change");
+        assert_eq!(transfer_s, 180, "the cost did not");
+        assert_eq!(wait_s, 450);
+        assert_eq!(p.arrive_sec, 37_500);
+    }
+
+    #[test]
+    fn max_transfers_caps_the_number_of_boardings() {
+        let doc = routing_doc();
+        let mut req = request((0, 0), (1, 1), 35_000.0);
+        req.max_transfers = 0; // one boarding only
+        let p = planned(&doc, &req);
+        assert!(p.unreachable, "B1 needs a second boarding");
+        assert!(p.legs.is_empty());
+        req.max_transfers = 1;
+        assert!(!planned(&doc, &req).unreachable);
+    }
+
+    #[test]
+    fn a_saturday_query_never_boards_a_sunday_only_run() {
+        // The fixture's run 5 (pattern 1, start 36800) is on a Sunday-only
+        // service — exactly the MRT Blue split-service shape. It departs B0 at
+        // 36830, which clears the 36780 transfer-ready time, so a
+        // calendar-blind search WOULD take it and arrive 400 s early.
+        let doc = routing_doc();
+        const SAT: u32 = 20260725;
+        const SUN: u32 = 20260726;
+
+        let mut req = request((0, 0), (1, 1), 35_000.0);
+        req.date_yyyymmdd = SAT;
+        assert_eq!(
+            planned(&doc, &req).arrive_sec,
+            37_500,
+            "Saturday takes the all-days run"
+        );
+
+        req.date_yyyymmdd = SUN;
+        assert_eq!(
+            planned(&doc, &req).arrive_sec,
+            37_100,
+            "Sunday may take the Sunday run"
+        );
+    }
+
+    #[test]
+    fn one_plan_can_span_a_frequency_shaped_and_a_concrete_departure_pattern() {
+        // Pattern 0 is the frequency-expanded shape (one pattern, several
+        // starts a headway apart); pattern 1 is the concrete-departure shape.
+        // Both reach sim-core as plain RunDocs — expand_frequency only ever
+        // runs in the preprocessor — so a single plan crossing both is the
+        // real mixed-shape journey, not a special case.
+        let doc = routing_doc();
+        let p = planned(&doc, &request((0, 0), (1, 1), 35_000.0));
+        let rides: Vec<u32> = p
+            .legs
+            .iter()
+            .filter_map(|l| match l {
+                PlanLeg::Ride { run_idx, .. } => Some(*run_idx),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(rides, vec![0, 3]);
+    }
+
+    #[test]
+    fn the_result_is_deterministic_across_repeated_builds() {
+        // Pattern scanning is driven off a HashMap whose iteration order is
+        // seeded per process; the scan list is sorted before use so a tie can
+        // never resolve differently run to run (the same nondeterminism
+        // sort_snap_warnings closed in the preprocessor).
+        let doc = routing_doc();
+        let first = planned(&doc, &request((0, 0), (1, 1), 35_000.0));
+        for _ in 0..25 {
+            let again = planned(&doc, &request((0, 0), (1, 1), 35_000.0));
+            assert_eq!(again.arrive_sec, first.arrive_sec);
+            assert_eq!(again.legs.len(), first.legs.len());
+            assert_eq!(
+                format!("{:?}", again.legs),
+                format!("{:?}", first.legs),
+                "leg-for-leg identical"
+            );
+        }
     }
 }
