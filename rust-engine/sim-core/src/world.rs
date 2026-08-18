@@ -4,6 +4,7 @@ use serde::Serialize;
 
 use crate::calendar::{previous_date, service_active_on};
 use crate::model::{CacheDoc, PatternDoc, RouteDoc, TMB_MAGIC, TMB_VERSION};
+use crate::route::{PlanRequest, RouteIndex, RoutePlan};
 
 pub const VEHICLE_STRIDE: usize = 8; // f32 lanes per vehicle
 /// Frame-buffer capacity. Sized well above SRS NF1's 300-concurrent target so
@@ -50,6 +51,11 @@ pub struct SimWorld {
     doc: CacheDoc,
     /// Per pattern: relative time of the final arrival (run duration).
     pattern_dur: Vec<f64>,
+    /// RAPTOR adjacency for `plan_route`. Built once here for the same reason
+    /// `pattern_dur` is — one pass over the runs plus one small sort per
+    /// pattern, sub-millisecond, invisible next to decoding the ~370 KB cache
+    /// — and held by value so a query never rebuilds or lazily initialises it.
+    route_index: RouteIndex,
     /// True if the last evaluate() hit MAX_VEHICLES and dropped vehicles.
     /// `evaluate` takes `&self` (it's called from a shared reference on the
     /// frame path), so recording this needs interior mutability. `Cell` is
@@ -108,9 +114,11 @@ impl SimWorld {
             .iter()
             .map(|p| p.stops.last().map(|s| s.arrival_s as f64).unwrap_or(0.0))
             .collect();
+        let route_index = RouteIndex::build(&doc);
         Ok(Self {
             doc,
             pattern_dur,
+            route_index,
             truncated: std::cell::Cell::new(false),
         })
     }
@@ -210,6 +218,18 @@ impl SimWorld {
     /// surface it instead of the failure silently looking like a data bug.
     pub fn last_truncated(&self) -> bool {
         self.truncated.get()
+    }
+
+    /// Plan a journey between two stations at a Bangkok local date/time.
+    ///
+    /// `None` only for a structurally invalid request (bad route/station
+    /// index); a well-formed request that does not connect comes back as
+    /// `Some(RoutePlan { unreachable: true, .. })` — the same "an answer, not
+    /// a missing one" shape `station_board` uses for a track-only route.
+    ///
+    /// UI-rate only, like every `query.rs` call — never on the frame path.
+    pub fn plan_route(&self, req: &PlanRequest) -> Option<RoutePlan> {
+        crate::route::plan(&self.doc, &self.route_index, req)
     }
 }
 
@@ -731,5 +751,90 @@ mod tests {
             SimWorld::from_bytes(&bytes),
             Err(CacheError::BadMagic(_))
         ));
+    }
+
+    #[test]
+    fn plan_route_answers_through_the_world() {
+        use crate::route::{PlanLeg, PlanRequest};
+        // The world tests' own synthetic feed: A(0) -> B(100) -> C(200) on one
+        // route, run 0 starting 36000 (A dep 36030, C arr 36200).
+        let w = world();
+        let req = PlanRequest {
+            from: (0, 0),
+            to: (0, 2),
+            date_yyyymmdd: WED,
+            sec_of_day: 35_000.0,
+            max_transfers: 4,
+            max_wait_s: 5_400,
+            transfer_buffer_s: 180,
+        };
+        let p = w.plan_route(&req).expect("well-formed request");
+        assert!(!p.unreachable);
+        assert_eq!(p.depart_sec, 36_030);
+        assert_eq!(p.arrive_sec, 36_200);
+        assert_eq!(p.transfers, 0);
+        assert!(matches!(p.legs[0], PlanLeg::Ride { .. }));
+
+        // Bad indices still resolve to None, not a panic.
+        let bad = PlanRequest {
+            from: (9, 0),
+            ..req
+        };
+        assert!(w.plan_route(&bad).is_none());
+    }
+
+    #[test]
+    fn the_route_index_is_built_once_and_survives_from_bytes() {
+        // The index is a from_doc-time field like pattern_dur, so a world
+        // decoded from real bytes must be able to plan immediately — no lazy
+        // build, no interior mutability, nothing to warm up.
+        use crate::route::PlanRequest;
+        let bytes =
+            bincode::serde::encode_to_vec(synthetic_doc(), bincode::config::standard()).unwrap();
+        let w = SimWorld::from_bytes(&bytes).unwrap();
+        let p = w
+            .plan_route(&PlanRequest {
+                from: (0, 0),
+                to: (0, 1),
+                date_yyyymmdd: WED,
+                sec_of_day: 35_000.0,
+                max_transfers: 4,
+                max_wait_s: 5_400,
+                transfer_buffer_s: 180,
+            })
+            .unwrap();
+        assert_eq!(p.arrive_sec, 36_100);
+    }
+
+    #[test]
+    fn a_track_only_route_still_leaves_every_other_route_plannable() {
+        // Mirrors query.rs's "empty board, not a missing one" precedent: a
+        // rendered-but-unsimulated line must not break the graph around it.
+        use crate::model::RouteDoc;
+        use crate::route::PlanRequest;
+        let mut doc = synthetic_doc();
+        doc.routes.push(RouteDoc {
+            gtfs_route_id: String::new(),
+            line_key: "orange".into(),
+            simulated: false,
+            name_en: "Orange".into(),
+            color_rgb: 0xF57C00,
+            track_xyz: vec![[0.0, 0.0, 15.0], [1000.0, 0.0, 15.0]],
+            track_arc_m: vec![0.0, 1000.0],
+            stations: Vec::new(),
+        });
+        let w = SimWorld::from_doc(doc).unwrap();
+        let p = w
+            .plan_route(&PlanRequest {
+                from: (0, 0),
+                to: (0, 2),
+                date_yyyymmdd: WED,
+                sec_of_day: 35_000.0,
+                max_transfers: 4,
+                max_wait_s: 5_400,
+                transfer_buffer_s: 180,
+            })
+            .unwrap();
+        assert!(!p.unreachable);
     }
 }
