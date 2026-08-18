@@ -475,6 +475,29 @@ fn reconstruct(
     legs
 }
 
+/// The picked stop plus its ONE-HOP interchange neighbours.
+///
+/// `filterStations` does not dedupe interchange stations — "Siam" appears
+/// once per line, and the UI lets the user pick either — so a search from
+/// `silom/Siam` must not be charged a transfer at Siam merely because the
+/// picked stop object differs from the one a same-route ride would land on.
+/// Fixed here rather than in the UI, so every caller gets it.
+///
+/// Deliberately one hop, not a transitive closure: a closure would make an
+/// arbitrarily long chain of walks free, which is not what a shared station
+/// concourse is. Mid-journey footpaths keep paying the flat buffer (they are
+/// relaxed to a fixed point in `plan`'s round loop); only the two ENDPOINTS
+/// get this free expansion.
+fn expand_complex(idx: &RouteIndex, stop: usize) -> Vec<usize> {
+    let mut out = vec![stop];
+    for &(to, _walk_m) in idx.transfers_at(stop) {
+        if !out.contains(&to) {
+            out.push(to);
+        }
+    }
+    out
+}
+
 /// Plan a journey. `None` ONLY for a structurally invalid request (a bad
 /// route or station index); a well-formed request that simply does not
 /// connect returns `Some(RoutePlan { unreachable: true, .. })`.
@@ -499,8 +522,10 @@ pub fn plan(doc: &CacheDoc, idx: &RouteIndex, req: &PlanRequest) -> Option<Route
 
     let t0 = req.sec_of_day as i64;
     let n = idx.stop_count();
-    let origin_stops = vec![origin];
-    let target_stops = vec![target];
+    // Seed every origin-complex stop at the query time with zero boardings,
+    // and accept any destination-complex stop as the target.
+    let origin_stops = expand_complex(idx, origin);
+    let target_stops = expand_complex(idx, target);
 
     let mut best = vec![UNREACHED; n];
     let mut rounds: Vec<Vec<Option<Label>>> = Vec::new();
@@ -1310,5 +1335,83 @@ mod plan_tests {
                 "leg-for-leg identical"
             );
         }
+    }
+
+    #[test]
+    fn picking_the_other_side_of_an_interchange_costs_no_spurious_transfer() {
+        // filterStations does not dedupe interchange stations, so the user can
+        // pick line-b/B0 when a Line A ride would naturally land on
+        // line-a/A2. Charging a transfer for that would be an artifact of
+        // WHICH stop object got picked, not of the journey.
+        let doc = routing_doc();
+        let picked_a2 = planned(&doc, &request((0, 0), (0, 2), 35_000.0));
+        let picked_b0 = planned(&doc, &request((0, 0), (1, 0), 35_000.0));
+        assert_eq!(picked_b0.transfers, 0, "same complex, same journey");
+        assert_eq!(picked_b0.legs.len(), 1);
+        assert_eq!(picked_b0.arrive_sec, picked_a2.arrive_sec);
+        assert_eq!(picked_b0.depart_sec, picked_a2.depart_sec);
+    }
+
+    #[test]
+    fn an_origin_on_the_other_side_of_an_interchange_boards_without_a_transfer() {
+        // The mirror case: origin picked as line-a/A2, destination on Line B.
+        // Seeding the whole origin complex at the query time means the Line B
+        // train is boarded directly, with no leading transfer leg.
+        let doc = routing_doc();
+        let p = planned(&doc, &request((0, 2), (1, 1), 35_000.0));
+        assert!(!p.unreachable);
+        assert_eq!(p.transfers, 0);
+        assert_eq!(p.legs.len(), 1, "one ride, no leading walk: {:?}", p.legs);
+        let PlanLeg::Ride {
+            route_idx,
+            board_station_idx,
+            ..
+        } = p.legs[0]
+        else {
+            panic!("expected a ride leg");
+        };
+        assert_eq!((route_idx, board_station_idx), (1, 0));
+    }
+
+    #[test]
+    fn origin_and_destination_in_the_same_complex_is_a_trivial_zero_leg_plan() {
+        // silom/Siam -> sukhumvit/Siam, in miniature. Not an error, and not a
+        // ride: you are already there.
+        let doc = routing_doc();
+        let p = planned(&doc, &request((0, 2), (1, 0), 35_000.0));
+        assert!(!p.unreachable);
+        assert!(p.legs.is_empty());
+        assert_eq!(
+            (p.depart_sec, p.arrive_sec, p.duration_s, p.transfers),
+            (35_000, 35_000, 0, 0)
+        );
+    }
+
+    #[test]
+    fn expansion_is_one_hop_only() {
+        // A three-station chain A2 <-> B0 <-> B1 (hand-linked). Expanding the
+        // A2 complex must reach B0 and stop — a transitive closure would make
+        // arbitrarily long walking chains free, which is not what a shared
+        // station concourse is.
+        let mut doc = routing_doc();
+        doc.routes[1].stations[0]
+            .interchanges
+            .push(crate::model::InterchangeRef {
+                route_idx: 1,
+                station_idx: 1,
+            });
+        doc.routes[1].stations[1]
+            .interchanges
+            .push(crate::model::InterchangeRef {
+                route_idx: 1,
+                station_idx: 0,
+            });
+        let idx = RouteIndex::build(&doc);
+        let a2 = idx.stop_id(&doc, 0, 2).unwrap();
+        let b0 = idx.stop_id(&doc, 1, 0).unwrap();
+        let b1 = idx.stop_id(&doc, 1, 1).unwrap();
+        let complex = super::expand_complex(&idx, a2);
+        assert!(complex.contains(&a2) && complex.contains(&b0));
+        assert!(!complex.contains(&b1), "one hop, not a transitive closure");
     }
 }
