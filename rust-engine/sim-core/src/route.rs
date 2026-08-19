@@ -303,9 +303,26 @@ enum Step {
 /// `ready`, as `(run_idx, frame offset)`. `None` when the only candidates
 /// would mean waiting longer than `max_wait_s`.
 ///
-/// Frames are searched in offset order and each frame's departures occupy a
-/// disjoint ascending window (`RunDoc::start_sec < 86400`), so the first hit
-/// is globally the earliest — three binary searches, no merging.
+/// Frames are searched in offset order and the first hit is globally the
+/// earliest — three binary searches, no merging. This holds even though a
+/// late `start_sec` (e.g. 23:50) at a `pos` with a large cumulative
+/// `departure_s` can depart past 86400 in its OWN frame (a run that reads as
+/// tomorrow-morning in wall-clock terms while still counting as today's
+/// service): every dep in a frame is `start_sec + dep_off + offset`, and
+/// as long as `RunDoc::start_sec < 86400` (true of every run this
+/// preprocessor currently emits — see `runs_for_pattern` — though nothing
+/// enforces it as a cache-format invariant) while adjacent frames' offsets
+/// are exactly 86400 apart, each frame's whole range of possible deps sits
+/// strictly below the next frame's — `[dep_off, 86400+dep_off)` for today,
+/// `[86400+dep_off, 172800+dep_off)` for tomorrow, and so on — regardless of
+/// how large `dep_off` itself is. So a today-frame spillover past 86400 can
+/// never reach into tomorrow's actual window; the windows are disjoint and
+/// correctly ordered by construction, not merely by convention. (Reviewed in
+/// PR #20: a concrete counterexample would need a frame's dep to be later
+/// than the NEXT frame's earliest possible dep, i.e.
+/// `start_sec_a + dep_off > start_sec_b + dep_off + 86400` for some pair of
+/// runs at this same pattern+position — impossible for any
+/// `start_sec_a < 86400` and `start_sec_b >= 0`.)
 ///
 /// Every run of a pattern shares this position's `departure_s`, so ordering
 /// by `start_sec` orders departures here identically: the FIFO property that
@@ -749,13 +766,24 @@ fn finish(
     t0: i64,
     req: &PlanRequest,
 ) -> Option<RoutePlan> {
-    let mut chosen: Option<(usize, usize, i64, f64)> = None;
+    // Selection is on the EFFECTIVE arrival (raw arrival plus the walk buffer
+    // a far complex member would still owe), not the raw label arrival —
+    // otherwise a neighbour that beats the picked stop by less than the
+    // buffer wins the comparison and then reports a LATER real arrival once
+    // the walk is charged below. See PR #20 review, finding 1.
+    let mut chosen: Option<(usize, usize, i64, f64, i64)> = None;
     for (k, labels) in rounds.iter().enumerate() {
         for &(s, walk_m) in target_stops {
-            if let Some(l) = &labels[s]
-                && chosen.is_none_or(|(_, _, a, _)| l.arrival < a)
-            {
-                chosen = Some((k, s, l.arrival, walk_m));
+            if let Some(l) = &labels[s] {
+                let effective = l.arrival
+                    + if walk_m >= SAME_STATION_COMPLEX_M {
+                        req.transfer_buffer_s as i64
+                    } else {
+                        0
+                    };
+                if chosen.is_none_or(|(_, _, _, _, e)| effective < e) {
+                    chosen = Some((k, s, l.arrival, walk_m, effective));
+                }
             }
         }
     }
@@ -764,7 +792,7 @@ fn finish(
     // empty, unreachable true, times pinned at the query instant so the UI
     // can render "no route found within N minutes" rather than an error card.
     // Only a bad route/station index makes plan() return None.
-    let Some((k, stop, arrive, dest_walk_m)) = chosen else {
+    let Some((k, stop, arrive, dest_walk_m, _)) = chosen else {
         return Some(RoutePlan {
             depart_sec: t0,
             arrive_sec: t0,
@@ -1149,7 +1177,7 @@ mod index_tests {
 #[cfg(test)]
 mod plan_tests {
     use super::tests_support::{far_interchange_doc, routing_doc};
-    use super::{PlanLeg, PlanRequest, RouteIndex, plan};
+    use super::{Label, PlanLeg, PlanRequest, RouteIndex, Via, finish, plan};
     use crate::model::CacheDoc;
 
     const WED: u32 = 20260722;
@@ -1763,6 +1791,77 @@ mod plan_tests {
         let near = planned(&routing_doc(), &request((0, 2), (1, 0), 35_000.0));
         assert!(near.legs.is_empty());
         assert_eq!((near.depart_sec, near.arrive_sec), (35_000, 35_000));
+    }
+
+    #[test]
+    fn finish_prefers_the_walk_adjusted_arrival_over_the_raw_earliest_label() {
+        // PR #20 review, finding 1: `finish` used to pick the winning
+        // target-complex member by RAW label arrival and only charge the
+        // walk buffer afterward — so a far neighbour beating the picked stop
+        // by less than the buffer won the comparison and then reported a
+        // LATER real arrival than the achievable alternative (e.g.
+        // Makkasan reachable at 10:05 beating Phetchaburi's own 10:06,
+        // reporting 10:08 instead of the real 10:06). `finish` is called
+        // directly with hand-built `rounds` so the two candidates' raw
+        // arrivals are exactly controlled, independent of any real
+        // ride/footpath timing.
+        let doc = far_interchange_doc();
+        let idx = RouteIndex::build(&doc);
+        let seed = idx.stop_id(&doc, 0, 0).unwrap(); // A0, an arbitrary dead-end
+        let a2 = idx.stop_id(&doc, 0, 2).unwrap(); // the far target-complex member (400 m)
+        let b0 = idx.stop_id(&doc, 1, 0).unwrap(); // the picked stop itself (0 m)
+
+        let n = idx.stop_route.len();
+        let mut round0: Vec<Option<Label>> = vec![None; n];
+        round0[seed] = Some(Label {
+            arrival: 1000,
+            via: Via::Origin,
+        });
+        // A2's raw arrival (1000) is earlier than B0's (1100) — the old bug.
+        round0[a2] = Some(Label {
+            arrival: 1000,
+            via: Via::Origin,
+        });
+        // B0's own arrival, reached independently of A2 (a footpath from the
+        // unrelated `seed` stop, not from A2) — its EFFECTIVE arrival
+        // (1100 + 0, already the picked stop) beats A2's (1000 + 180 = 1180).
+        round0[b0] = Some(Label {
+            arrival: 1100,
+            via: Via::Walk {
+                from_stop: seed,
+                walk_m: 50.0,
+            },
+        });
+        let rounds = vec![round0];
+        let target_stops = [(b0, 0.0), (a2, 400.0)];
+        let req = request((0, 0), (1, 0), 900.0);
+
+        let p = finish(&doc, &idx, &rounds, &target_stops, b0, 1000, &req)
+            .expect("a well-formed request never returns None");
+        assert!(!p.unreachable);
+        assert_eq!(
+            p.arrive_sec, 1100,
+            "must pick B0 (effective 1100), not A2's raw-earlier-but-effective-later 1180: {p:?}"
+        );
+        assert_eq!(p.legs.len(), 1, "one walking leg: {:?}", p.legs);
+        let PlanLeg::Transfer {
+            from_route_idx,
+            from_station_idx,
+            to_route_idx,
+            to_station_idx,
+            walk_m,
+            ..
+        } = p.legs[0]
+        else {
+            panic!("the only leg must be the walk, got {:?}", p.legs[0]);
+        };
+        assert_eq!(
+            (from_route_idx, from_station_idx),
+            (0, 0),
+            "from the seed stop"
+        );
+        assert_eq!((to_route_idx, to_station_idx), (1, 0), "to B0");
+        assert!((walk_m - 50.0).abs() < 1e-6);
     }
 
     #[test]

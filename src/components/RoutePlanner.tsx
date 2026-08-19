@@ -36,15 +36,18 @@ function StationPicker({
 }: {
   label: "From" | "To";
   value: StationInfo | null;
-  onPick: (s: StationInfo) => void;
+  onPick: (s: StationInfo | null) => void;
   stations: StationInfo[];
   routes: LineGeometry[];
 }) {
-  // `value` (the parent's picked station) no longer drives the input's
-  // display — see the fix note on the input below — but stays in the prop
-  // signature since the parent still needs somewhere to hand its pick to a
-  // future consumer of this component; reserved the same way LegRow reserves
-  // its own unused `routes` prop.
+  // `value` (the parent's picked station) doesn't drive the input's
+  // display — the input is always `query`, kept genuinely editable per
+  // Task 14's fix — but the parent's pick must not silently outlive an
+  // edit that no longer names it: every keystroke clears the parent's
+  // selection via `onPick(null)`, so a stale `from`/`to` can never plan a
+  // route for a station the input no longer shows. A fresh pick from the
+  // result list re-sets it. `value` itself stays unused here for the same
+  // reason LegRow reserves its own unused `routes` prop.
   void value;
   const [query, setQuery] = useState("");
   const results = useMemo(() => (query.trim() === "" ? [] : filterStations(stations, query)), [
@@ -62,6 +65,7 @@ function StationPicker({
           value={query}
           onChange={(e) => {
             setQuery(e.target.value);
+            onPick(null);
           }}
           placeholder="Search stations…"
           className="mt-1 block w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm text-slate-900"
@@ -130,7 +134,8 @@ function LegRow({
       <li className="flex items-start gap-2 px-4 py-2 text-xs text-slate-600">
         <span className="mt-0.5 inline-block h-2 w-4 shrink-0" aria-hidden />
         <span>
-          {label} — {formatCountdown(leg.transferS)} allowed
+          {label}
+          {leg.transferS > 0 ? <> — {formatCountdown(leg.transferS)} allowed</> : null}
           {rideAfter ? <>, then wait {formatCountdown(leg.waitS)}</> : null} (≈
           {Math.round(leg.walkM)} m)
         </span>
@@ -228,6 +233,11 @@ export function RoutePlanner() {
         to.station_idx,
         client.getSimNow(),
       );
+      // The panel may have been closed while this query was in flight —
+      // `setRoutePlannerOpen(false)` already cleared `routePlan`, and a
+      // stale resolve must not silently resurrect it (and its map
+      // highlight) behind a panel that is no longer open.
+      if (!useAppStore.getState().routePlannerOpen) return;
       if (result === null) {
         setStatus({ kind: "failed" });
         return;

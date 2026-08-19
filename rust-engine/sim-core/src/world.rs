@@ -93,12 +93,44 @@ impl SimWorld {
         if doc.version != TMB_VERSION {
             return Err(CacheError::BadVersion(doc.version));
         }
+        // Every route's track needs at least 2 points for `sample_track` (the
+        // debug-only assert there does not run in release, so this is the
+        // only real gate) — `RouteIndex::build` calls it for every station
+        // of every route, not just simulated ones, and `evaluate()` calls it
+        // for every active vehicle.
+        for (i, r) in doc.routes.iter().enumerate() {
+            if r.track_xyz.len() != r.track_arc_m.len() {
+                return Err(CacheError::Invalid(format!(
+                    "route {i} track_xyz/track_arc_m length mismatch"
+                )));
+            }
+            if r.track_arc_m.len() < 2 {
+                return Err(CacheError::Invalid(format!(
+                    "route {i} has fewer than 2 track points"
+                )));
+            }
+        }
         for (i, p) in doc.patterns.iter().enumerate() {
             if p.stops.is_empty() {
                 return Err(CacheError::Invalid(format!("pattern {i} has no stops")));
             }
             if (p.route_idx as usize) >= doc.routes.len() {
                 return Err(CacheError::Invalid(format!("pattern {i} bad route_idx")));
+            }
+            // `RouteIndex::build` indexes `patterns_at_stop` by
+            // `stop_offsets[route_idx] + station_idx` with no bounds check of
+            // its own (see its own doc comment: "validated by
+            // `SimWorld::from_doc`") — an out-of-range `station_idx` here
+            // would otherwise panic at cache load instead of returning
+            // `CacheError::Invalid` through this existing path.
+            let station_count = doc.routes[p.route_idx as usize].stations.len();
+            for stop in &p.stops {
+                if (stop.station_idx as usize) >= station_count {
+                    return Err(CacheError::Invalid(format!(
+                        "pattern {i} bad station_idx {} (route {} has {station_count} stations)",
+                        stop.station_idx, p.route_idx
+                    )));
+                }
             }
         }
         for (i, r) in doc.runs.iter().enumerate() {
@@ -750,6 +782,38 @@ mod tests {
         assert!(matches!(
             SimWorld::from_bytes(&bytes),
             Err(CacheError::BadMagic(_))
+        ));
+    }
+
+    #[test]
+    fn a_pattern_stop_with_an_out_of_range_station_idx_is_invalid_not_a_panic() {
+        // PR #20 review, finding 5: `RouteIndex::build` indexes
+        // `patterns_at_stop[base + stop.station_idx]` with no bounds check of
+        // its own — its own doc comment says this is "validated by
+        // `SimWorld::from_doc`" — so a cache with a bad `station_idx` used to
+        // panic the wasm module at load (killing the worker) instead of
+        // returning `CacheError::Invalid` through this existing path.
+        let mut doc = synthetic_doc();
+        doc.patterns[0].stops[1].station_idx = 99; // route 0 has only 3 stations
+        assert!(matches!(
+            SimWorld::from_doc(doc),
+            Err(CacheError::Invalid(_))
+        ));
+    }
+
+    #[test]
+    fn a_route_with_fewer_than_two_track_points_is_invalid_not_a_panic() {
+        // PR #20 review, finding 5: `sample_track`'s `arcs.last().unwrap()`
+        // panics on an empty track in a release build (the `debug_assert!`
+        // beside it only runs in debug) — `RouteIndex::build` calls it for
+        // every station of every route, so a corrupted cache with a
+        // too-short track used to panic at load instead of failing cleanly.
+        let mut doc = synthetic_doc();
+        doc.routes[0].track_xyz = Vec::new();
+        doc.routes[0].track_arc_m = Vec::new();
+        assert!(matches!(
+            SimWorld::from_doc(doc),
+            Err(CacheError::Invalid(_))
         ));
     }
 
