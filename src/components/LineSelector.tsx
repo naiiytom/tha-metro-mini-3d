@@ -98,6 +98,8 @@ export function LineSelector() {
   const setUiHidden = useAppStore((s) => s.setUiHidden);
   const searchOpen = useAppStore((s) => s.searchOpen);
   const setSearchOpen = useAppStore((s) => s.setSearchOpen);
+  const routePlannerOpen = useAppStore((s) => s.routePlannerOpen);
+  const setRoutePlannerOpen = useAppStore((s) => s.setRoutePlannerOpen);
   const isMobile = useIsMobile();
   const [expanded, setExpanded] = useState(!isMobile);
 
@@ -142,6 +144,21 @@ export function LineSelector() {
             className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-base leading-none text-slate-600 hover:bg-slate-200/60 md:h-8 md:w-8 md:text-sm"
           >
             🔍
+          </button>
+        )}
+        {/* Hidden rather than disabled while uiHidden, for the same reason as
+         * the search button directly above: the panel it opens is already
+         * collapsed by a CSS ancestor. */}
+        {!uiHidden && (
+          <button
+            type="button"
+            onClick={() => setRoutePlannerOpen(!routePlannerOpen)}
+            aria-pressed={routePlannerOpen}
+            aria-label={routePlannerOpen ? "Close route planner" : "Plan a route"}
+            title={routePlannerOpen ? "Close route planner" : "Plan a route"}
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-base leading-none text-slate-600 hover:bg-slate-200/60 md:h-8 md:w-8 md:text-sm"
+          >
+            🧭
           </button>
         )}
         <button

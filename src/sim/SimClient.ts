@@ -1,10 +1,14 @@
 import {
+  DEFAULT_MAX_TRANSFERS,
+  DEFAULT_MAX_WAIT_S,
+  DEFAULT_TRANSFER_BUFFER_S,
   FRAME_FLOATS,
   LANE_RUN_IDX,
   LANE_YAW,
   MAX_VEHICLES,
   VEHICLE_STRIDE,
   type MainToWorker,
+  type RoutePlan,
   type RunDetail,
   type SimQuery,
   type SimQueryResult,
@@ -193,6 +197,41 @@ export class SimClient {
   ): Promise<StationBoard | null> {
     const r = await this.query({ kind: "stationBoard", routeIdx, stationIdx, simEpochMs, limit });
     return r.kind === "stationBoard" ? r.board : null;
+  }
+
+  /**
+   * Plan a journey between two stations at `simEpochMs` — the SCRUBBED sim
+   * clock, not wall time, since callers pass `getSimNow()`.
+   *
+   * Resolves `null` for a structurally invalid request (bad route/station
+   * index). A well-formed request that simply does not connect resolves a
+   * real plan with `unreachable: true` — the two mean different things and
+   * the UI says different things for each, so do not collapse them.
+   *
+   * UI-rate: one call per submit. Never poll this.
+   */
+  async getRoutePlan(
+    fromRouteIdx: number,
+    fromStationIdx: number,
+    toRouteIdx: number,
+    toStationIdx: number,
+    simEpochMs: number,
+    opts: { maxTransfers?: number; maxWaitS?: number; transferBufferS?: number } = {},
+  ): Promise<RoutePlan | null> {
+    const r = await this.query({
+      kind: "routePlan",
+      fromRouteIdx,
+      fromStationIdx,
+      toRouteIdx,
+      toStationIdx,
+      simEpochMs,
+      // Resolved here rather than left for the worker's own `??` fallbacks,
+      // so the request on the wire fully describes what was planned.
+      maxTransfers: opts.maxTransfers ?? DEFAULT_MAX_TRANSFERS,
+      maxWaitS: opts.maxWaitS ?? DEFAULT_MAX_WAIT_S,
+      transferBufferS: opts.transferBufferS ?? DEFAULT_TRANSFER_BUFFER_S,
+    });
+    return r.kind === "routePlan" ? r.plan : null;
   }
 
   /** Every station with its ENU position — fetched once, then cached by callers. */

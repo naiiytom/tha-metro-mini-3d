@@ -482,6 +482,19 @@ export const INTERCHANGE_OVERRIDES = [
   // is genuine geometry, not a snap artifact). GTFS stop ids: ARL's Makkasan
   // is "324", Blue's Phetchaburi is "345".
   { aLine: "arl", aStop: "324", bLine: "blue", bStop: "345" },
+  // Airport Rail Link <-> Suvarnabhumi APM, Suvarnabhumi. Measured 332 m
+  // between the two stations' committed positions (ARL A1 at
+  // 100.7513395/13.6942971, APM Main Terminal at 100.7504793/13.6914254) —
+  // the same class of near-miss as the Silom<->Blue (319.3 m) and
+  // ARL<->Blue (304.8 m) entries above, just outside the 300 m auto-link
+  // radius. Without it the APM is a disconnected component of the routing
+  // graph and route search reports "no route" for both of its stations.
+  //
+  // The b-side id is an OSM NODE id, not a GTFS stop id: the APM is absent
+  // from the Namtang feed entirely (gtfsRouteId: null), so the preprocessor
+  // stamps each of its registry stations' own `id` as its gtfs_stop_id. That
+  // asymmetry is real, not a typo.
+  { aLine: "arl", aStop: "326", bLine: "apm", bStop: "13373875189" },
 ];
 
 const HEX = /^#[0-9a-fA-F]{6}$/;

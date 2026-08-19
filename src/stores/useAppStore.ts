@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { BasemapStyleKey } from "../map/basemapStyles";
 import type { ThemeMode } from "../map/themeMode";
-import type { StationInfo, ValidationSummary } from "../sim/protocol";
+import type { RoutePlan, StationInfo, ValidationSummary } from "../sim/protocol";
 import type { ClockParams } from "../sim/SimClient";
 import type { LineGeometry } from "../types";
 
@@ -117,6 +117,23 @@ interface AppState {
   searchOpen: boolean;
   setSearchOpen: (open: boolean) => void;
 
+  /** Route planner panel (roadmap item 8). Kept mutually exclusive with
+   *  `searchOpen` and with a train/station selection, exactly as those three
+   *  already exclude each other — otherwise the planner stacks on an open
+   *  inspector and overflows the mobile bottom-sheet stack.
+   *
+   *  Closing it also drops `routePlan`, which is what clears the map
+   *  highlight: the overlay is derived from the plan, so the plan is the
+   *  single place its lifetime is expressed. */
+  routePlannerOpen: boolean;
+  setRoutePlannerOpen: (open: boolean) => void;
+
+  /** The plan currently being shown, or null. UI-rate one-shot state — the
+   *  map highlight is rebuilt from it on a store subscription, never per
+   *  frame (§3A.7). */
+  routePlan: RoutePlan | null;
+  setRoutePlan: (plan: RoutePlan | null) => void;
+
   /** One-shot camera-jump request from station search / nearest-station
    *  selection. `window.__map` is dev/debug-only, so this store field is how
    *  a UI action reaches MapContainer.tsx's real MapLibre instance. Cleared
@@ -155,13 +172,26 @@ export const useAppStore = create<AppState>((set, get) => ({
     set(
       runIdx === null
         ? { selectedRunIdx: null, following: false }
-        : { selectedRunIdx: runIdx, selectedStation: null, searchOpen: false },
+        : {
+            selectedRunIdx: runIdx,
+            selectedStation: null,
+            searchOpen: false,
+            routePlannerOpen: false,
+            routePlan: null,
+          },
     ),
   selectStation: (station) =>
     set(
       station === null
         ? { selectedStation: null }
-        : { selectedStation: station, selectedRunIdx: null, following: false, searchOpen: false },
+        : {
+            selectedStation: station,
+            selectedRunIdx: null,
+            following: false,
+            searchOpen: false,
+            routePlannerOpen: false,
+            routePlan: null,
+          },
     ),
   setFollowing: (following) => set({ following }),
 
@@ -202,9 +232,33 @@ export const useAppStore = create<AppState>((set, get) => ({
   setSearchOpen: (open) =>
     set(
       open
-        ? { searchOpen: true, selectedStation: null, selectedRunIdx: null, following: false }
+        ? {
+            searchOpen: true,
+            selectedStation: null,
+            selectedRunIdx: null,
+            following: false,
+            routePlannerOpen: false,
+            routePlan: null,
+          }
         : { searchOpen: false },
     ),
+
+  routePlannerOpen: false,
+  setRoutePlannerOpen: (open) =>
+    set(
+      open
+        ? {
+            routePlannerOpen: true,
+            searchOpen: false,
+            selectedStation: null,
+            selectedRunIdx: null,
+            following: false,
+          }
+        : { routePlannerOpen: false, routePlan: null },
+    ),
+
+  routePlan: null,
+  setRoutePlan: (plan) => set({ routePlan: plan }),
 
   flyToRequest: null,
   requestFlyTo: (target) => set({ flyToRequest: target }),

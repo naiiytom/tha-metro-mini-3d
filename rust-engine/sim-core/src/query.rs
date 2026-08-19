@@ -10,7 +10,7 @@
 
 use serde::Serialize;
 
-use crate::calendar::{previous_date, service_active_on};
+use crate::calendar::{Frame, previous_date, service_active_on, service_day_frames};
 use crate::model::{InterchangeRef, PatternDoc, RouteDoc};
 use crate::world::{STATE_DWELL, STATE_TRANSIT, SimWorld};
 
@@ -98,28 +98,24 @@ pub struct StationInfo {
     pub interchanges: Vec<InterchangeRef>,
 }
 
-/// Which service-day frame a run falls in for a given local date/time.
-#[derive(Clone, Copy)]
-struct Frame {
-    /// Seconds since the run's own service-day midnight.
-    t_abs: f64,
-    /// Offset to convert run-frame seconds into the queried day's frame.
-    to_query_frame: i64,
-}
-
-/// Today at `sec_of_day`, and the previous service day at `sec_of_day + 86400`
-/// (post-midnight spillover) — the same two-frame rule `evaluate` uses.
-/// Returned as a fixed array so per-run lookups never allocate.
-fn frames(active_today: bool, active_prev: bool, sec_of_day: f64) -> [Option<Frame>; 2] {
+/// The two frames `evaluate()` uses — today, then the previous service day.
+///
+/// `run_detail` deliberately keeps this two-frame rule rather than the
+/// three-frame one `station_board` moved to: it must match `evaluate()`'s
+/// liveness EXACTLY, so a selected train that vanishes from the vehicle
+/// buffer also stops returning detail. A D+1 frame would resurrect a run
+/// `evaluate()` no longer emits, and the inspector would show a train the
+/// map does not.
+fn live_frames(
+    date_yyyymmdd: u32,
+    sec_of_day: f64,
+    active_today: bool,
+    active_prev: bool,
+) -> [Option<Frame>; 2] {
+    let all = service_day_frames(date_yyyymmdd, sec_of_day);
     [
-        active_today.then_some(Frame {
-            t_abs: sec_of_day,
-            to_query_frame: 0,
-        }),
-        active_prev.then_some(Frame {
-            t_abs: sec_of_day + 86_400.0,
-            to_query_frame: -86_400,
-        }),
+        active_today.then_some(all[1]),
+        active_prev.then_some(all[0]),
     ]
 }
 
@@ -133,10 +129,11 @@ impl SimWorld {
     ) -> [Option<Frame>; 2] {
         let run = &self.doc().runs[run_idx];
         let svc = &self.doc().services[run.service_idx as usize];
-        frames(
+        live_frames(
+            date_yyyymmdd,
+            sec_of_day,
             service_active_on(svc, date_yyyymmdd),
             service_active_on(svc, previous_date(date_yyyymmdd)),
-            sec_of_day,
         )
     }
 
@@ -249,6 +246,12 @@ impl SimWorld {
     /// Upcoming calls at one station, soonest first, at most `limit` entries.
     /// Includes a train currently dwelling there (`in_s` slightly negative).
     ///
+    /// Resolves THREE service-day frames (yesterday/today/tomorrow, via
+    /// `calendar::service_day_frames`), not the two frames `run_detail`/
+    /// `evaluate` use — a departure filed on the query day's own NEXT service
+    /// day (e.g. a 00:10 run, seen from 23:00) is otherwise structurally
+    /// invisible no matter how large `HORIZON_S` is.
+    ///
     /// Scans every run, so it stays allocation-light on purpose: service
     /// activity is resolved once per service rather than once per run, frames
     /// come back in a fixed array, and the candidate list holds plain indices —
@@ -274,15 +277,21 @@ impl SimWorld {
         /// "23h 14m", which reads as a bug.
         const HORIZON_S: i64 = 2 * 3600;
 
-        // Resolve each service once instead of once per run.
-        let prev = previous_date(date_yyyymmdd);
-        let active: Vec<[bool; 2]> = doc
+        // Three frames (D-1, D, D+1): the previous day catches post-midnight
+        // spillover, and the NEXT day is what lets a 23:00 board advertise a
+        // 00:10 departure — that run is filed on its own service day, so the
+        // old two-frame set structurally could not see it no matter how large
+        // HORIZON_S was.
+        let frames = service_day_frames(date_yyyymmdd, sec_of_day);
+        // Resolve each service once for all three frames, not once per run.
+        let active: Vec<[bool; 3]> = doc
             .services
             .iter()
             .map(|s| {
                 [
-                    service_active_on(s, date_yyyymmdd),
-                    service_active_on(s, prev),
+                    service_active_on(s, frames[0].date_yyyymmdd),
+                    service_active_on(s, frames[1].date_yyyymmdd),
+                    service_active_on(s, frames[2].date_yyyymmdd),
                 ]
             })
             .collect();
@@ -301,8 +310,11 @@ impl SimWorld {
             let Some(stop) = pattern.stops.iter().find(|s| s.station_idx == station_idx) else {
                 continue;
             };
-            let [today, yesterday] = active[run.service_idx as usize];
-            for frame in frames(today, yesterday, sec_of_day).into_iter().flatten() {
+            let flags = active[run.service_idx as usize];
+            for (fi, frame) in frames.iter().enumerate() {
+                if !flags[fi] {
+                    continue;
+                }
                 // Into the queried day's frame so times are comparable.
                 let arrival = (run.start_sec + stop.arrival_s) as i64 + frame.to_query_frame;
                 let in_s = arrival - now;
@@ -576,5 +588,69 @@ mod tests {
         assert!(w.run_detail(9_999, WED, 36_010.0).is_none());
         assert!(w.station_board(9, 0, WED, 36_010.0, 5).is_none());
         assert!(w.station_board(0, 999, WED, 36_010.0, 5).is_none());
+    }
+
+    /// The world fixture plus one early-morning run (00:10) — the shape the
+    /// two-frame rule structurally could not show on a late-night board.
+    fn world_with_early_run() -> SimWorld {
+        let mut doc = crate::world::tests_support::synthetic_doc();
+        doc.runs.push(crate::model::RunDoc {
+            pattern_idx: 0,
+            service_idx: 0,
+            start_sec: 600, // 00:10, filed on its own service day
+        });
+        SimWorld::from_doc(doc).unwrap()
+    }
+
+    #[test]
+    fn station_board_shows_a_post_midnight_departure_when_queried_late() {
+        // Tuesday 2026-07-21 at 23:00. The 00:10 run belongs to WEDNESDAY's
+        // service day, so only a D+1 frame can find it — this is the concrete
+        // gap the shared three-frame helper closes.
+        let w = world_with_early_run();
+        let b = w
+            .station_board(0, 0, 20260721, 82_800.0, 10)
+            .expect("board");
+        let late = b
+            .entries
+            .iter()
+            .find(|e| e.run_idx == 3)
+            .expect("the 00:10 departure must be on a 23:00 board");
+        // 600 + 86400 = 87000 in the queried day's frame; 70 minutes out.
+        assert_eq!(late.arrival_sec, 87_000);
+        assert_eq!(late.in_s, 4_200);
+        assert!(late.in_s <= 2 * 3600, "inside the existing 2 h horizon");
+    }
+
+    #[test]
+    fn the_third_frame_never_duplicates_an_entry() {
+        // Every run is now read in three frames. Only one can land inside the
+        // grace/horizon window, so a board must never show the same run twice.
+        let w = world_with_early_run();
+        for sec in [0.0, 35_900.0, 36_120.0, 82_800.0, 86_000.0] {
+            let b = w.station_board(0, 1, 20260721, sec, 20).unwrap();
+            let mut seen: Vec<(u32, i64)> = b
+                .entries
+                .iter()
+                .map(|e| (e.run_idx, e.arrival_sec))
+                .collect();
+            let before = seen.len();
+            seen.sort_unstable();
+            seen.dedup();
+            assert_eq!(seen.len(), before, "duplicate entry at sec={sec}");
+        }
+    }
+
+    #[test]
+    fn run_detail_deliberately_keeps_the_two_frame_liveness_rule() {
+        // run_detail must match evaluate() EXACTLY, so a selected train that
+        // vanishes from the vehicle buffer also stops returning detail. A D+1
+        // frame would resurrect a run evaluate() no longer emits — so this is
+        // a difference between the two queries on purpose, not an oversight.
+        let w = world_with_early_run();
+        // The 00:10 run is not live at 23:00 the previous evening.
+        assert!(w.run_detail(3, 20260721, 82_800.0).is_none());
+        // It IS live on its own service day.
+        assert!(w.run_detail(3, 20260722, 700.0).is_some());
     }
 }

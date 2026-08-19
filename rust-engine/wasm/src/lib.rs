@@ -3,7 +3,7 @@
 //! Regenerate the committed pkg with:
 //!   wasm-pack build rust-engine/wasm --release --target web --out-dir ../../src/sim/pkg
 
-use sim_core::{MAX_VEHICLES, SimWorld, VEHICLE_STRIDE};
+use sim_core::{MAX_VEHICLES, PlanRequest, SimWorld, VEHICLE_STRIDE};
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
@@ -79,6 +79,44 @@ impl Engine {
     /// All stations with ENU positions, as JSON. Fetched once after init.
     pub fn stations_json(&self) -> String {
         serde_json::to_string(&self.world.stations()).unwrap_or_else(|_| "[]".into())
+    }
+
+    /// `RoutePlan` as JSON, or `"null"` for a structurally invalid request
+    /// (bad route/station index). A well-formed request that simply does not
+    /// connect comes back as a real plan with `unreachable: true` — the two
+    /// are different answers and the UI says different things for each.
+    ///
+    /// Nine parameters is past clippy's threshold, and accepted here: this is
+    /// ONE UI-rate call per submit, and introducing a second serialization
+    /// boundary just to pack the arguments would cost more than it saves.
+    /// NOTE this is the FIRST `too_many_arguments` allow in this crate — the
+    /// design spec claimed an existing precedent, and there wasn't one.
+    #[allow(clippy::too_many_arguments)]
+    pub fn plan_route_json(
+        &self,
+        from_route_idx: u8,
+        from_station_idx: u16,
+        to_route_idx: u8,
+        to_station_idx: u16,
+        date_yyyymmdd: u32,
+        sec_of_day: f64,
+        max_transfers: u8,
+        max_wait_s: u32,
+        transfer_buffer_s: u32,
+    ) -> String {
+        let req = PlanRequest {
+            from: (from_route_idx, from_station_idx),
+            to: (to_route_idx, to_station_idx),
+            date_yyyymmdd,
+            sec_of_day,
+            max_transfers,
+            max_wait_s,
+            transfer_buffer_s,
+        };
+        match self.world.plan_route(&req) {
+            Some(p) => serde_json::to_string(&p).unwrap_or_else(|_| "null".into()),
+            None => "null".into(),
+        }
     }
 }
 

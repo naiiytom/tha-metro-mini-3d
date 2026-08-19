@@ -4,6 +4,7 @@ use serde::Serialize;
 
 use crate::calendar::{previous_date, service_active_on};
 use crate::model::{CacheDoc, PatternDoc, RouteDoc, TMB_MAGIC, TMB_VERSION};
+use crate::route::{PlanRequest, RouteIndex, RoutePlan};
 
 pub const VEHICLE_STRIDE: usize = 8; // f32 lanes per vehicle
 /// Frame-buffer capacity. Sized well above SRS NF1's 300-concurrent target so
@@ -50,6 +51,11 @@ pub struct SimWorld {
     doc: CacheDoc,
     /// Per pattern: relative time of the final arrival (run duration).
     pattern_dur: Vec<f64>,
+    /// RAPTOR adjacency for `plan_route`. Built once here for the same reason
+    /// `pattern_dur` is — one pass over the runs plus one small sort per
+    /// pattern, sub-millisecond, invisible next to decoding the ~370 KB cache
+    /// — and held by value so a query never rebuilds or lazily initialises it.
+    route_index: RouteIndex,
     /// True if the last evaluate() hit MAX_VEHICLES and dropped vehicles.
     /// `evaluate` takes `&self` (it's called from a shared reference on the
     /// frame path), so recording this needs interior mutability. `Cell` is
@@ -87,12 +93,44 @@ impl SimWorld {
         if doc.version != TMB_VERSION {
             return Err(CacheError::BadVersion(doc.version));
         }
+        // Every route's track needs at least 2 points for `sample_track` (the
+        // debug-only assert there does not run in release, so this is the
+        // only real gate) — `RouteIndex::build` calls it for every station
+        // of every route, not just simulated ones, and `evaluate()` calls it
+        // for every active vehicle.
+        for (i, r) in doc.routes.iter().enumerate() {
+            if r.track_xyz.len() != r.track_arc_m.len() {
+                return Err(CacheError::Invalid(format!(
+                    "route {i} track_xyz/track_arc_m length mismatch"
+                )));
+            }
+            if r.track_arc_m.len() < 2 {
+                return Err(CacheError::Invalid(format!(
+                    "route {i} has fewer than 2 track points"
+                )));
+            }
+        }
         for (i, p) in doc.patterns.iter().enumerate() {
             if p.stops.is_empty() {
                 return Err(CacheError::Invalid(format!("pattern {i} has no stops")));
             }
             if (p.route_idx as usize) >= doc.routes.len() {
                 return Err(CacheError::Invalid(format!("pattern {i} bad route_idx")));
+            }
+            // `RouteIndex::build` indexes `patterns_at_stop` by
+            // `stop_offsets[route_idx] + station_idx` with no bounds check of
+            // its own (see its own doc comment: "validated by
+            // `SimWorld::from_doc`") — an out-of-range `station_idx` here
+            // would otherwise panic at cache load instead of returning
+            // `CacheError::Invalid` through this existing path.
+            let station_count = doc.routes[p.route_idx as usize].stations.len();
+            for stop in &p.stops {
+                if (stop.station_idx as usize) >= station_count {
+                    return Err(CacheError::Invalid(format!(
+                        "pattern {i} bad station_idx {} (route {} has {station_count} stations)",
+                        stop.station_idx, p.route_idx
+                    )));
+                }
             }
         }
         for (i, r) in doc.runs.iter().enumerate() {
@@ -108,9 +146,11 @@ impl SimWorld {
             .iter()
             .map(|p| p.stops.last().map(|s| s.arrival_s as f64).unwrap_or(0.0))
             .collect();
+        let route_index = RouteIndex::build(&doc);
         Ok(Self {
             doc,
             pattern_dur,
+            route_index,
             truncated: std::cell::Cell::new(false),
         })
     }
@@ -210,6 +250,18 @@ impl SimWorld {
     /// surface it instead of the failure silently looking like a data bug.
     pub fn last_truncated(&self) -> bool {
         self.truncated.get()
+    }
+
+    /// Plan a journey between two stations at a Bangkok local date/time.
+    ///
+    /// `None` only for a structurally invalid request (bad route/station
+    /// index); a well-formed request that does not connect comes back as
+    /// `Some(RoutePlan { unreachable: true, .. })` — the same "an answer, not
+    /// a missing one" shape `station_board` uses for a track-only route.
+    ///
+    /// UI-rate only, like every `query.rs` call — never on the frame path.
+    pub fn plan_route(&self, req: &PlanRequest) -> Option<RoutePlan> {
+        crate::route::plan(&self.doc, &self.route_index, req)
     }
 }
 
@@ -731,5 +783,346 @@ mod tests {
             SimWorld::from_bytes(&bytes),
             Err(CacheError::BadMagic(_))
         ));
+    }
+
+    #[test]
+    fn a_pattern_stop_with_an_out_of_range_station_idx_is_invalid_not_a_panic() {
+        // PR #20 review, finding 5: `RouteIndex::build` indexes
+        // `patterns_at_stop[base + stop.station_idx]` with no bounds check of
+        // its own — its own doc comment says this is "validated by
+        // `SimWorld::from_doc`" — so a cache with a bad `station_idx` used to
+        // panic the wasm module at load (killing the worker) instead of
+        // returning `CacheError::Invalid` through this existing path.
+        let mut doc = synthetic_doc();
+        doc.patterns[0].stops[1].station_idx = 99; // route 0 has only 3 stations
+        assert!(matches!(
+            SimWorld::from_doc(doc),
+            Err(CacheError::Invalid(_))
+        ));
+    }
+
+    #[test]
+    fn a_route_with_fewer_than_two_track_points_is_invalid_not_a_panic() {
+        // PR #20 review, finding 5: `sample_track`'s `arcs.last().unwrap()`
+        // panics on an empty track in a release build (the `debug_assert!`
+        // beside it only runs in debug) — `RouteIndex::build` calls it for
+        // every station of every route, so a corrupted cache with a
+        // too-short track used to panic at load instead of failing cleanly.
+        let mut doc = synthetic_doc();
+        doc.routes[0].track_xyz = Vec::new();
+        doc.routes[0].track_arc_m = Vec::new();
+        assert!(matches!(
+            SimWorld::from_doc(doc),
+            Err(CacheError::Invalid(_))
+        ));
+    }
+
+    #[test]
+    fn plan_route_answers_through_the_world() {
+        use crate::route::{PlanLeg, PlanRequest};
+        // The world tests' own synthetic feed: A(0) -> B(100) -> C(200) on one
+        // route, run 0 starting 36000 (A dep 36030, C arr 36200).
+        let w = world();
+        let req = PlanRequest {
+            from: (0, 0),
+            to: (0, 2),
+            date_yyyymmdd: WED,
+            sec_of_day: 35_000.0,
+            max_transfers: 4,
+            max_wait_s: 5_400,
+            transfer_buffer_s: 180,
+        };
+        let p = w.plan_route(&req).expect("well-formed request");
+        assert!(!p.unreachable);
+        assert_eq!(p.depart_sec, 36_030);
+        assert_eq!(p.arrive_sec, 36_200);
+        assert_eq!(p.transfers, 0);
+        assert!(matches!(p.legs[0], PlanLeg::Ride { .. }));
+
+        // Bad indices still resolve to None, not a panic.
+        let bad = PlanRequest {
+            from: (9, 0),
+            ..req
+        };
+        assert!(w.plan_route(&bad).is_none());
+    }
+
+    #[test]
+    fn the_route_index_is_built_once_and_survives_from_bytes() {
+        // The index is a from_doc-time field like pattern_dur, so a world
+        // decoded from real bytes must be able to plan immediately — no lazy
+        // build, no interior mutability, nothing to warm up.
+        use crate::route::PlanRequest;
+        let bytes =
+            bincode::serde::encode_to_vec(synthetic_doc(), bincode::config::standard()).unwrap();
+        let w = SimWorld::from_bytes(&bytes).unwrap();
+        let p = w
+            .plan_route(&PlanRequest {
+                from: (0, 0),
+                to: (0, 1),
+                date_yyyymmdd: WED,
+                sec_of_day: 35_000.0,
+                max_transfers: 4,
+                max_wait_s: 5_400,
+                transfer_buffer_s: 180,
+            })
+            .unwrap();
+        assert_eq!(p.arrive_sec, 36_100);
+    }
+
+    #[test]
+    fn a_track_only_route_still_leaves_every_other_route_plannable() {
+        // Mirrors query.rs's "empty board, not a missing one" precedent: a
+        // rendered-but-unsimulated line must not break the graph around it.
+        use crate::model::RouteDoc;
+        use crate::route::PlanRequest;
+        let mut doc = synthetic_doc();
+        doc.routes.push(RouteDoc {
+            gtfs_route_id: String::new(),
+            line_key: "orange".into(),
+            simulated: false,
+            name_en: "Orange".into(),
+            color_rgb: 0xF57C00,
+            track_xyz: vec![[0.0, 0.0, 15.0], [1000.0, 0.0, 15.0]],
+            track_arc_m: vec![0.0, 1000.0],
+            stations: Vec::new(),
+        });
+        let w = SimWorld::from_doc(doc).unwrap();
+        let p = w
+            .plan_route(&PlanRequest {
+                from: (0, 0),
+                to: (0, 2),
+                date_yyyymmdd: WED,
+                sec_of_day: 35_000.0,
+                max_transfers: 4,
+                max_wait_s: 5_400,
+                transfer_buffer_s: 180,
+            })
+            .unwrap();
+        assert!(!p.unreachable);
+    }
+
+    // ---- Real-committed-cache tests -------------------------------------
+    //
+    // Every other test in this file (and in route.rs) runs against a hand-made
+    // fixture. That is why the interchange-complex bug below survived 17 tasks
+    // of task-scoped review: the fixture's one interchange link is ~100 m, a
+    // genuine same-station split, while the REGISTRY's INTERCHANGE_OVERRIDES
+    // are all >= 300 m — real walks between separate stations. No fixture the
+    // feature's own authors would naturally write contains that shape, so it
+    // has to be exercised against the committed cache itself.
+    //
+    // `public/data/network.tmb` is committed (so `npm run dev` works with no
+    // Rust toolchain), which makes reading it from a unit test legitimate and
+    // hermetic — no network, no GTFS feed, no preprocessor run.
+
+    fn real_world() -> SimWorld {
+        let bytes = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../public/data/network.tmb"
+        ))
+        .expect("public/data/network.tmb is committed alongside src/sim/pkg");
+        SimWorld::from_bytes(&bytes).expect("the committed cache decodes")
+    }
+
+    /// Resolve `(route_idx, station_idx)` by registry line key and English
+    /// station name, so a cache regeneration that reorders stations makes this
+    /// test fail loudly on the lookup rather than silently plan a different
+    /// journey.
+    fn real_stop(w: &SimWorld, line_key: &str, station: &str) -> (u8, u16) {
+        let (ri, route) = w
+            .doc
+            .routes
+            .iter()
+            .enumerate()
+            .find(|(_, r)| r.line_key == line_key)
+            .unwrap_or_else(|| panic!("no registry line {line_key:?} in the committed cache"));
+        let si = route
+            .stations
+            .iter()
+            .position(|s| s.name_en == station)
+            .unwrap_or_else(|| panic!("no station {station:?} on {line_key:?}"));
+        (ri as u8, si as u16)
+    }
+
+    /// A Wednesday inside the committed feed's calendar window (services run
+    /// 20230101..20261231), 10:00 local — ordinary weekday daytime service.
+    const REAL_WED: u32 = 20260819;
+
+    #[test]
+    fn a_real_arl_to_apm_plan_actually_reaches_the_apm() {
+        // REGRESSION, whole-branch review finding 1(b). The APM's only
+        // interchange is ARL Suvarnabhumi, 332 m away — an
+        // INTERCHANGE_OVERRIDES-class link between two SEPARATE stations, not
+        // a platform split. Before the fix this plan's single leg alighted at
+        // ARL Suvarnabhumi and reported that as the arrival: a different
+        // station, on a different line, with no transfer leg and no
+        // disclosure that the trip never reached the picked destination.
+        let w = real_world();
+        let from = real_stop(&w, "arl", "Phaya Thai");
+        let to = real_stop(&w, "apm", "Suvarnabhumi Main Terminal");
+        let p = w
+            .plan_route(&crate::route::PlanRequest {
+                from,
+                to,
+                date_yyyymmdd: REAL_WED,
+                sec_of_day: 36_000.0,
+                max_transfers: 4,
+                max_wait_s: 5_400,
+                transfer_buffer_s: 180,
+            })
+            .expect("a real station pair is structurally valid");
+        assert!(!p.unreachable, "the ARL runs all day on a weekday");
+
+        // The journey must END at the stop the user picked. It is legitimate
+        // for the last RIDE to alight elsewhere (the APM's own trains are
+        // synthesized and not needed here) — but only if the remaining walk
+        // is spelled out as a leg.
+        let last = p.legs.last().expect("a reachable plan has legs");
+        match last {
+            crate::route::PlanLeg::Ride {
+                route_idx,
+                alight_station_idx,
+                ..
+            } => assert_eq!(
+                (*route_idx, *alight_station_idx),
+                to,
+                "a plan ending on a ride must alight at the picked stop"
+            ),
+            crate::route::PlanLeg::Transfer {
+                to_route_idx,
+                to_station_idx,
+                walk_m,
+                transfer_s,
+                ..
+            } => {
+                assert_eq!(
+                    (*to_route_idx, *to_station_idx),
+                    to,
+                    "the trailing walk must end at the picked stop"
+                );
+                assert!(
+                    (*walk_m - 332.0).abs() < 5.0,
+                    "the real ARL<->APM override distance, got {walk_m}"
+                );
+                assert_eq!(*transfer_s, 180, "and it is charged, not free");
+            }
+        }
+
+        // The arrival must include that walk. Before the fix it was the
+        // alighting instant at ARL Suvarnabhumi.
+        let last_alight = p
+            .legs
+            .iter()
+            .filter_map(|l| match l {
+                crate::route::PlanLeg::Ride { alight_sec, .. } => Some(*alight_sec),
+                _ => None,
+            })
+            .next_back()
+            .expect("at least one ride");
+        assert!(
+            p.arrive_sec > last_alight,
+            "arrive_sec {} must be later than the last alighting {last_alight}",
+            p.arrive_sec
+        );
+    }
+
+    #[test]
+    fn two_real_override_linked_stations_are_a_walking_plan_not_an_empty_one() {
+        // REGRESSION, whole-branch review finding 1(a). ARL Makkasan and MRT
+        // Phetchaburi are 304.8 m apart with different names on different
+        // lines, linked by an INTERCHANGE_OVERRIDES entry precisely because
+        // they fall just outside the 300 m auto-link radius. Before the fix
+        // this returned {departSec: t, arriveSec: t, durationS: 0, legs: []} —
+        // byte-for-byte the "you are already there" answer.
+        let w = real_world();
+        let from = real_stop(&w, "arl", "ARL Makkasan");
+        let to = real_stop(&w, "blue", "Phetchaburi");
+        let p = w
+            .plan_route(&crate::route::PlanRequest {
+                from,
+                to,
+                date_yyyymmdd: REAL_WED,
+                sec_of_day: 36_000.0,
+                max_transfers: 4,
+                max_wait_s: 5_400,
+                transfer_buffer_s: 180,
+            })
+            .expect("a real station pair is structurally valid");
+        assert!(!p.unreachable);
+        assert_eq!(p.legs.len(), 1, "one walking leg, not zero: {:?}", p.legs);
+        let crate::route::PlanLeg::Transfer {
+            from_route_idx,
+            from_station_idx,
+            to_route_idx,
+            to_station_idx,
+            walk_m,
+            transfer_s,
+            ..
+        } = p.legs[0]
+        else {
+            panic!("the only leg must be the walk, got {:?}", p.legs[0]);
+        };
+        assert_eq!((from_route_idx, from_station_idx), from);
+        assert_eq!((to_route_idx, to_station_idx), to);
+        assert!(
+            (walk_m - 304.8).abs() < 5.0,
+            "the real override distance, got {walk_m}"
+        );
+        assert_eq!(transfer_s, 180);
+        assert_eq!(
+            (p.depart_sec, p.arrive_sec, p.duration_s),
+            (36_000, 36_180, 180),
+            "the walk really takes time"
+        );
+    }
+
+    #[test]
+    fn a_real_far_origin_complex_member_discloses_the_walk_to_its_platform() {
+        // REGRESSION, whole-branch review finding 1(c). MRT Pink's Nonthaburi
+        // Civic Center and MRT Purple's are 554.5 m apart — the widest
+        // override in the registry, two platforms that share a GTFS stop id
+        // but not a building. Before the fix a plan starting on the Pink
+        // platform boarded a Purple train with zero added time and no leg
+        // saying you had to walk half a kilometre first.
+        let w = real_world();
+        let from = real_stop(&w, "pink", "MRT Nonthaburi Civic Center");
+        let to = real_stop(&w, "sukhumvit", "Siam");
+        let p = w
+            .plan_route(&crate::route::PlanRequest {
+                from,
+                to,
+                date_yyyymmdd: REAL_WED,
+                sec_of_day: 36_000.0,
+                max_transfers: 4,
+                max_wait_s: 5_400,
+                transfer_buffer_s: 180,
+            })
+            .expect("a real station pair is structurally valid");
+        assert!(!p.unreachable);
+        let crate::route::PlanLeg::Transfer {
+            from_route_idx,
+            from_station_idx,
+            walk_m,
+            transfer_s,
+            ..
+        } = p.legs[0]
+        else {
+            panic!("leg 0 must be the leading walk, got {:?}", p.legs[0]);
+        };
+        assert_eq!((from_route_idx, from_station_idx), from);
+        assert!(
+            (walk_m - 554.5).abs() < 5.0,
+            "the real override distance, got {walk_m}"
+        );
+        assert_eq!(transfer_s, 180);
+
+        // And the first boarding is genuinely catchable on foot: it cannot be
+        // earlier than the query instant plus the buffer.
+        assert!(
+            p.depart_sec >= 36_000 + 180,
+            "departs {} — before the walk could finish",
+            p.depart_sec
+        );
     }
 }

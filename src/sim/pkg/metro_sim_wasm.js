@@ -50,6 +50,40 @@ export class Engine {
         return this;
     }
     /**
+     * `RoutePlan` as JSON, or `"null"` for a structurally invalid request
+     * (bad route/station index). A well-formed request that simply does not
+     * connect comes back as a real plan with `unreachable: true` — the two
+     * are different answers and the UI says different things for each.
+     *
+     * Nine parameters is past clippy's threshold, and accepted here: this is
+     * ONE UI-rate call per submit, and introducing a second serialization
+     * boundary just to pack the arguments would cost more than it saves.
+     * NOTE this is the FIRST `too_many_arguments` allow in this crate — the
+     * design spec claimed an existing precedent, and there wasn't one.
+     * @param {number} from_route_idx
+     * @param {number} from_station_idx
+     * @param {number} to_route_idx
+     * @param {number} to_station_idx
+     * @param {number} date_yyyymmdd
+     * @param {number} sec_of_day
+     * @param {number} max_transfers
+     * @param {number} max_wait_s
+     * @param {number} transfer_buffer_s
+     * @returns {string}
+     */
+    plan_route_json(from_route_idx, from_station_idx, to_route_idx, to_station_idx, date_yyyymmdd, sec_of_day, max_transfers, max_wait_s, transfer_buffer_s) {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.engine_plan_route_json(this.__wbg_ptr, from_route_idx, from_station_idx, to_route_idx, to_station_idx, date_yyyymmdd, sec_of_day, max_transfers, max_wait_s, transfer_buffer_s);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
      * `RunDetail` as JSON, or `"null"` when the run is not live at that time.
      * @param {number} run_idx
      * @param {number} date_yyyymmdd

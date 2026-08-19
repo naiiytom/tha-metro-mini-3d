@@ -14,6 +14,7 @@ import { styleUrl } from "../map/basemapStyles";
 import { installCameraControls } from "../map/cameraControls";
 import { FollowCamera } from "../map/followCamera";
 import { pickAt } from "../map/selection";
+import { highlightSpans } from "../map/routeHighlight";
 import { skyPalette, sunDirection } from "../map/sun";
 import { bindStyle, type StyleBinding } from "../map/styleBinding";
 import { TrainTooltip } from "../map/trainTooltip";
@@ -159,6 +160,11 @@ export function MapContainer() {
           layer?.setLineVisible(i, visible);
           vehicleManager?.setRouteVisible(i, visible);
         }
+        // A route highlight is drawn per LEG, on track this loop may have
+        // just hidden — so it has to be rebuilt here too, or hiding a line
+        // after planning leaves that leg's white span stranded over track
+        // that is no longer there (and unhiding never brings it back).
+        layer?.setRouteHighlight(highlightSpans(state.routePlan, state.hiddenRoutes));
         map.triggerRepaint();
       }
       if (state.undergroundMode !== prev.undergroundMode) {
@@ -207,6 +213,10 @@ export function MapContainer() {
         activeSimClient.current?.setTickMs(state.ecoMode ? ECO_TICK_MS : DEFAULT_TICK_MS);
         map.triggerRepaint(); // repaint once immediately on exit
       }
+      if (state.routePlan !== prev.routePlan) {
+        layer?.setRouteHighlight(highlightSpans(state.routePlan, state.hiddenRoutes));
+        map.triggerRepaint();
+      }
     });
 
     map.on("style.load", () => {
@@ -242,6 +252,12 @@ export function MapContainer() {
       }
       // Re-attach the per-frame hook to the NEW layer instance.
       layer.beforeRender = beforeRender;
+      // A style swap rebuilds the Three layer from scratch; the plan lives in
+      // the store, which survives it.
+      {
+        const s = useAppStore.getState();
+        layer.setRouteHighlight(highlightSpans(s.routePlan, s.hiddenRoutes));
+      }
 
       if (simInitialised) {
         // Style swap: the Three layer and paint snapshots are rebuilt above;

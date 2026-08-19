@@ -1,7 +1,7 @@
 {
-  "bytes": 601841,
-  "feed_version": "20260808",
-  "gzip_bytes": 351578,
+  "bytes": 601845,
+  "feed_version": "20260817",
+  "gzip_bytes": 351583,
   "interchanges": [
     {
       "a": "sukhumvit/Samrong",
@@ -54,6 +54,10 @@
     {
       "a": "arl/ARL Makkasan",
       "b": "blue/Phetchaburi"
+    },
+    {
+      "a": "arl/Suvarnabhumi",
+      "b": "apm/Suvarnabhumi Main Terminal"
     },
     {
       "a": "pink/Muang Thong Thani",

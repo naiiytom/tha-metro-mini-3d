@@ -3,6 +3,9 @@ import {
   DEFAULT_TICK_MS,
   ECO_TICK_MS,
   FRAME_BYTES,
+  DEFAULT_MAX_TRANSFERS,
+  DEFAULT_MAX_WAIT_S,
+  DEFAULT_TRANSFER_BUFFER_S,
   type MainToWorker,
   type RunDetail,
   type SimQuery,
@@ -12,6 +15,7 @@ import {
   type ValidationSummary,
   type ValidationSummaryRaw,
   type WorkerToMain,
+  type RoutePlan,
 } from "./protocol";
 
 /**
@@ -97,6 +101,24 @@ function runQuery(query: SimQuery): SimQueryResult {
         query.limit,
       );
       return { kind: "stationBoard", board: JSON.parse(json) as StationBoard | null };
+    }
+    case "routePlan": {
+      // Same bangkokFields() split every other time-taking query uses — which
+      // is what makes the plan come off the SCRUBBED clock, not wall time,
+      // with no new machinery.
+      const { dateYyyymmdd, secOfDay } = bangkokFields(query.simEpochMs);
+      const json = engine.plan_route_json(
+        query.fromRouteIdx,
+        query.fromStationIdx,
+        query.toRouteIdx,
+        query.toStationIdx,
+        dateYyyymmdd,
+        secOfDay,
+        query.maxTransfers ?? DEFAULT_MAX_TRANSFERS,
+        query.maxWaitS ?? DEFAULT_MAX_WAIT_S,
+        query.transferBufferS ?? DEFAULT_TRANSFER_BUFFER_S,
+      );
+      return { kind: "routePlan", plan: JSON.parse(json) as RoutePlan | null };
     }
     case "stations":
       return { kind: "stations", stations: JSON.parse(engine.stations_json()) as StationInfo[] };
