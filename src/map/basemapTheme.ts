@@ -92,9 +92,19 @@ export const NIGHT_THEME: BasemapTheme = (Object.keys(NIGHT) as (keyof BasemapTh
   {} as BasemapTheme,
 );
 
-interface RgbaColor extends RgbColor {
+export interface RgbaColor extends RgbColor {
   a: number;
 }
+
+export const PARSED_NIGHT_THEME: Record<keyof BasemapTheme, RgbaColor> = (
+  Object.keys(NIGHT) as (keyof BasemapTheme)[]
+).reduce(
+  (acc, role) => {
+    acc[role] = { ...NIGHT[role], a: 1 };
+    return acc;
+  },
+  {} as Record<keyof BasemapTheme, RgbaColor>,
+);
 
 function hslToRgb(h: number, s: number, l: number): RgbColor {
   // h in degrees, s and l in [0, 1].
@@ -191,16 +201,24 @@ const toCss = (c: RgbaColor): string => {
  * should have already filtered with `parseColor` at classification time,
  * so this should never fire in practice.
  */
+/**
+ * Blend two pre-parsed RGBA colours by `t` (0 = `from` unchanged, 1 = `to`),
+ * preserving `from`'s alpha. Output is formatted as `#rrggbb` or `rgba(...)`.
+ */
+export function mixParsedColor(from: RgbaColor, to: RgbaColor, t: number): string {
+  const clamped = clamp01(t);
+  return toCss({
+    r: lerp(from.r, to.r, clamped),
+    g: lerp(from.g, to.g, clamped),
+    b: lerp(from.b, to.b, clamped),
+    a: from.a,
+  });
+}
+
 export function mixColor(from: string, to: string, t: number): string {
   const a = parseColor(from);
   const b = parseColor(to);
   if (!a) throw new Error(`unsupported colour: ${from}`);
   if (!b) throw new Error(`unsupported colour: ${to}`);
-  const clamped = clamp01(t);
-  return toCss({
-    r: lerp(a.r, b.r, clamped),
-    g: lerp(a.g, b.g, clamped),
-    b: lerp(a.b, b.b, clamped),
-    a: a.a,
-  });
+  return mixParsedColor(a, b, t);
 }

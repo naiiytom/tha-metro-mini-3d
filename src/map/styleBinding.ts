@@ -1,5 +1,12 @@
 import type { Map as MapLibreMap } from "maplibre-gl";
-import { NIGHT_THEME, type BasemapTheme, mixColor, nightFactor, parseColor } from "./basemapTheme";
+import {
+  PARSED_NIGHT_THEME,
+  type BasemapTheme,
+  type RgbaColor,
+  mixParsedColor,
+  nightFactor,
+  parseColor,
+} from "./basemapTheme";
 
 /**
  * Everything that must be RE-CREATED on every `style.load`, isolated from
@@ -94,8 +101,8 @@ export function bindStyle(map: MapLibreMap, layer: UndergroundTarget): StyleBind
   const themeable: {
     id: string;
     prop: ColorProp;
-    role: ThemeRole;
-    original: string;
+    parsedOriginal: RgbaColor;
+    parsedNight: RgbaColor;
     lastApplied: string;
   }[] = [];
   let skipped = 0;
@@ -103,13 +110,24 @@ export function bindStyle(map: MapLibreMap, layer: UndergroundTarget): StyleBind
   const capture = (id: string, prop: ColorProp, role: ThemeRole) => {
     const raw = map.getPaintProperty(id, prop);
     if (raw === undefined) return; // no override on this layer
-    if (typeof raw !== "string" || parseColor(raw) === null) {
+    if (typeof raw !== "string") {
+      skipped++;
+      return;
+    }
+    const parsedOriginal = parseColor(raw);
+    if (parsedOriginal === null) {
       // A MapLibre expression (array), a stop-function (object), or a CSS
       // colour syntax parseColor does not handle. Cannot be interpolated.
       skipped++;
       return;
     }
-    themeable.push({ id, prop, role, original: raw, lastApplied: raw });
+    themeable.push({
+      id,
+      prop,
+      parsedOriginal,
+      parsedNight: PARSED_NIGHT_THEME[role],
+      lastApplied: raw,
+    });
   };
 
   for (const l of map.getStyle().layers) {
@@ -133,10 +151,10 @@ export function bindStyle(map: MapLibreMap, layer: UndergroundTarget): StyleBind
     if (bucket === lastNightBucket) return;
     lastNightBucket = bucket;
     for (const entry of themeable) {
-      // ALWAYS from `entry.original`. Blending from the live value compounds
+      // ALWAYS from `entry.parsedOriginal`. Blending from the live value compounds
       // every tick and drives the whole map to black within seconds — this
       // shipped as a real bug once.
-      const next = mixColor(entry.original, NIGHT_THEME[entry.role], t);
+      const next = mixParsedColor(entry.parsedOriginal, entry.parsedNight, t);
       if (next === entry.lastApplied) continue;
       entry.lastApplied = next;
       map.setPaintProperty(entry.id, entry.prop, next);
