@@ -229,12 +229,6 @@ export function MapContainer() {
       setMapReady(true);
       store.setRoutes(net.lines);
       binding = bindStyle(map, layer);
-      if (import.meta.env.DEV) {
-        console.info(
-          `[styleBinding] ${binding.themeableCount} layer paint properties themeable, ` +
-            `${binding.skippedCount} skipped (expression/stop-function/unsupported colour syntax)`,
-        );
-      }
       binding.applyUnderground(useAppStore.getState().undergroundMode);
       layer.setShadowsEnabled(useAppStore.getState().shadowsEnabled);
       // Seed line visibility from any hiddenRoutes already in the store at
