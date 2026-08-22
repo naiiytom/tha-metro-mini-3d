@@ -128,9 +128,29 @@ export interface LineGeometry {
   stations: Station[];
 }
 
+/**
+ * One deliberate edit made to network.json AFTER the `generated` fetch.
+ * This file is routinely hand-patched without a re-fetch (see CLAUDE.md), and
+ * `generated` alone cannot tell a reader whether a difference against a fresh
+ * fetch is a patch or upstream OSM vertex drift. `fetch-network.mjs` never
+ * writes this field, so a real re-fetch clears it — which is correct: a patch
+ * the registry now reproduces is no longer a patch.
+ */
+export interface HandPatch {
+  /** YYYY-MM-DD. */
+  date: string;
+  /** Registry key of the line the patch touches. */
+  line: string;
+  /** OSM node id of the station added or corrected, if it is a station patch. */
+  stationId?: string;
+  note: string;
+}
+
 export interface NetworkData {
   generated: string;
   source: string;
+  /** Present only while the committed file carries edits made after `generated`. */
+  handPatches?: HandPatch[];
   /** Order is load-bearing: index == cache route_idx == vehicle lane 6. */
   lines: LineGeometry[];
 }
