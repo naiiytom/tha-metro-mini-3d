@@ -15,10 +15,6 @@ import { detailColors, liveryColors, resolveStock } from "./rollingStock";
  *  two moments nightLift.test.ts pins the line-colour gate at. */
 const NOON = Date.UTC(2026, 7, 15, 5, 0, 0);
 const DEEP_NIGHT = Date.UTC(2026, 7, 14, 19, 0, 0);
-const TIMES: [string, number][] = [
-  ["noon", NOON],
-  ["night", DEEP_NIGHT],
-];
 
 function paletteAt(epochMs: number) {
   const dir = sunDirection(epochMs);
