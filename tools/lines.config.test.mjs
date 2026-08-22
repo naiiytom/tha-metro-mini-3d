@@ -299,3 +299,27 @@ describe("rollingStock", () => {
     expect([...ROOF_KITS].sort()).toEqual(["none", "pantograph"]);
   });
 });
+
+describe("rollingStock sync", () => {
+  const network = JSON.parse(
+    readFileSync(new URL("../src/data/network.json", import.meta.url), "utf8"),
+  );
+
+  it("is byte-for-byte in sync with network.json's own copy", () => {
+    // Same footgun INTERCHANGE_OVERRIDES and extraStationNodeIds already
+    // guard: the frontend reads network.json, NOT the registry, so editing
+    // the registry alone changes nothing on screen while every step still
+    // reports success.
+    expect(network.lines.length).toBe(LINES.length);
+    for (let i = 0; i < LINES.length; i++) {
+      expect(network.lines[i].key).toBe(LINES[i].key);
+      expect(network.lines[i].rollingStock ?? null, LINES[i].key).toEqual(
+        LINES[i].rollingStock ?? null,
+      );
+    }
+  });
+
+  it("records the hand patch, since network.json was patched and not re-fetched", () => {
+    expect(network.handPatches?.some((p) => p.note.includes("rollingStock"))).toBe(true);
+  });
+});
