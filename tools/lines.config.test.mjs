@@ -4,6 +4,8 @@ import {
   assertRegistryValid,
   INTERCHANGE_OVERRIDES,
   LINES,
+  NOSE_PROFILES,
+  ROOF_KITS,
   STRUCTURE_ALTITUDE_M,
   structureOfWay,
 } from "./lines.config.mjs";
@@ -99,7 +101,11 @@ describe("line registry", () => {
   });
 
   it("refuses to simulate a pre-revenue line", () => {
-    const bad = [{ ...LINES[0], preRevenue: true }];
+    // rollingStock is cleared to isolate the gtfsRouteId check under test:
+    // Task 3 gave every revenue line (including LINES[0]) a rollingStock
+    // block, and its own "preRevenue must not declare rollingStock" check
+    // sits earlier in the per-line loop and would otherwise fire first.
+    const bad = [{ ...LINES[0], preRevenue: true, rollingStock: undefined }];
     expect(() => assertRegistryValid(bad)).toThrow(/must have gtfsRouteId: null/);
   });
 
@@ -204,5 +210,116 @@ describe("extraStationNodeIds", () => {
         expect(ids.has(node.id), `${line.key}: node ${node.id} is not in network.json`).toBe(true);
       }
     }
+  });
+});
+
+describe("rollingStock", () => {
+  const base = () => structuredClone(LINES[0]);
+
+  it("is declared on every revenue line and on no pre-revenue line", () => {
+    for (const line of LINES) {
+      if (line.preRevenue) {
+        expect(line.rollingStock ?? null, `${line.key}`).toBeNull();
+      } else {
+        expect(line.rollingStock, `${line.key}`).toBeTruthy();
+      }
+    }
+  });
+
+  it("gives BTS 4-car sets, the MRT/ARL 3-car sets and the people movers 2 cars", () => {
+    const cars = Object.fromEntries(
+      LINES.filter((l) => l.rollingStock).map((l) => [l.key, l.rollingStock.cars]),
+    );
+    expect(cars.sukhumvit).toBe(4);
+    expect(cars.silom).toBe(4);
+    expect(cars.blue).toBe(3);
+    expect(cars.purple).toBe(3);
+    expect(cars.arl).toBe(3);
+    expect(cars.gold).toBe(2);
+    expect(cars.apm).toBe(2);
+  });
+
+  it("gives a pantograph only to the overhead-line stock", () => {
+    const overhead = LINES.filter((l) => l.rollingStock?.roof === "pantograph").map((l) => l.key);
+    expect(overhead.sort()).toEqual(["arl", "red-dark", "red-light"]);
+  });
+
+  it("rejects a pre-revenue line that declares rolling stock", () => {
+    const line = { ...base(), key: "ghost", preRevenue: true, gtfsRouteId: null };
+    expect(() => assertRegistryValid([line])).toThrow(/preRevenue.*rollingStock/);
+  });
+
+  it("rejects a cab longer than the car it is the front of", () => {
+    const line = base();
+    line.rollingStock = { ...line.rollingStock, cabLengthM: line.rollingStock.carLengthM };
+    expect(() => assertRegistryValid([line])).toThrow(/cabLengthM/);
+  });
+
+  it("rejects a band that hangs off the shell", () => {
+    const line = base();
+    line.rollingStock = {
+      ...line.rollingStock,
+      bands: [{ zM: line.rollingStock.heightM, heightM: 1, tint: "route" }],
+    };
+    expect(() => assertRegistryValid([line])).toThrow(/outside the car shell/);
+  });
+
+  it("rejects an unknown nose profile and an unknown roof kit", () => {
+    const nosed = base();
+    nosed.rollingStock = { ...nosed.rollingStock, nose: "wedge" };
+    expect(() => assertRegistryValid([nosed])).toThrow(/nose/);
+    const roofed = base();
+    roofed.rollingStock = { ...roofed.rollingStock, roof: "trolleypole" };
+    expect(() => assertRegistryValid([roofed])).toThrow(/roof/);
+  });
+
+  it("rejects a shell declared as the route sentinel", () => {
+    const line = base();
+    line.rollingStock = { ...line.rollingStock, shell: "route" };
+    expect(() => assertRegistryValid([line])).toThrow(/shell/);
+  });
+
+  it("rejects a fractional car count", () => {
+    const line = base();
+    line.rollingStock = { ...line.rollingStock, cars: 3.5 };
+    expect(() => assertRegistryValid([line])).toThrow(/cars/);
+  });
+
+  it("puts the identity band first on every line, so the nose takes the route colour", () => {
+    for (const line of LINES) {
+      if (!line.rollingStock) continue;
+      expect(line.rollingStock.bands[0].tint, `${line.key}`).toBe("route");
+    }
+  });
+
+  it("enumerates every nose profile and roof kit the renderer knows", () => {
+    // Copy before sorting — sort() mutates in place, and these are the
+    // exported arrays the validator itself reads.
+    expect([...NOSE_PROFILES].sort()).toEqual(["blunt", "raked", "rounded"]);
+    expect([...ROOF_KITS].sort()).toEqual(["none", "pantograph"]);
+  });
+});
+
+describe("rollingStock sync", () => {
+  const network = JSON.parse(
+    readFileSync(new URL("../src/data/network.json", import.meta.url), "utf8"),
+  );
+
+  it("is byte-for-byte in sync with network.json's own copy", () => {
+    // Same footgun INTERCHANGE_OVERRIDES and extraStationNodeIds already
+    // guard: the frontend reads network.json, NOT the registry, so editing
+    // the registry alone changes nothing on screen while every step still
+    // reports success.
+    expect(network.lines.length).toBe(LINES.length);
+    for (let i = 0; i < LINES.length; i++) {
+      expect(network.lines[i].key).toBe(LINES[i].key);
+      expect(network.lines[i].rollingStock ?? null, LINES[i].key).toEqual(
+        LINES[i].rollingStock ?? null,
+      );
+    }
+  });
+
+  it("records the hand patch, since network.json was patched and not re-fetched", () => {
+    expect(network.handPatches?.some((p) => p.note.includes("rollingStock"))).toBe(true);
   });
 });

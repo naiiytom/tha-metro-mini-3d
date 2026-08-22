@@ -20,6 +20,7 @@ function line(overrides: Partial<LineGeometry> = {}): LineGeometry {
     preRevenue: false,
     syntheticSchedule: null,
     estimatedRunTimes: null,
+    rollingStock: null,
     relationId: null,
     osmName: "",
     track: [],

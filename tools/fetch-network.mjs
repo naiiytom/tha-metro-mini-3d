@@ -541,6 +541,9 @@ async function main() {
       // every line — the Rust side and the UI both branch on it.
       syntheticSchedule: line.syntheticSchedule ?? null,
       estimatedRunTimes: line.estimatedRunTimes ?? null,
+      // null (not undefined) for every line, same reason as the two above —
+      // the field is always present so the frontend can branch on it.
+      rollingStock: line.rollingStock ?? null,
       allowLargeSnapStopIds: line.allowLargeSnapStopIds ?? [],
       snapWarnExemptStopIds: line.snapWarnExemptStopIds ?? [],
       ...geom,

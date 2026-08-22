@@ -19,6 +19,11 @@ export const STRUCTURE_ALTITUDE_M = {
 
 export const VEHICLE_TYPES = ["heavy", "monorail", "apm", "commuter"];
 
+/** Mirrors NoseProfile in src/types/index.ts. */
+export const NOSE_PROFILES = ["raked", "blunt", "rounded"];
+/** Mirrors RoofKit in src/types/index.ts. */
+export const ROOF_KITS = ["pantograph", "none"];
+
 /**
  * Classify one OSM way as underground / elevated / at-grade from its
  * tunnel/bridge/layer tags.
@@ -57,6 +62,25 @@ export const LINES = [
     vehicleType: "heavy",
     gtfsRouteId: "1",
     preRevenue: false,
+    // Siemens EMU-A1/A2, CNR Changchun and Inspiro sets — 4-car, third rail
+    // (so no pantograph). Dimensions are map-legibility-tuned, not spec-sheet.
+    rollingStock: {
+      cars: 4,
+      carLengthM: 15.8,
+      gapM: 0.6,
+      widthM: 3.2,
+      heightM: 3.8,
+      rideHeightM: 0.4,
+      cabLengthM: 3.2,
+      nose: "raked",
+      roof: "none",
+      shell: "#E8EBEE",
+      glazing: { zM: 2.45, heightM: 1.05, tint: "#2B3138" },
+      bands: [
+        { zM: 1.6, heightM: 0.5, tint: "route" },
+        { zM: 0.35, heightM: 0.35, tint: "#6E757C" },
+      ],
+    },
     // Mo Chit (N8) is NOT a member of relation 444651 — verified 2026-08-04
     // and again during MVP 6 Task 13 — so a plain re-fetch can never bring it
     // back on its own. It IS a real, properly tagged OSM node: 5388599065
@@ -91,6 +115,25 @@ export const LINES = [
     vehicleType: "heavy",
     gtfsRouteId: "2",
     preRevenue: false,
+    // Siemens EMU-A1/A2, CNR Changchun and Inspiro sets — 4-car, third rail
+    // (so no pantograph). Dimensions are map-legibility-tuned, not spec-sheet.
+    rollingStock: {
+      cars: 4,
+      carLengthM: 15.8,
+      gapM: 0.6,
+      widthM: 3.2,
+      heightM: 3.8,
+      rideHeightM: 0.4,
+      cabLengthM: 3.2,
+      nose: "raked",
+      roof: "none",
+      shell: "#E8EBEE",
+      glazing: { zM: 2.45, heightM: 1.05, tint: "#2B3138" },
+      bands: [
+        { zM: 1.6, heightM: 0.5, tint: "route" },
+        { zM: 0.35, heightM: 0.35, tint: "#6E757C" },
+      ],
+    },
     osm: { relationId: 2067854, match: /silom/i },
   },
   {
@@ -104,6 +147,24 @@ export const LINES = [
     vehicleType: "heavy",
     gtfsRouteId: "4",
     preRevenue: false,
+    // J-TREC 3-car sets, third rail. Silver shell like the MRT Blue stock.
+    rollingStock: {
+      cars: 3,
+      carLengthM: 16.6,
+      gapM: 0.6,
+      widthM: 3.2,
+      heightM: 3.8,
+      rideHeightM: 0.4,
+      cabLengthM: 3.2,
+      nose: "raked",
+      roof: "none",
+      shell: "#D7DBDF",
+      glazing: { zM: 2.45, heightM: 1.05, tint: "#2B3138" },
+      bands: [
+        { zM: 1.6, heightM: 0.5, tint: "route" },
+        { zM: 0.35, heightM: 0.35, tint: "#6E757C" },
+      ],
+    },
     osm: { relationId: 6988563, match: /purple/i },
   },
   {
@@ -116,6 +177,25 @@ export const LINES = [
     vehicleType: "commuter",
     gtfsRouteId: "5",
     preRevenue: false,
+    // Siemens Desiro (City Line) 3-car sets. 25 kV AC overhead — one of only
+    // three lines on this network that actually carries a pantograph.
+    rollingStock: {
+      cars: 3,
+      carLengthM: 19.2,
+      gapM: 0.8,
+      widthM: 3.1,
+      heightM: 4.0,
+      rideHeightM: 0.5,
+      cabLengthM: 3.6,
+      nose: "raked",
+      roof: "pantograph",
+      shell: "#D7DBDF",
+      glazing: { zM: 2.6, heightM: 1.1, tint: "#2B3138" },
+      bands: [
+        { zM: 1.7, heightM: 0.5, tint: "route" },
+        { zM: 0.35, heightM: 0.35, tint: "#6E757C" },
+      ],
+    },
     osm: { relationId: 2148241, match: /airport rail link/i },
   },
   {
@@ -128,6 +208,23 @@ export const LINES = [
     vehicleType: "monorail",
     gtfsRouteId: "2436",
     preRevenue: false,
+    // Alstom Innovia Monorail 300, 4-car, straddling the beam — no
+    // pantograph and no underframe skirt. These wear a WIDE colour wrap
+    // rather than a pinstripe, which is what makes them read as monorails.
+    rollingStock: {
+      cars: 4,
+      carLengthM: 11.8,
+      gapM: 0.5,
+      widthM: 3.0,
+      heightM: 3.6,
+      rideHeightM: 0.2,
+      cabLengthM: 2.6,
+      nose: "blunt",
+      roof: "none",
+      shell: "#E8EBEE",
+      glazing: { zM: 2.35, heightM: 1.0, tint: "#2B3138" },
+      bands: [{ zM: 1.0, heightM: 1.6, tint: "route" }],
+    },
     // ---- ESTIMATED RUN TIMES, NOT PUBLISHED DATA -------------------------
     // The Namtang feed gives this route ZERO seconds of transit on every
     // leg: `14630 arr 00:00:00 / dep 00:01:00`, `16936 arr 00:01:00 / dep
@@ -195,6 +292,23 @@ export const LINES = [
     vehicleType: "monorail",
     gtfsRouteId: "2224",
     preRevenue: false,
+    // Alstom Innovia Monorail 300, 4-car, straddling the beam — no
+    // pantograph and no underframe skirt. These wear a WIDE colour wrap
+    // rather than a pinstripe, which is what makes them read as monorails.
+    rollingStock: {
+      cars: 4,
+      carLengthM: 11.8,
+      gapM: 0.5,
+      widthM: 3.0,
+      heightM: 3.6,
+      rideHeightM: 0.2,
+      cabLengthM: 2.6,
+      nose: "blunt",
+      roof: "none",
+      shell: "#E8EBEE",
+      glazing: { zM: 2.35, heightM: 1.0, tint: "#2B3138" },
+      bands: [{ zM: 1.0, heightM: 1.6, tint: "route" }],
+    },
     osm: { relationId: 15806897, match: /yellow/i },
   },
   {
@@ -207,6 +321,25 @@ export const LINES = [
     vehicleType: "apm",
     gtfsRouteId: "2025",
     preRevenue: false,
+    // Bombardier Innovia APM 300, 2-car. The one line whose identity is in
+    // the shell rather than the band — a PALE champagne, not the saturated
+    // gold a photo suggests: the saturated value drops the skirt below the
+    // WCAG floor and leaves the route band nothing to contrast against.
+    // No skirt (people mover, no deep underframe).
+    rollingStock: {
+      cars: 2,
+      carLengthM: 12.6,
+      gapM: 0.5,
+      widthM: 2.8,
+      heightM: 3.4,
+      rideHeightM: 0.2,
+      cabLengthM: 2.4,
+      nose: "rounded",
+      roof: "none",
+      shell: "#D9C273",
+      glazing: { zM: 2.2, heightM: 0.95, tint: "#2B3138" },
+      bands: [{ zM: 1.35, heightM: 0.45, tint: "route" }],
+    },
     osm: { relationId: 11681439, match: /gold/i },
   },
   {
@@ -227,6 +360,25 @@ export const LINES = [
     vehicleType: "commuter",
     gtfsRouteId: "2026",
     preRevenue: false,
+    // Hitachi AT100 commuter EMUs, 4-car, 25 kV AC overhead. The longest
+    // cars on the network.
+    rollingStock: {
+      cars: 4,
+      carLengthM: 20,
+      gapM: 0.8,
+      widthM: 3.1,
+      heightM: 4.0,
+      rideHeightM: 0.5,
+      cabLengthM: 3.6,
+      nose: "raked",
+      roof: "pantograph",
+      shell: "#E8EBEE",
+      glazing: { zM: 2.6, heightM: 1.1, tint: "#2B3138" },
+      bands: [
+        { zM: 1.7, heightM: 0.5, tint: "route" },
+        { zM: 0.35, heightM: 0.35, tint: "#6E757C" },
+      ],
+    },
     osm: { relationId: 13058384, match: /dark red|red line.*rangsit/i },
   },
   {
@@ -242,6 +394,25 @@ export const LINES = [
     vehicleType: "commuter",
     gtfsRouteId: "2027",
     preRevenue: false,
+    // Hitachi AT100 commuter EMUs, 4-car, 25 kV AC overhead. The longest
+    // cars on the network.
+    rollingStock: {
+      cars: 4,
+      carLengthM: 20,
+      gapM: 0.8,
+      widthM: 3.1,
+      heightM: 4.0,
+      rideHeightM: 0.5,
+      cabLengthM: 3.6,
+      nose: "raked",
+      roof: "pantograph",
+      shell: "#E8EBEE",
+      glazing: { zM: 2.6, heightM: 1.1, tint: "#2B3138" },
+      bands: [
+        { zM: 1.7, heightM: 0.5, tint: "route" },
+        { zM: 0.35, heightM: 0.35, tint: "#6E757C" },
+      ],
+    },
     osm: { relationId: 13178788, match: /light red|red line.*taling chan/i },
   },
   {
@@ -259,6 +430,24 @@ export const LINES = [
     vehicleType: "heavy",
     gtfsRouteId: "3",
     preRevenue: false,
+    // Siemens Modular Metro 3-car sets, third rail. Silver shell, same family as MRT Purple.
+    rollingStock: {
+      cars: 3,
+      carLengthM: 16.6,
+      gapM: 0.6,
+      widthM: 3.2,
+      heightM: 3.8,
+      rideHeightM: 0.4,
+      cabLengthM: 3.2,
+      nose: "raked",
+      roof: "none",
+      shell: "#D7DBDF",
+      glazing: { zM: 2.45, heightM: 1.05, tint: "#2B3138" },
+      bands: [
+        { zM: 1.6, heightM: 0.5, tint: "route" },
+        { zM: 0.35, heightM: 0.35, tint: "#6E757C" },
+      ],
+    },
     // Discovery (npm run data:fetch -- blue) returned 2 candidates, both
     // directional variants of the full alignment (no short-turn variant
     // appeared): 444659 "MRT Blue Line (Tha Phra -> Lak Song)" and 7725025
@@ -407,6 +596,23 @@ export const LINES = [
     // stops only that branch reaches.
     claimGtfsStopIds: ["16936", "16937"],
     preRevenue: false,
+    // Alstom Innovia Monorail 300, 4-car, straddling the beam — no
+    // pantograph and no underframe skirt. These wear a WIDE colour wrap
+    // rather than a pinstripe, which is what makes them read as monorails.
+    rollingStock: {
+      cars: 4,
+      carLengthM: 11.8,
+      gapM: 0.5,
+      widthM: 3.0,
+      heightM: 3.6,
+      rideHeightM: 0.2,
+      cabLengthM: 2.6,
+      nose: "blunt",
+      roof: "none",
+      shell: "#E8EBEE",
+      glazing: { zM: 2.35, heightM: 1.0, tint: "#2B3138" },
+      bands: [{ zM: 1.0, heightM: 1.6, tint: "route" }],
+    },
     // Inherits the trunk's defect: the spur's 4 trips carry the same
     // zero-transit rows, and its own 2 stop pairs appear nowhere healthy.
     // Same basis and same disclosure as `pink` above.
@@ -439,6 +645,21 @@ export const LINES = [
     // Operational, not under construction — it must NOT get the dashed,
     // desaturated pre-revenue treatment that Orange/Purple Phase 2 use.
     preRevenue: false,
+    // Siemens Airval, 2-car. The shortest consist on the network.
+    rollingStock: {
+      cars: 2,
+      carLengthM: 12.6,
+      gapM: 0.5,
+      widthM: 2.8,
+      heightM: 3.4,
+      rideHeightM: 0.2,
+      cabLengthM: 2.4,
+      nose: "rounded",
+      roof: "none",
+      shell: "#E8EBEE",
+      glazing: { zM: 2.2, heightM: 0.95, tint: "#2B3138" },
+      bands: [{ zM: 1.35, heightM: 0.45, tint: "route" }],
+    },
     // ---- ESTIMATED TIMETABLE, NOT PUBLISHED DATA -------------------------
     // AOT publishes no timetable for the APM — only "runs continuously".
     // These figures describe the observed service pattern (a ~1 km run at a
@@ -606,6 +827,66 @@ export function assertRegistryValid(lines = LINES) {
           `${l.key}: estimatedRunTimes basis '${e.basisLine}' cannot itself have ` +
             `estimatedRunTimes — calibrating an estimate from an estimate compounds it`,
         );
+      }
+    }
+    if (l.rollingStock !== undefined && l.rollingStock !== null) {
+      const s = l.rollingStock;
+      if (l.preRevenue) {
+        // A pre-revenue line renders track and no trains, so a stock
+        // declaration on one is dead data that nothing will ever build.
+        throw new Error(`${l.key}: a preRevenue line must not declare rollingStock`);
+      }
+      if (!Number.isInteger(s.cars) || s.cars < 1) {
+        throw new Error(`${l.key}: rollingStock.cars must be a positive integer`);
+      }
+      for (const f of ["carLengthM", "gapM", "widthM", "heightM", "rideHeightM", "cabLengthM"]) {
+        if (typeof s[f] !== "number" || !(s[f] >= 0)) {
+          throw new Error(`${l.key}: rollingStock.${f} must be a non-negative number`);
+        }
+      }
+      if (!(s.cabLengthM < s.carLengthM)) {
+        // buildStockGeometry shortens the LEADING car by cabLengthM so the
+        // consist's rendered extent stays equal to stockLengthM. A cab as long
+        // as its car would collapse that body to zero or negative length.
+        throw new Error(
+          `${l.key}: rollingStock.cabLengthM must be shorter than carLengthM — ` +
+            `the cab is the front of the leading car, not an extra car`,
+        );
+      }
+      if (!NOSE_PROFILES.includes(s.nose)) {
+        throw new Error(`${l.key}: unknown rollingStock.nose '${s.nose}'`);
+      }
+      if (!ROOF_KITS.includes(s.roof)) {
+        throw new Error(`${l.key}: unknown rollingStock.roof '${s.roof}'`);
+      }
+      if (!HEX.test(s.shell)) {
+        // Never "route": the shell is the large neutral area, and a shell in
+        // the line's own colour leaves the identity band nothing to read against.
+        throw new Error(`${l.key}: rollingStock.shell must be #RRGGBB`);
+      }
+      if (!Array.isArray(s.bands) || s.bands.length === 0) {
+        throw new Error(`${l.key}: rollingStock.bands must be a non-empty array`);
+      }
+      if (s.bands[0].tint !== "route") {
+        // bands[0] is the identity band by contract — buildStockGeometry
+        // paints the nose with it, which is what marks direction of travel.
+        throw new Error(`${l.key}: rollingStock.bands[0] must be the "route" identity band`);
+      }
+      for (const b of [s.glazing, ...s.bands]) {
+        if (typeof b?.zM !== "number" || typeof b?.heightM !== "number" || !(b.heightM > 0)) {
+          throw new Error(`${l.key}: every rollingStock band needs a numeric zM and a positive heightM`);
+        }
+        if (b.zM - b.heightM / 2 < 0 || b.zM + b.heightM / 2 > s.heightM) {
+          throw new Error(
+            `${l.key}: rollingStock band at zM ${b.zM} falls outside the car shell (0..${s.heightM})`,
+          );
+        }
+        if (b.tint !== "route" && !HEX.test(b.tint)) {
+          throw new Error(`${l.key}: rollingStock band tint must be "route" or #RRGGBB`);
+        }
+      }
+      if (s.glbUrl !== undefined && (typeof s.glbUrl !== "string" || s.glbUrl.length === 0)) {
+        throw new Error(`${l.key}: rollingStock.glbUrl must be a non-empty string when present`);
       }
     }
     if (l.osm?.extraStationNodeIds !== undefined) {
