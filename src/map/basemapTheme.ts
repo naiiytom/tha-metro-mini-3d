@@ -96,16 +96,6 @@ export interface RgbaColor extends RgbColor {
   a: number;
 }
 
-export const PARSED_NIGHT_THEME: Record<keyof BasemapTheme, RgbaColor> = (
-  Object.keys(NIGHT) as (keyof BasemapTheme)[]
-).reduce(
-  (acc, role) => {
-    acc[role] = { ...NIGHT[role], a: 1 };
-    return acc;
-  },
-  {} as Record<keyof BasemapTheme, RgbaColor>,
-);
-
 function hslToRgb(h: number, s: number, l: number): RgbColor {
   // h in degrees, s and l in [0, 1].
   const hue = ((h % 360) + 360) % 360;
@@ -177,6 +167,27 @@ export function parseColor(input: string): RgbaColor | null {
   return null;
 }
 
+/**
+ * `NIGHT_THEME` pre-parsed, so the per-tick blend loop never re-parses a
+ * constant. Derived from `NIGHT_THEME` itself rather than from `NIGHT`
+ * directly: a second independent derivation would silently diverge the
+ * moment a night colour is not integral (`toHex` rounds), leaving the
+ * basemap blending toward a target that differs from the string the rest
+ * of the codebase asserts against. Frozen because every themeable entry
+ * shares these objects by reference.
+ */
+export const PARSED_NIGHT_THEME: Record<keyof BasemapTheme, Readonly<RgbaColor>> = (
+  Object.keys(NIGHT_THEME) as (keyof BasemapTheme)[]
+).reduce(
+  (acc, role) => {
+    // Non-null: every NIGHT_THEME value is `toHex` output, which parseColor
+    // always accepts.
+    acc[role] = Object.freeze(parseColor(NIGHT_THEME[role])!);
+    return acc;
+  },
+  {} as Record<keyof BasemapTheme, Readonly<RgbaColor>>,
+);
+
 const toCss = (c: RgbaColor): string => {
   if (c.a >= 1) return toHex(c);
   const r = Math.round(c.r);
@@ -185,6 +196,20 @@ const toCss = (c: RgbaColor): string => {
   const a = Math.round(clamp01(c.a) * 1000) / 1000;
   return `rgba(${r}, ${g}, ${b}, ${a})`;
 };
+
+/**
+ * Blend two pre-parsed RGBA colours by `t` (0 = `from` unchanged, 1 = `to`),
+ * preserving `from`'s alpha. Output is formatted as `#rrggbb` or `rgba(...)`.
+ */
+export function mixParsedColor(from: RgbaColor, to: RgbaColor, t: number): string {
+  const clamped = clamp01(t);
+  return toCss({
+    r: lerp(from.r, to.r, clamped),
+    g: lerp(from.g, to.g, clamped),
+    b: lerp(from.b, to.b, clamped),
+    a: from.a,
+  });
+}
 
 /**
  * Blend a real CSS colour (any form `parseColor` accepts) toward another
@@ -201,20 +226,6 @@ const toCss = (c: RgbaColor): string => {
  * should have already filtered with `parseColor` at classification time,
  * so this should never fire in practice.
  */
-/**
- * Blend two pre-parsed RGBA colours by `t` (0 = `from` unchanged, 1 = `to`),
- * preserving `from`'s alpha. Output is formatted as `#rrggbb` or `rgba(...)`.
- */
-export function mixParsedColor(from: RgbaColor, to: RgbaColor, t: number): string {
-  const clamped = clamp01(t);
-  return toCss({
-    r: lerp(from.r, to.r, clamped),
-    g: lerp(from.g, to.g, clamped),
-    b: lerp(from.b, to.b, clamped),
-    a: from.a,
-  });
-}
-
 export function mixColor(from: string, to: string, t: number): string {
   const a = parseColor(from);
   const b = parseColor(to);
