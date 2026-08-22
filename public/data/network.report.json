@@ -1,7 +1,7 @@
 {
-  "bytes": 601845,
-  "feed_version": "20260817",
-  "gzip_bytes": 351583,
+  "bytes": 601839,
+  "feed_version": "20260821",
+  "gzip_bytes": 351579,
   "interchanges": [
     {
       "a": "sukhumvit/Samrong",
@@ -20,7 +20,7 @@
       "b": "arl/Phaya Thai"
     },
     {
-      "a": "sukhumvit/BTS Mo Chit",
+      "a": "sukhumvit/Mo Chit",
       "b": "blue/Chatuchak Park"
     },
     {
