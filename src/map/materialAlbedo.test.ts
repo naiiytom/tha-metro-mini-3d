@@ -27,6 +27,7 @@ const line = (over: Partial<LineGeometry> = {}): LineGeometry => ({
   preRevenue: false,
   syntheticSchedule: null,
   estimatedRunTimes: null,
+  rollingStock: null,
   relationId: 1,
   osmName: "T",
   track: [

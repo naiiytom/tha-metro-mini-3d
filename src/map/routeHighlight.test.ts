@@ -22,6 +22,7 @@ function line(): LineGeometry {
     preRevenue: false,
     syntheticSchedule: null,
     estimatedRunTimes: null,
+    rollingStock: null,
     relationId: null,
     osmName: "",
     track: TRACK,
