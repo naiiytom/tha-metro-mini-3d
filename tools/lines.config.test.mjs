@@ -179,3 +179,30 @@ describe("interchange overrides", () => {
     });
   });
 });
+
+describe("extraStationNodeIds", () => {
+  /** The mechanism only pays off if the node it names actually survives into
+   *  network.json. Nothing else can see that: network.registry.test.ts checks
+   *  line order/colour/structure/gtfsRouteId, and the preprocessor's snap
+   *  gates only ever measure a station that IS there — a MISSING one is
+   *  structurally invisible to them. That is exactly how Mo Chit was dropped
+   *  by a re-fetch (333b799) with every gate still green. Same guard shape as
+   *  the interchange-override sync test above. */
+  it("every declared node is present in that line's network.json stations", () => {
+    const network = JSON.parse(
+      readFileSync(new URL("../src/data/network.json", import.meta.url), "utf8"),
+    );
+    const declared = LINES.filter((l) => l.osm?.extraStationNodeIds?.length);
+    // Guard the guard: if the registry ever stops using the mechanism this
+    // test would pass vacuously and nobody would notice.
+    expect(declared.length).toBeGreaterThan(0);
+    for (const line of declared) {
+      const stations = network.lines.find((l) => l.key === line.key)?.stations;
+      expect(stations, `${line.key} missing from network.json`).toBeDefined();
+      const ids = new Set(stations.map((s) => s.id));
+      for (const node of line.osm.extraStationNodeIds) {
+        expect(ids.has(node.id), `${line.key}: node ${node.id} is not in network.json`).toBe(true);
+      }
+    }
+  });
+});
