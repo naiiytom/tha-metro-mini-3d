@@ -19,6 +19,7 @@ import { skyPalette, sunDirection } from "../map/sun";
 import { bindStyle, type StyleBinding } from "../map/styleBinding";
 import { TrainTooltip } from "../map/trainTooltip";
 import { effectiveElevationDeg } from "../map/themeMode";
+import { resolveStock } from "../map/rollingStock";
 import { VehicleManager } from "../map/VehicleManager";
 import { lngLatToLocal, localToLngLat, ORIGIN_LNG_LAT } from "../map/coordinates";
 import { SimClient, activeSimClient } from "../sim/SimClient";
@@ -222,7 +223,7 @@ export function MapContainer() {
     map.on("style.load", () => {
       const store = useAppStore.getState();
       vehicleManager = new VehicleManager(
-        net.lines.map((l) => ({ color: l.color, vehicleType: l.vehicleType })),
+        net.lines.map((l) => ({ color: l.color, stock: resolveStock(l) })),
       );
       layer = new NetworkLayer(net, vehicleManager);
       map.addLayer(layer);

@@ -105,8 +105,9 @@ export interface LiveryBand {
  * sync test in tools/lines.config.test.mjs compares the two with `toEqual`.
  *
  * Linear dimensions are map-legibility-tuned, NOT spec-sheet accurate (the
- * same stance vehicleModels.ts always took). `cars`, `nose`, `roof` and the
- * livery ARE real, checkable facts about the operator's fleet.
+ * same stance the earlier, now-superseded procedural consist geometry always
+ * took). `cars`, `nose`, `roof` and the livery ARE real, checkable facts
+ * about the operator's fleet.
  */
 export interface RollingStock {
   cars: number;

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import * as THREE from "three";
 import { materialAlbedo } from "./materialAlbedo";
+import { resolveStock } from "./rollingStock";
 import { VehicleManager } from "./VehicleManager";
 import { buildStationMarkers } from "./trackGeometry";
 import type { LineGeometry } from "../types";
@@ -11,7 +12,7 @@ import type { LineGeometry } from "../types";
  * less lift..." test for why that one alone doesn't guard this). Both
  * builders here are pure geometry/material construction — no WebGL context,
  * no renderer, no DOM — so they run fine under vitest's default node
- * environment (confirmed against the existing `vehicleModels.test.ts` /
+ * environment (confirmed against the existing `stockGeometry.test.ts` /
  * `skyDome.test.ts` precedent of constructing real THREE objects the same
  * way).
  */
@@ -59,8 +60,11 @@ describe("materialAlbedo", () => {
     // This fails if VehicleManager's userData.liveryHex stamp is ever
     // removed.
     const manager = new VehicleManager([
-      { color: "#1964B7", vehicleType: "heavy" },
-      { color: "#FBC02D", vehicleType: "monorail" },
+      { color: "#1964B7", stock: resolveStock({ color: "#1964B7", vehicleType: "heavy", rollingStock: null }) },
+      {
+        color: "#FBC02D",
+        stock: resolveStock({ color: "#FBC02D", vehicleType: "monorail", rollingStock: null }),
+      },
     ]);
     const blueMaterial = manager.meshes[0].material as THREE.MeshLambertMaterial;
     const yellowMaterial = manager.meshes[1].material as THREE.MeshLambertMaterial;
