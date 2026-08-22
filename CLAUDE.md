@@ -170,6 +170,86 @@ MVP 7 was not on the SRS's original ladder — it is a post-v1.0-DoD hardening p
 - **The APM was a disconnected component of the routing graph until this slice.** ARL Suvarnabhumi and APM Suvarnabhumi Main Terminal are 332 m apart — outside `INTERCHANGE_RADIUS_M` (300 m) — so before the new override, every plan to or from either APM station reported "no route" while the line visibly ran trains. Note the asymmetric override entry: `{ aLine: "arl", aStop: "326", bLine: "apm", bStop: "13373875189" }`. The b-side is an OSM **node** id, not a GTFS stop id, because the APM is absent from the Namtang feed entirely (`gtfsRouteId: null`) and the preprocessor stamps a registry station's own `id` as its `gtfs_stop_id` for such a line. `tools/lines.config.test.mjs` now pins `INTERCHANGE_OVERRIDES` against `network.json`'s own copy, so the standing "edit the registry, forget the sync, everything reports success" footgun is finally a test failure instead of a debug cycle.
 - **`src/sim/SimClient.test.ts` is the first unit test for SimClient's query wiring**, using a fake `Worker` stubbed onto `globalThis`. It exists because `getRoutePlan` applies the routing defaults, and a silently-dropped parameter there would look like an engine bug.
 
+## Implementation notes (Custom rolling stock, roadmap item 10, 2026-08-22)
+
+- **`src/map/vehicleModels.ts` is gone.** `CONSISTS`/`buildTrainGeometry` were
+  replaced by `src/map/rollingStock.ts` (pure: types, `DEFAULT_STOCK`,
+  `resolveStock`) and `src/map/stockGeometry.ts` (Three: `buildStockGeometry`).
+  The split is deliberate — the WCAG gate has to enumerate every colour a
+  train renders, and keeping that half pure means it stays assertable inside
+  `npm test`, which is this project's only remaining automated surface.
+- **`buildStockGeometry(spec)` takes no accent colour**, unlike the old
+  `buildTrainGeometry(spec, accentHex)`. Every colour is resolved into the
+  spec by `resolveStock`, which is also where the `"route"` tint sentinel is
+  expanded — so line identity still has exactly one source of truth.
+- **`bands[0]` is the identity band by contract, and the nose takes its
+  colour.** That is what preserves the route-coloured cab cap MVP 3 added to
+  mark direction of travel. `assertRegistryValid` rejects a line whose
+  `bands[0].tint` is not `"route"`, because a violation would be invisible —
+  the train would still render, just with a neutral nose.
+- **The nose comes OUT of the leading car, it is not bolted on.**
+  `buildStockGeometry` shortens the lead car's shell by exactly `cabLengthM`,
+  so a consist's rendered extent stays equal to `stockLengthM(spec)`. The
+  registry rejects `cabLengthM >= carLengthM`, which would collapse that body
+  to zero or negative length.
+- **`taperNose` keys on each vertex's own x rather than picking faces.** Three
+  duplicates a box's corners once per face; every duplicate at a given x gets
+  identical treatment, so seams stay closed with no face-index bookkeeping.
+- **The night-lift stamp is still the ROUTE colour, not the shell** — and that
+  is load-bearing for how the gate is written. `ThreeLayer.setSun()` computes
+  ONE `nightLift` per material from `materialAlbedo(m)`, and a route's entire
+  train is ONE `MeshLambertMaterial` (`vertexColors: true`). So every livery
+  colour on a train is lifted by an emissive derived from the route colour.
+  `src/map/rollingStockContrast.test.ts` models exactly that.
+- **The gate asks two different questions on purpose, at two different times
+  of day, and one of the two is not gated at night at all.** Large-area roles
+  (shell, identity band) are scored against `CONTRAST_REFERENCE`,
+  **night-only** — checking this role at noon too would compare against a
+  reference that is only valid at night, an invalid comparison; a
+  pre-existing `test.each(TIMES)` sibling bug doing exactly that was found
+  and fixed to match `nightLift.test.ts`'s established night-only pattern for
+  this same reference. Worst measured: **3.00:1**, passing, with several
+  lines (purple, gold, red-dark, purple-ext) landing exactly on this
+  bisection boundary. Detail roles (glazing ribbon, skirt) are scored against
+  the train's own SHELL, **noon-only**: worst measured **3.44:1** (skirt
+  `#6E757C` vs. silver shell `#D7DBDF`, on purple/arl/blue). **At night the
+  detail role is deliberately NOT gated — it is mathematically and
+  empirically unreachable under the frozen `nightLift.ts` shading model, not
+  an oversight.** Scoring a deliberately dark ribbon against the night
+  basemap would demand it be light and destroy the thing it is for; scoring
+  it against its own shell at night instead still fails, because a shared
+  additive per-material emissive lift is identical for every colour on one
+  route's material and compresses internal livery contrast toward 1
+  regardless of that line's own lift size — theoretical best case at night is
+  ~1.39:1, already under the 3.0 floor before any lift is applied, measured
+  at ~1.05–1.09:1 in practice. No livery choice closes this; it is a
+  permanent limitation of the shading model until that model changes, and it
+  is disclosed rather than hidden — the same standing practice as NF1's
+  `>=300` gate left failing on purpose and Safari left untested rather than
+  faked. `MIN_CONTRAST` stayed exactly `3` throughout this work and
+  `src/map/nightLift.ts` itself was never touched.
+- **Two palette values were set by arithmetic, not by eye — do not "tidy" them
+  back.** The skirt is `#6E757C` because the more natural `#8E959C` lands at
+  2.47:1 against the `#E8EBEE` shell. BTS Gold's shell is a pale `#D9C273`
+  because the saturated `#C9A227` a photo suggests drops the skirt to 2.65:1
+  and leaves the route band nothing to contrast against (gold on gold).
+- **A large night lift COMPRESSES the detail-vs-shell contrast**, because the
+  emissive is additive and identical for every colour on the shared material.
+  The lines with the biggest lifts (Blue and Purple, the two that reach
+  stage-2 whitening) are therefore the tightest cases in question 2 — check
+  those first if a palette change ever fails the gate.
+- **`network.json` was patched, not re-fetched** (`tools/patch-rolling-stock.mjs`,
+  idempotent, recorded in `handPatches`). Same precedent as `preRevenue`,
+  `interchangeOverrides` and the gradient limiter. `tools/fetch-network.mjs`
+  carries the field, so a future real fetch reproduces it as a no-op diff.
+  **No `.tmb` regeneration** — the Rust `LineGeometry` has no
+  `deny_unknown_fields`, so `rollingStock` is inert to the preprocessor.
+- **`glbUrl` has no users and is expected to stay that way.** `glbStock.ts`
+  falls back to procedural on every failure path (no `glbUrl`, no mesh, merge
+  failure, loader rejection) and warns. `GLTFLoader` is behind a dynamic
+  `import()` so it never enters the entry chunk. LOD is NOT built — see the
+  roadmap entry for why.
+
 ## What this project is
 
 Greater Bangkok Metro Mini 3D is a web-based 3D visualization of Bangkok's rail transit network (BTS, MRT, SRT, Airport Rail Link), inspired by Mini Tokyo 3D. Trains are placed on 3D track by **interpolating static GTFS timetables** — there is no live vehicle feed (GTFS-Realtime is explicitly out of scope for v1.0). The app lets a user scrub to any past/future time and see where trains *should* be per schedule.
