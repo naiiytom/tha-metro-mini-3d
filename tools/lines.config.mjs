@@ -57,7 +57,21 @@ export const LINES = [
     vehicleType: "heavy",
     gtfsRouteId: "1",
     preRevenue: false,
-    osm: { relationId: 444651, match: /sukhumvit/i },
+    // Mo Chit (N8) is NOT a member of relation 444651 — verified 2026-08-04
+    // and again during MVP 6 Task 13 — so a plain re-fetch can never bring it
+    // back on its own. It IS a real, properly tagged OSM node: 5388599065
+    // (railway=station, public_transport=station, ref=N8, name:en=Mo Chit,
+    // operator BTSC, wikidata=Q873641) at 13.8025991, 100.5537913, confirmed
+    // live 2026-08-22 — tags and coordinates match exactly. History: the
+    // original hand patch (ef339e9) cited untagged node 270666807, ~270 m
+    // from the position it was used to justify; `b4c1cb9` replaced it with
+    // this node, improving the snap from 187.4 m to 2.2 m; a later full
+    // re-fetch (333b799) silently dropped the station entirely (the hand
+    // patch mechanism didn't survive being re-derived from network.json's own
+    // regeneration path) — the regression this entry now fixes for good, via
+    // the same extraStationNodeIds mechanism built for the Suvarnabhumi APM.
+    // Measured snap against the committed track: 2.18 m.
+    osm: { relationId: 444651, match: /sukhumvit/i, extraStationNodeIds: [{ id: "5388599065" }] },
     // Disclosed snap in the 50-150 m band (see SNAP_WARN_M in the
     // preprocessor). GTFS stop 13608 "BTS Kheha" (this line's northern-most
     // extension terminus) snaps 63.9 m from the fetched OSM track — a
