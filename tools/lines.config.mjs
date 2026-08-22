@@ -430,7 +430,7 @@ export const LINES = [
     vehicleType: "heavy",
     gtfsRouteId: "3",
     preRevenue: false,
-    // J-TREC 3-car sets, third rail. Silver shell like the MRT Blue stock.
+    // Siemens Modular Metro 3-car sets, third rail. Silver shell, same family as MRT Purple.
     rollingStock: {
       cars: 3,
       carLengthM: 16.6,
