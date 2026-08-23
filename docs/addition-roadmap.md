@@ -82,12 +82,64 @@ Features to close parity with [nagix/mini-tokyo-3d](https://github.com/nagix/min
 - Layer display settings panel to toggle plugin layers on/off
 - Potential first plugins: weather overlay, points of interest
 
-### 10. Custom Train / Rolling Stock Models
-- Replace generic vehicle-type geometry (heavy-rail, monorail, APM, commuter) with accurate per-line 3D models matching real rolling stock
-- Examples: BTS Sukhumvit/Silom (Siemens EMU), MRT Purple (CRRC EMU), Airport Rail Link (CAF), SRT Red (Hitachi), Pink/Yellow (Alstom monorail), Gold (Bombardier APM)
-- Source or create `.glb` models for each operator's train set
-- Correct livery colors, car count, and proportions per line
-- Lazy-load models with LOD (level of detail) fallback to keep bundle size under budget
+### 10. Custom Train / Rolling Stock Models — ✅ delivered 2026-08-22
+- Per-line rolling stock replaces the four shared vehicle-type shapes: real car
+  counts (BTS 4, MRT Blue/Purple/ARL 3, Gold and the Suvarnabhumi APM 2, the
+  Alstom monorails 4, SRT Red 4), per-line nose profile, roof kit and livery.
+- **Declared in `tools/lines.config.mjs`**, carried through `network.json` into
+  `LineGeometry.rollingStock` — the same path `syntheticSchedule` takes, so it
+  gets `assertRegistryValid` coverage and a sync test rather than being a
+  second, unguarded enumeration of the network in `src/map/`.
+- **Roof kit is a real distinction, not decoration:** only the Airport Rail
+  Link and both SRT Red lines carry a pantograph (25 kV AC overhead). BTS and
+  both MRT heavy lines take power from a third rail; the monorails and people
+  movers from the beam.
+- **`.glb` models were NOT sourced, and the roadmap's original wording is not
+  met literally.** No correctly-licensed model of this network's real stock
+  exists that could be found, so the geometry is procedural and
+  `src/map/glbStock.ts` is an override seam: a line that declares `glbUrl`
+  loads and merges a model, everything else builds procedurally. Nothing
+  declares one today and that is the expected steady state, not a gap waiting
+  to be filled. The seam is **connected** — `MapContainer.tsx`'s
+  `attachStockOverrides`, called from `style.load` — which it was not when
+  first written; code review 2026-08-23 found `loadStockGeometry` had no
+  caller at all, so declaring `glbUrl` would have passed every gate and
+  changed nothing on screen.
+- **LOD was deliberately not built.** A distance-keyed switch needs two levels
+  that differ in cost; with no `.glb` in the tree there is one. The seam it
+  would need (`VehicleManager.setRouteGeometry`) exists, built for the `.glb`
+  hook. LOD lands with the first real model.
+- **The WCAG night gate was extended and still passes at `MIN_CONTRAST = 3`,
+  unweakened — but it now asks two separate questions, gated at two different
+  times, and one of them is deliberately not gated at night at all.**
+  Large-area roles (shell, identity band) are scored against the night
+  basemap reference, **night-only** (a pre-existing `test.each(TIMES)` bug
+  that also checked this at noon — an invalid comparison, since the reference
+  is only valid at night — was found and fixed to match `nightLift.test.ts`'s
+  established pattern). **Half of that gate is tautological and its headline
+  number used to be quoted from the tautological half** (found in code review
+  2026-08-23): the identity band is `ROUTE_TINT` on all 14 lines, and
+  `nightLift` bisects each route colour to the minimum lift clearing
+  `MIN_CONTRAST`, so the band can only ever score ~3.00 — measured 3.000
+  (red-dark, gold) to 3.032 (apm). It proves the lift is wired in, nothing
+  about the livery. The **shell** is the real new coverage — it takes the
+  route's lift but not its hue, so it can genuinely fail — and its worst is
+  **3.081:1** (BTS Gold's champagne `#D9C273`, the network's only non-white/
+  silver shell), best 3.234:1 (purple-ext). It now has its own assertion so a
+  shell regression cannot hide behind the band's guaranteed 3.00. Detail
+  roles (glazing ribbon, skirt vs. the train's own shell)
+  are scored **noon-only**: worst measured **3.44:1** (skirt `#6E757C` vs.
+  silver shell `#D7DBDF`, on purple/arl/blue). **At night the detail role is
+  NOT gated — a real, disclosed, permanent limitation of the shared-material
+  shading model**, measured at ~1.05–1.09:1, nowhere near the 3.0 floor: the
+  additive per-material night lift is identical for every colour on a route's
+  one `MeshLambertMaterial`, so it compresses internal livery contrast toward
+  1 regardless of how large that line's own lift is (theoretical best case at
+  night is ~1.39:1, already under the floor before any lift is applied). No
+  palette choice closes this; it stands alongside NF1's `>=300` gate and
+  Safari-untested as a disclosed, not-silently-solved gap.
+- Draw calls unchanged — still one `InstancedMesh` per route. Bundle
+  1.06 MB gzip / 5.00 MB.
 
 ---
 

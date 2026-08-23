@@ -9,26 +9,28 @@ import {
   MAX_VEHICLES,
   VEHICLE_STRIDE,
 } from "../sim/protocol";
-import { buildTrainGeometry, CONSISTS } from "./vehicleModels";
-import type { VehicleType } from "../types";
+import { buildStockGeometry } from "./stockGeometry";
+import type { StockSpec } from "./rollingStock";
 
 /**
  * Instanced train rendering (ENGINE_CONTRACT.md §6): one InstancedMesh per
  * route (capacity MAX_VEHICLES) — one draw call per route for the whole
  * fleet.
  *
- * Train geometry is built per vehicle type from `vehicleModels.ts`'s
- * ConsistSpecs — a stylized multi-car consist in white-grayish livery, with
- * a route-colored cab cap on the +x end so both the direction of travel and
- * the route stay readable. Car bodies + cab are merged into ONE
- * vertex-colored geometry per route. The long axis is +x at yaw = 0; yaw
- * rotates around +z (up) in the local ENU frame, matching the sim's vehicle
- * records.
+ * Train geometry is built per line from `rollingStock.ts`'s resolved
+ * `StockSpec` (`stockGeometry.ts`'s `buildStockGeometry`) — a stylized
+ * multi-car consist in the line's own declared livery, with a route-colored
+ * cab cap on the +x end so both the direction of travel and the route stay
+ * readable. Car bodies + cab are merged into ONE vertex-colored geometry per
+ * route. The long axis is +x at yaw = 0; yaw rotates around +z (up) in the
+ * local ENU frame, matching the sim's vehicle records.
  */
 
 export interface VehicleRoute {
+  /** The line's registry colour — the identity hue, stamped as liveryHex. */
   color: string;
-  vehicleType: VehicleType;
+  /** This line's own resolved rolling stock (see rollingStock.ts). */
+  stock: StockSpec;
 }
 
 /** Per-instance tint multiplied over the vertex colors (MVP 4 selection). */
@@ -130,21 +132,8 @@ export class VehicleManager {
       // (which would glow every train white at night).
       material.userData.liveryHex = new THREE.Color(route.color).getHex();
       material.onBeforeCompile = patchInstancedEmissive;
-      const geometry = buildTrainGeometry(
-        CONSISTS[route.vehicleType],
-        new THREE.Color(route.color).getHex(),
-      );
-      // Allocated eagerly, unlike `instanceColor` (a Three built-in the
-      // renderer allocates lazily on the first `setColorAt`): this is a
-      // plain custom attribute with no such lazy path, and it must exist
-      // before the first render regardless of whether anything is selected
-      // yet, so every slot reliably reads "no boost" from frame 1.
-      const instanceEmissive = new THREE.InstancedBufferAttribute(
-        new Float32Array(MAX_VEHICLES * 3),
-        3,
-      );
-      instanceEmissive.setUsage(THREE.DynamicDrawUsage);
-      geometry.setAttribute("instanceEmissive", instanceEmissive);
+      const geometry = buildStockGeometry(route.stock);
+      geometry.setAttribute("instanceEmissive", VehicleManager.newInstanceEmissive());
       const mesh = new THREE.InstancedMesh(geometry, material, MAX_VEHICLES);
       mesh.name = `vehicles-route-${routeIdx}`;
       mesh.count = 0;
@@ -161,6 +150,47 @@ export class VehicleManager {
   setRouteVisible(routeIdx: number, visible: boolean): void {
     const mesh = this.meshes[routeIdx];
     if (mesh) mesh.visible = visible;
+  }
+
+  /**
+   * Allocated eagerly, unlike `instanceColor` (a Three built-in the renderer
+   * allocates lazily on the first `setColorAt`): this is a plain custom
+   * attribute with no such lazy path, and it must exist before the first
+   * render regardless of whether anything is selected yet, so every slot
+   * reliably reads "no boost" from frame 1.
+   */
+  private static newInstanceEmissive(): THREE.InstancedBufferAttribute {
+    const attr = new THREE.InstancedBufferAttribute(new Float32Array(MAX_VEHICLES * 3), 3);
+    attr.setUsage(THREE.DynamicDrawUsage);
+    return attr;
+  }
+
+  /**
+   * Swap in a different geometry for one route after construction — the seam
+   * a `.glb` override (glbStock.ts) and, later, a real LOD switch both need.
+   *
+   * Two things must travel with the swap or the route breaks silently: the
+   * per-instance `instanceEmissive` attribute (without it the selection
+   * highlight's onBeforeCompile patch reads a missing attribute), and the
+   * disposal of the geometry being replaced (Three does not free GPU buffers
+   * when a mesh simply stops referencing them).
+   *
+   * The MATERIAL is deliberately untouched — it carries the route's
+   * liveryHex stamp and the compiled emissive patch, and rebuilding it would
+   * drop the night lift `ThreeLayer.setSun()` has already applied.
+   */
+  setRouteGeometry(routeIdx: number, geometry: THREE.BufferGeometry): void {
+    const mesh = this.meshes[routeIdx];
+    if (!mesh || geometry === mesh.geometry) return;
+    const previous = mesh.geometry;
+    geometry.setAttribute("instanceEmissive", VehicleManager.newInstanceEmissive());
+    mesh.geometry = geometry;
+    previous.dispose();
+    // Slot packing is rewritten every frame from scratch, but the tail-clearing
+    // bookkeeping is not — reset it so the first frame after a swap writes a
+    // clean attribute rather than clearing slots on a buffer that never held them.
+    this.lastTintedCounts[routeIdx] = 0;
+    this.tintedFor = null;
   }
 
   /**

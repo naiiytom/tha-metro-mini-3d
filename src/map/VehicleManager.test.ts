@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, it, test } from "vitest";
 import * as THREE from "three";
 import { patchInstancedEmissive, VehicleManager } from "./VehicleManager";
 import {
@@ -8,8 +8,23 @@ import {
   LANE_Y,
   LANE_YAW,
   LANE_Z,
+  MAX_VEHICLES,
   VEHICLE_STRIDE,
 } from "../sim/protocol";
+import { resolveStock } from "./rollingStock";
+import { buildStockGeometry } from "./stockGeometry";
+
+/**
+ * Builds a valid `VehicleRoute` the same way the real app does post-Task-5
+ * (`resolveStock` in `MapContainer.tsx`). Used both by the pre-existing tests
+ * below (written against the old `{ color, vehicleType }` shape, which no
+ * longer type-checks against `VehicleRoute`) and by the new per-line-stock
+ * tests appended at the end of this file.
+ */
+const routeOf = (color: string, vehicleType: "heavy" | "apm", cars?: number) => {
+  const stock = resolveStock({ color, vehicleType, rollingStock: null });
+  return { color, stock: cars === undefined ? stock : { ...stock, cars } };
+};
 
 /**
  * Coverage for the per-instance emissive boost (code review 2026-08-15, the
@@ -100,7 +115,7 @@ describe("patchInstancedEmissive", () => {
 
 describe("VehicleManager per-instance emissive boost", () => {
   function manager() {
-    return new VehicleManager([{ color: "#1964B7", vehicleType: "heavy" }]);
+    return new VehicleManager([routeOf("#1964B7", "heavy")]);
   }
 
   function instanceEmissiveAt(mesh: THREE.InstancedMesh, slot: number): [number, number, number] {
@@ -167,7 +182,7 @@ describe("VehicleManager per-instance emissive boost", () => {
 
 describe("VehicleManager stale-tail clearing (code review 2026-08-15)", () => {
   function manager() {
-    return new VehicleManager([{ color: "#1964B7", vehicleType: "heavy" }]);
+    return new VehicleManager([routeOf("#1964B7", "heavy")]);
   }
 
   function instanceEmissiveAt(mesh: THREE.InstancedMesh, slot: number): [number, number, number] {
@@ -228,5 +243,62 @@ describe("VehicleManager stale-tail clearing (code review 2026-08-15)", () => {
 
     expect(instanceEmissiveAt(mesh, 7)).toEqual([0, 0, 0]);
     expect(instanceColorAt(mesh, 7)).toEqual([1, 1, 1]);
+  });
+});
+
+describe("per-line stock geometry", () => {
+  it("builds a different geometry per route from each route's own spec", () => {
+    const manager = new VehicleManager([routeOf("#7CB342", "heavy", 4), routeOf("#FFD100", "apm", 2)]);
+    const four = manager.meshes[0].geometry.getAttribute("position").count;
+    const two = manager.meshes[1].geometry.getAttribute("position").count;
+    expect(four).toBeGreaterThan(two);
+  });
+
+  it("stamps the ROUTE colour as liveryHex, not the shell colour", () => {
+    // materialAlbedo() reads this to compute the night lift, and the whole
+    // point of the stamp is that the train's identity hue matches its
+    // LineSelector swatch. The shell is a neutral and must never be stamped.
+    const manager = new VehicleManager([routeOf("#7CB342", "heavy")]);
+    const material = manager.meshes[0].material as THREE.MeshLambertMaterial;
+    expect(material.userData.liveryHex).toBe(0x7cb342);
+  });
+
+  it("keeps one InstancedMesh per route at full capacity", () => {
+    const manager = new VehicleManager([routeOf("#7CB342", "heavy"), routeOf("#FFD100", "apm")]);
+    expect(manager.meshes).toHaveLength(2);
+    for (const mesh of manager.meshes) expect(mesh.count).toBe(0);
+    expect(manager.meshes[0].instanceMatrix.count).toBe(MAX_VEHICLES);
+  });
+});
+
+describe("setRouteGeometry", () => {
+  it("replaces a route's geometry and disposes the old one", () => {
+    const manager = new VehicleManager([routeOf("#7CB342", "heavy")]);
+    const old = manager.meshes[0].geometry;
+    let disposed = false;
+    old.addEventListener("dispose", () => {
+      disposed = true;
+    });
+    const next = buildStockGeometry(resolveStock({ color: "#7CB342", vehicleType: "apm", rollingStock: null }));
+
+    manager.setRouteGeometry(0, next);
+
+    expect(manager.meshes[0].geometry).toBe(next);
+    expect(disposed).toBe(true);
+  });
+
+  it("carries the per-instance emissive attribute onto the new geometry", () => {
+    const manager = new VehicleManager([routeOf("#7CB342", "heavy")]);
+    const next = buildStockGeometry(resolveStock({ color: "#7CB342", vehicleType: "apm", rollingStock: null }));
+    manager.setRouteGeometry(0, next);
+    const attr = manager.meshes[0].geometry.attributes.instanceEmissive;
+    expect(attr).toBeDefined();
+    expect(attr.count).toBe(MAX_VEHICLES);
+  });
+
+  it("ignores an out-of-range route index rather than throwing", () => {
+    const manager = new VehicleManager([routeOf("#7CB342", "heavy")]);
+    const next = new THREE.BoxGeometry(1, 1, 1);
+    expect(() => manager.setRouteGeometry(7, next)).not.toThrow();
   });
 });

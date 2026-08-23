@@ -12,7 +12,7 @@ function makeLine(overrides: Partial<LineGeometry> = {}): LineGeometry {
     key: "test-line", name: "Test Line", nameTh: "สายทดสอบ", color: "#65B724",
     structure: "elevated", vehicleType: "heavy", gtfsRouteId: "1",
     preRevenue: false, syntheticSchedule: null, estimatedRunTimes: null,
-    relationId: 1, osmName: "test", track: [], stations: [],
+    rollingStock: null, relationId: 1, osmName: "test", track: [], stations: [],
     ...overrides,
   };
 }

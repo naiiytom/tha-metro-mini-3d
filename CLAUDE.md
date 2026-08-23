@@ -170,6 +170,121 @@ MVP 7 was not on the SRS's original ladder — it is a post-v1.0-DoD hardening p
 - **The APM was a disconnected component of the routing graph until this slice.** ARL Suvarnabhumi and APM Suvarnabhumi Main Terminal are 332 m apart — outside `INTERCHANGE_RADIUS_M` (300 m) — so before the new override, every plan to or from either APM station reported "no route" while the line visibly ran trains. Note the asymmetric override entry: `{ aLine: "arl", aStop: "326", bLine: "apm", bStop: "13373875189" }`. The b-side is an OSM **node** id, not a GTFS stop id, because the APM is absent from the Namtang feed entirely (`gtfsRouteId: null`) and the preprocessor stamps a registry station's own `id` as its `gtfs_stop_id` for such a line. `tools/lines.config.test.mjs` now pins `INTERCHANGE_OVERRIDES` against `network.json`'s own copy, so the standing "edit the registry, forget the sync, everything reports success" footgun is finally a test failure instead of a debug cycle.
 - **`src/sim/SimClient.test.ts` is the first unit test for SimClient's query wiring**, using a fake `Worker` stubbed onto `globalThis`. It exists because `getRoutePlan` applies the routing defaults, and a silently-dropped parameter there would look like an engine bug.
 
+## Implementation notes (Custom rolling stock, roadmap item 10, 2026-08-22)
+
+- **`src/map/vehicleModels.ts` is gone.** `CONSISTS`/`buildTrainGeometry` were
+  replaced by `src/map/rollingStock.ts` (pure: types, `DEFAULT_STOCK`,
+  `resolveStock`) and `src/map/stockGeometry.ts` (Three: `buildStockGeometry`).
+  The split is deliberate — the WCAG gate has to enumerate every colour a
+  train renders, and keeping that half pure means it stays assertable inside
+  `npm test`, which is this project's only remaining automated surface.
+- **`buildStockGeometry(spec)` takes no accent colour**, unlike the old
+  `buildTrainGeometry(spec, accentHex)`. Every colour is resolved into the
+  spec by `resolveStock`, which is also where the `"route"` tint sentinel is
+  expanded — so line identity still has exactly one source of truth.
+- **`bands[0]` is the identity band by contract, and the nose takes its
+  colour.** That is what preserves the route-coloured cab cap MVP 3 added to
+  mark direction of travel. `assertRegistryValid` rejects a line whose
+  `bands[0].tint` is not `"route"`, because a violation would be invisible —
+  the train would still render, just with a neutral nose.
+- **The nose comes OUT of the leading car, it is not bolted on.**
+  `buildStockGeometry` shortens the lead car's shell by exactly `cabLengthM`,
+  so a consist's rendered extent stays equal to `stockLengthM(spec)`. The
+  registry rejects `cabLengthM >= carLengthM`, which would collapse that body
+  to zero or negative length.
+- **`taperNose` keys on each vertex's own x rather than picking faces.** Three
+  duplicates a box's corners once per face; every duplicate at a given x gets
+  identical treatment, so seams stay closed with no face-index bookkeeping.
+- **The night-lift stamp is still the ROUTE colour, not the shell** — and that
+  is load-bearing for how the gate is written. `ThreeLayer.setSun()` computes
+  ONE `nightLift` per material from `materialAlbedo(m)`, and a route's entire
+  train is ONE `MeshLambertMaterial` (`vertexColors: true`). So every livery
+  colour on a train is lifted by an emissive derived from the route colour.
+  `src/map/rollingStockContrast.test.ts` models exactly that.
+- **The gate asks two different questions on purpose, at two different times
+  of day, and one of the two is not gated at night at all.** Large-area roles
+  (shell, identity band) are scored against `CONTRAST_REFERENCE`,
+  **night-only** — checking this role at noon too would compare against a
+  reference that is only valid at night, an invalid comparison; a
+  pre-existing `test.each(TIMES)` sibling bug doing exactly that was found
+  and fixed to match `nightLift.test.ts`'s established night-only pattern for
+  this same reference. **Do not cite that gate's 3.00:1 as evidence about the
+  rolling stock** — half of it is tautological, corrected 2026-08-23. The
+  identity band is `ROUTE_TINT` on all 14 lines, so that arm scores the route
+  colour under the lift `nightLift` bisected from that same colour to the
+  minimum clearing `MIN_CONTRAST`; it can only come out at ~3.00 (measured
+  3.000 red-dark/gold to 3.032 apm) and would do so for any livery whatsoever.
+  The **shell** is the genuinely independent measurement — same lift, different
+  hue — and it is gated separately now: worst **3.081:1** (BTS Gold's champagne
+  `#D9C273`, the only non-white/silver shell in the network), best 3.234:1
+  (purple-ext). Detail roles (glazing ribbon, skirt) are scored against
+  the train's own SHELL, **noon-only**: worst measured **3.44:1** (skirt
+  `#6E757C` vs. silver shell `#D7DBDF`, on purple/arl/blue). **At night the
+  detail role is deliberately NOT gated — it is mathematically and
+  empirically unreachable under the frozen `nightLift.ts` shading model, not
+  an oversight.** Scoring a deliberately dark ribbon against the night
+  basemap would demand it be light and destroy the thing it is for; scoring
+  it against its own shell at night instead still fails, because a shared
+  additive per-material emissive lift is identical for every colour on one
+  route's material and compresses internal livery contrast toward 1
+  regardless of that line's own lift size — theoretical best case at night is
+  ~1.39:1, already under the 3.0 floor before any lift is applied, measured
+  at ~1.05–1.09:1 in practice. No livery choice closes this; it is a
+  permanent limitation of the shading model until that model changes, and it
+  is disclosed rather than hidden — the same standing practice as NF1's
+  `>=300` gate left failing on purpose and Safari left untested rather than
+  faked. `MIN_CONTRAST` stayed exactly `3` throughout this work and
+  `src/map/nightLift.ts` itself was never touched.
+- **Two palette values were set by arithmetic, not by eye — do not "tidy" them
+  back.** The skirt is `#6E757C` because the more natural `#8E959C` lands at
+  2.47:1 against the `#E8EBEE` shell. BTS Gold's shell is a pale `#D9C273`
+  because the saturated `#C9A227` a photo suggests drops the skirt to 2.65:1
+  and leaves the route band nothing to contrast against (gold on gold).
+- **A large night lift COMPRESSES the detail-vs-shell contrast**, because the
+  emissive is additive and identical for every colour on the shared material.
+  The lines with the biggest lifts (Blue and Purple, the two that reach
+  stage-2 whitening) are therefore the tightest cases in question 2 — check
+  those first if a palette change ever fails the gate.
+- **`network.json` was patched, not re-fetched** (`tools/patch-rolling-stock.mjs`,
+  idempotent, recorded in `handPatches`). Same precedent as `preRevenue`,
+  `interchangeOverrides` and the gradient limiter. `tools/fetch-network.mjs`
+  carries the field, so a future real fetch reproduces it as a no-op diff —
+  **but only because the patch also reproduces the fetch's KEY ORDER.** A patch
+  that assigns `line.rollingStock = …` appends it as the line's last key, while
+  the fetch emits it mid-object, so the next real fetch would re-serialize all
+  14 lines and bury this change's diff (and any upstream OSM drift with it).
+  `NETWORK_LINE_FIELD_ORDER` in `tools/lines.config.mjs` is now the one shared
+  order: `fetch-network.mjs` asserts its own literal against it, the patch
+  script reorders through it, and `lines.config.test.mjs` pins the committed
+  `network.json` to it. Found in code review 2026-08-23, which also caught
+  `estimatedRunTimes` sitting misordered from an earlier patch; both are fixed,
+  and the change to `network.json` is key order only (verified semantically
+  identical), so **still no `.tmb` regeneration**.
+  **No `.tmb` regeneration** — the Rust `LineGeometry` has no
+  `deny_unknown_fields`, so `rollingStock` is inert to the preprocessor.
+- **`glbUrl` has no users and is expected to stay that way — but the seam is
+  wired in, which it was not until code review 2026-08-23.** `loadStockGeometry`
+  had no caller: `VehicleManager`'s constructor goes straight to
+  `buildStockGeometry`, so a registry `glbUrl` would have passed
+  `assertRegistryValid`, flowed into the `StockSpec`, and silently done nothing
+  — the `INTERCHANGE_OVERRIDES` footgun again. `MapContainer.tsx`'s
+  `attachStockOverrides` now calls it from `style.load` (re-run on every style
+  swap, since a swap rebuilds the `VehicleManager`) and swaps the result in via
+  `setRouteGeometry`; the load is deliberately not awaited, and a resolve that
+  lands after an unmount or swap disposes its geometry instead of writing to a
+  dead mesh. `glbStock.ts` falls back to procedural on every failure path (no
+  `glbUrl`, no mesh, merge failure, loader rejection) and warns.
+
+  Connecting it has a real, measured cost: with no caller, rollup tree-shook
+  `glbStock.ts` out entirely and never emitted a `GLTFLoader` chunk at all
+  (`npm run check:bundle` 1.06 MB). Reachable from the entry, it is emitted as
+  its own lazy chunk — **12.5 KB gzip on disk, 0 bytes on the runtime path**,
+  since nothing declares `glbUrl` so it is never fetched. Total 1.08 MB / 5.00
+  MB. That is the price of the seam actually working, and it is worth paying;
+  the alternative was a `glbUrl` that validates and does nothing. `GLTFLoader` is behind a dynamic
+  `import()` so it never enters the entry chunk. LOD is NOT built — see the
+  roadmap entry for why.
+
 ## What this project is
 
 Greater Bangkok Metro Mini 3D is a web-based 3D visualization of Bangkok's rail transit network (BTS, MRT, SRT, Airport Rail Link), inspired by Mini Tokyo 3D. Trains are placed on 3D track by **interpolating static GTFS timetables** — there is no live vehicle feed (GTFS-Realtime is explicitly out of scope for v1.0). The app lets a user scrub to any past/future time and see where trains *should* be per schedule.
@@ -273,5 +388,6 @@ The rest of the operational/pre-revenue classification was **re-verified against
   - **Updated 2026-08-12:** the measured weekday peak is now **285** (weekend 207), up from 250, because the zero-transit timetable repair put 17% of the network's runs back in motion — runs that were previously frozen at a station and so never overlapped. **This is not progress toward NF1 and must not be cited as such**: no optimisation was performed, the target is still ≥300, and it is still unmet. Sim tick at the new concurrency has **not** been re-measured, because the perf harness no longer exists.
 - Initial bundle ≤ 5 MB compressed (including the binary timetable); GLTF models lazy-load with LOD (still not built as of MVP 6, deliberately deferred — see SRS §4 F3.1; the current network uses procedural `ConsistSpec` geometry, not GLTF, and that satisfies the visual-distinctness intent for v1.0). **As of MVP 6:** `npm run check:bundle` reports **0.96 MB gzip / 5.00 MB budget (19% used)** for the full production build (`dist/` + `network.tmb`), up from MVP 5's ≈0.85 MB — comfortable headroom. `src/data/network.json` was measured at **135,038 bytes** raw (up from 134,568 before the gradient-limit + Mo Chit fixes in `b4c1cb9`, which changed the altitude channel and one station's position) and deliberately **kept** as a static import baked into the main JS chunk rather than moved to an async fetch — still comfortably under the ~150 KB threshold that would have justified the extra failure mode.
 - **As of MVP 7 (2026-08-05):** `npm run check:bundle` reports **1.03 MB gzip / 5.00 MB budget (21% used)** for the full production build — up from 1.01 MB after Orange/Purple Phase 2 landed, from MVP 7's added UI/control-surface code (theme tri-state, basemap style cycle, auto-underground, sky dome, eco mode) and its CSS. Still comfortable headroom against the 5 MB budget.
+- **As of the custom-rolling-stock branch (2026-08-23):** **1.08 MB gzip / 5.00 MB budget (22% used)** — 1.06 MB for the per-line stock geometry itself, plus a 12.5 KB gzip `GLTFLoader` chunk that appears only because the `.glb` seam is now actually wired in (see the `glbUrl` note above). That chunk is lazy and is never fetched at runtime while no line declares `glbUrl`.
 - Browser matrix: Chrome 90+, Safari 15+, Firefox 88+, Edge (Chromium) — WebGL 2.0 + WebAssembly baseline. **As of MVP 6:** Chrome, Firefox, and Edge were each driven against the real dev server via `puppeteer-core` against their real installed binaries (CDP for Chrome/Edge, WebDriver BiDi for Firefox) — a genuine browser engine and automation protocol, but not a human clicking through a visible window; all three passed the same 9-point smoke check (engine ready, base map renders, all 10 lines present, trains move, a real canvas click selects the correct run, the underground toggle flips both store and DOM state, zero console/page errors). **Safari 15 is UNTESTED** — unavailable on this Windows machine; no attempt was made to fake or simulate a pass.
 - OpenStreetMap-derived geometry requires ODbL attribution; any scraped fallback data must respect the source's ToS and is preprocessor-only, never live in the client.

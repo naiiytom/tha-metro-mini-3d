@@ -19,6 +19,8 @@ import { skyPalette, sunDirection } from "../map/sun";
 import { bindStyle, type StyleBinding } from "../map/styleBinding";
 import { TrainTooltip } from "../map/trainTooltip";
 import { effectiveElevationDeg } from "../map/themeMode";
+import { resolveStock, type StockSpec } from "../map/rollingStock";
+import { loadStockGeometry } from "../map/glbStock";
 import { VehicleManager } from "../map/VehicleManager";
 import { lngLatToLocal, localToLngLat, ORIGIN_LNG_LAT } from "../map/coordinates";
 import { SimClient, activeSimClient } from "../sim/SimClient";
@@ -115,6 +117,44 @@ export function MapContainer() {
     // the timetable cache, and the rAF loop/click handlers/tooltip are all
     // per-map, not per-style.
     let simInitialised = false;
+
+    /**
+     * Resolve any line that declares a `.glb` override and swap the loaded
+     * model in over the procedural geometry `VehicleManager` already built.
+     *
+     * No registry line declares `glbUrl` today, and glbStock.ts explains why
+     * that is the expected steady state — but the seam still has to be
+     * CONNECTED. Left unwired (as it was until code review 2026-08-23), adding
+     * `glbUrl` to the registry would pass `assertRegistryValid`, flow through
+     * `resolveStock` into the `StockSpec`, and then silently do nothing with no
+     * warning anywhere: the same "every gate reports success while the change
+     * has no effect" footgun this project already hit with INTERCHANGE_OVERRIDES.
+     *
+     * Deliberately not awaited. A model must never delay first paint, and
+     * `loadStockGeometry` already falls back to procedural on every failure
+     * path, so the worst case is simply the geometry that is on screen already.
+     */
+    const attachStockOverrides = (manager: VehicleManager, stocks: StockSpec[]) => {
+      stocks.forEach((stock, routeIdx) => {
+        if (stock.glbUrl === undefined) return;
+        loadStockGeometry(stock)
+          .then((geometry) => {
+            // The load is async, so an unmount — or a style swap, which builds
+            // an entirely new VehicleManager — may have landed while it was in
+            // flight. Swapping into a manager the scene no longer owns would
+            // leak the geometry and write to a mesh that is already disposed.
+            if (disposed || manager !== vehicleManager) {
+              geometry.dispose();
+              return;
+            }
+            manager.setRouteGeometry(routeIdx, geometry);
+            map.triggerRepaint();
+          })
+          .catch((error) => {
+            console.warn(`[rolling stock] override failed for route ${routeIdx}:`, error);
+          });
+      });
+    };
 
     // Per-frame path: interpolate + pose instances inside the layer's
     // render(), entirely outside React. Declared once, re-attached to each
@@ -221,9 +261,14 @@ export function MapContainer() {
 
     map.on("style.load", () => {
       const store = useAppStore.getState();
+      const stocks = net.lines.map((l) => resolveStock(l));
       vehicleManager = new VehicleManager(
-        net.lines.map((l) => ({ color: l.color, vehicleType: l.vehicleType })),
+        net.lines.map((l, i) => ({ color: l.color, stock: stocks[i] })),
       );
+      // Re-run on every style.load, not just the first: a swap rebuilds the
+      // VehicleManager from scratch, so an override resolved for the previous
+      // one is gone with it.
+      attachStockOverrides(vehicleManager, stocks);
       layer = new NetworkLayer(net, vehicleManager);
       map.addLayer(layer);
       setMapReady(true);

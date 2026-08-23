@@ -25,6 +25,7 @@ import { writeFile, mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  assertLineFieldOrder,
   assertRegistryValid,
   INTERCHANGE_OVERRIDES,
   LINES,
@@ -526,7 +527,7 @@ async function main() {
             line.structure,
             line.osm.extraStationNodeIds ?? [],
           );
-    lines.push({
+    const record = {
       key: line.key,
       name: line.name,
       nameTh: line.nameTh,
@@ -541,10 +542,20 @@ async function main() {
       // every line — the Rust side and the UI both branch on it.
       syntheticSchedule: line.syntheticSchedule ?? null,
       estimatedRunTimes: line.estimatedRunTimes ?? null,
+      // null (not undefined) for every line, same reason as the two above —
+      // the field is always present so the frontend can branch on it.
+      rollingStock: line.rollingStock ?? null,
       allowLargeSnapStopIds: line.allowLargeSnapStopIds ?? [],
       snapWarnExemptStopIds: line.snapWarnExemptStopIds ?? [],
       ...geom,
-    });
+    };
+    // The key order of this literal IS the committed file's key order, and
+    // hand patches (tools/patch-rolling-stock.mjs and friends) reproduce it
+    // from NETWORK_LINE_FIELD_ORDER so their output stays a no-op diff against
+    // a real fetch. Adding a field above without adding it there silently
+    // breaks that; this throws instead.
+    assertLineFieldOrder(record, `fetch-network.mjs (${line.key})`);
+    lines.push(record);
   }
 
   const out = {

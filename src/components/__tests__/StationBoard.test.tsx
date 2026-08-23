@@ -22,6 +22,7 @@ function makeLine(overrides: Partial<LineGeometry> = {}): LineGeometry {
     preRevenue: false,
     syntheticSchedule: null,
     estimatedRunTimes: null,
+    rollingStock: null,
     relationId: 1,
     osmName: "test",
     track: [],
