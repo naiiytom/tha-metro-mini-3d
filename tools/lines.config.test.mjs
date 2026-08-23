@@ -4,6 +4,7 @@ import {
   assertRegistryValid,
   INTERCHANGE_OVERRIDES,
   LINES,
+  NETWORK_LINE_FIELD_ORDER,
   NOSE_PROFILES,
   ROOF_KITS,
   STRUCTURE_ALTITUDE_M,
@@ -321,5 +322,36 @@ describe("rollingStock sync", () => {
 
   it("records the hand patch, since network.json was patched and not re-fetched", () => {
     expect(network.handPatches?.some((p) => p.note.includes("rollingStock"))).toBe(true);
+  });
+});
+
+describe("network.json field order", () => {
+  const network = JSON.parse(
+    readFileSync(new URL("../src/data/network.json", import.meta.url), "utf8"),
+  );
+
+  // The whole point of patching network.json instead of re-fetching is that a
+  // future real `data:fetch` lands as a no-op diff, so any line that DOES move
+  // is upstream OSM drift and nothing else. A hand patch that appends its new
+  // field rather than slotting it into fetch-network.mjs's own order silently
+  // destroys that: the next fetch re-serializes all 14 lines and the diff is
+  // the whole file. `estimatedRunTimes` and `rollingStock` were both in that
+  // state until code review 2026-08-23, with every other gate green.
+  it("matches the order fetch-network.mjs writes, so a real fetch is a no-op diff", () => {
+    for (const line of network.lines) {
+      const leading = Object.keys(line).slice(0, NETWORK_LINE_FIELD_ORDER.length);
+      expect(leading, line.key).toEqual(NETWORK_LINE_FIELD_ORDER);
+    }
+  });
+
+  it("puts every geometry key after the fixed fields, never interleaved", () => {
+    // fetch-network.mjs spreads `...geom` last, so anything beyond the fixed
+    // prefix is geometry — but nothing from the prefix may reappear there.
+    for (const line of network.lines) {
+      const trailing = Object.keys(line).slice(NETWORK_LINE_FIELD_ORDER.length);
+      for (const key of trailing) {
+        expect(NETWORK_LINE_FIELD_ORDER, `${line.key}.${key}`).not.toContain(key);
+      }
+    }
   });
 });

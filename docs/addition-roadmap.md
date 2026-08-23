@@ -100,7 +100,11 @@ Features to close parity with [nagix/mini-tokyo-3d](https://github.com/nagix/min
   `src/map/glbStock.ts` is an override seam: a line that declares `glbUrl`
   loads and merges a model, everything else builds procedurally. Nothing
   declares one today and that is the expected steady state, not a gap waiting
-  to be filled.
+  to be filled. The seam is **connected** — `MapContainer.tsx`'s
+  `attachStockOverrides`, called from `style.load` — which it was not when
+  first written; code review 2026-08-23 found `loadStockGeometry` had no
+  caller at all, so declaring `glbUrl` would have passed every gate and
+  changed nothing on screen.
 - **LOD was deliberately not built.** A distance-keyed switch needs two levels
   that differ in cost; with no `.glb` in the tree there is one. The seam it
   would need (`VehicleManager.setRouteGeometry`) exists, built for the `.glb`
@@ -112,9 +116,18 @@ Features to close parity with [nagix/mini-tokyo-3d](https://github.com/nagix/min
   basemap reference, **night-only** (a pre-existing `test.each(TIMES)` bug
   that also checked this at noon — an invalid comparison, since the reference
   is only valid at night — was found and fixed to match `nightLift.test.ts`'s
-  established pattern). Worst measured: **3.00:1** (passes; several lines —
-  purple, gold, red-dark, purple-ext — land exactly on this bisection
-  boundary). Detail roles (glazing ribbon, skirt vs. the train's own shell)
+  established pattern). **Half of that gate is tautological and its headline
+  number used to be quoted from the tautological half** (found in code review
+  2026-08-23): the identity band is `ROUTE_TINT` on all 14 lines, and
+  `nightLift` bisects each route colour to the minimum lift clearing
+  `MIN_CONTRAST`, so the band can only ever score ~3.00 — measured 3.000
+  (red-dark, gold) to 3.032 (apm). It proves the lift is wired in, nothing
+  about the livery. The **shell** is the real new coverage — it takes the
+  route's lift but not its hue, so it can genuinely fail — and its worst is
+  **3.081:1** (BTS Gold's champagne `#D9C273`, the network's only non-white/
+  silver shell), best 3.234:1 (purple-ext). It now has its own assertion so a
+  shell regression cannot hide behind the band's guaranteed 3.00. Detail
+  roles (glazing ribbon, skirt vs. the train's own shell)
   are scored **noon-only**: worst measured **3.44:1** (skirt `#6E757C` vs.
   silver shell `#D7DBDF`, on purple/arl/blue). **At night the detail role is
   NOT gated — a real, disclosed, permanent limitation of the shared-material

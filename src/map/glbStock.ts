@@ -12,6 +12,11 @@ import type { StockSpec } from "./rollingStock";
  * permanent fallback, not a stopgap. This module exists so that adding one
  * later is a registry edit rather than a renderer rewrite.
  *
+ * Wired in at `MapContainer.tsx`'s `attachStockOverrides`, called from
+ * `style.load`. That call site is what makes the claim above true — the seam
+ * was defined but never invoked until code review 2026-08-23, which meant a
+ * registry `glbUrl` would have passed every gate and silently done nothing.
+ *
  * Every failure path falls back to procedural and warns. A missing or broken
  * model must degrade to a train that is merely generic, never to a route with
  * no trains at all.

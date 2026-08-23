@@ -208,9 +208,16 @@ MVP 7 was not on the SRS's original ladder — it is a post-v1.0-DoD hardening p
   reference that is only valid at night, an invalid comparison; a
   pre-existing `test.each(TIMES)` sibling bug doing exactly that was found
   and fixed to match `nightLift.test.ts`'s established night-only pattern for
-  this same reference. Worst measured: **3.00:1**, passing, with several
-  lines (purple, gold, red-dark, purple-ext) landing exactly on this
-  bisection boundary. Detail roles (glazing ribbon, skirt) are scored against
+  this same reference. **Do not cite that gate's 3.00:1 as evidence about the
+  rolling stock** — half of it is tautological, corrected 2026-08-23. The
+  identity band is `ROUTE_TINT` on all 14 lines, so that arm scores the route
+  colour under the lift `nightLift` bisected from that same colour to the
+  minimum clearing `MIN_CONTRAST`; it can only come out at ~3.00 (measured
+  3.000 red-dark/gold to 3.032 apm) and would do so for any livery whatsoever.
+  The **shell** is the genuinely independent measurement — same lift, different
+  hue — and it is gated separately now: worst **3.081:1** (BTS Gold's champagne
+  `#D9C273`, the only non-white/silver shell in the network), best 3.234:1
+  (purple-ext). Detail roles (glazing ribbon, skirt) are scored against
   the train's own SHELL, **noon-only**: worst measured **3.44:1** (skirt
   `#6E757C` vs. silver shell `#D7DBDF`, on purple/arl/blue). **At night the
   detail role is deliberately NOT gated — it is mathematically and
@@ -241,12 +248,40 @@ MVP 7 was not on the SRS's original ladder — it is a post-v1.0-DoD hardening p
 - **`network.json` was patched, not re-fetched** (`tools/patch-rolling-stock.mjs`,
   idempotent, recorded in `handPatches`). Same precedent as `preRevenue`,
   `interchangeOverrides` and the gradient limiter. `tools/fetch-network.mjs`
-  carries the field, so a future real fetch reproduces it as a no-op diff.
+  carries the field, so a future real fetch reproduces it as a no-op diff —
+  **but only because the patch also reproduces the fetch's KEY ORDER.** A patch
+  that assigns `line.rollingStock = …` appends it as the line's last key, while
+  the fetch emits it mid-object, so the next real fetch would re-serialize all
+  14 lines and bury this change's diff (and any upstream OSM drift with it).
+  `NETWORK_LINE_FIELD_ORDER` in `tools/lines.config.mjs` is now the one shared
+  order: `fetch-network.mjs` asserts its own literal against it, the patch
+  script reorders through it, and `lines.config.test.mjs` pins the committed
+  `network.json` to it. Found in code review 2026-08-23, which also caught
+  `estimatedRunTimes` sitting misordered from an earlier patch; both are fixed,
+  and the change to `network.json` is key order only (verified semantically
+  identical), so **still no `.tmb` regeneration**.
   **No `.tmb` regeneration** — the Rust `LineGeometry` has no
   `deny_unknown_fields`, so `rollingStock` is inert to the preprocessor.
-- **`glbUrl` has no users and is expected to stay that way.** `glbStock.ts`
-  falls back to procedural on every failure path (no `glbUrl`, no mesh, merge
-  failure, loader rejection) and warns. `GLTFLoader` is behind a dynamic
+- **`glbUrl` has no users and is expected to stay that way — but the seam is
+  wired in, which it was not until code review 2026-08-23.** `loadStockGeometry`
+  had no caller: `VehicleManager`'s constructor goes straight to
+  `buildStockGeometry`, so a registry `glbUrl` would have passed
+  `assertRegistryValid`, flowed into the `StockSpec`, and silently done nothing
+  — the `INTERCHANGE_OVERRIDES` footgun again. `MapContainer.tsx`'s
+  `attachStockOverrides` now calls it from `style.load` (re-run on every style
+  swap, since a swap rebuilds the `VehicleManager`) and swaps the result in via
+  `setRouteGeometry`; the load is deliberately not awaited, and a resolve that
+  lands after an unmount or swap disposes its geometry instead of writing to a
+  dead mesh. `glbStock.ts` falls back to procedural on every failure path (no
+  `glbUrl`, no mesh, merge failure, loader rejection) and warns.
+
+  Connecting it has a real, measured cost: with no caller, rollup tree-shook
+  `glbStock.ts` out entirely and never emitted a `GLTFLoader` chunk at all
+  (`npm run check:bundle` 1.06 MB). Reachable from the entry, it is emitted as
+  its own lazy chunk — **12.5 KB gzip on disk, 0 bytes on the runtime path**,
+  since nothing declares `glbUrl` so it is never fetched. Total 1.08 MB / 5.00
+  MB. That is the price of the seam actually working, and it is worth paying;
+  the alternative was a `glbUrl` that validates and does nothing. `GLTFLoader` is behind a dynamic
   `import()` so it never enters the entry chunk. LOD is NOT built — see the
   roadmap entry for why.
 
@@ -353,5 +388,6 @@ The rest of the operational/pre-revenue classification was **re-verified against
   - **Updated 2026-08-12:** the measured weekday peak is now **285** (weekend 207), up from 250, because the zero-transit timetable repair put 17% of the network's runs back in motion — runs that were previously frozen at a station and so never overlapped. **This is not progress toward NF1 and must not be cited as such**: no optimisation was performed, the target is still ≥300, and it is still unmet. Sim tick at the new concurrency has **not** been re-measured, because the perf harness no longer exists.
 - Initial bundle ≤ 5 MB compressed (including the binary timetable); GLTF models lazy-load with LOD (still not built as of MVP 6, deliberately deferred — see SRS §4 F3.1; the current network uses procedural `ConsistSpec` geometry, not GLTF, and that satisfies the visual-distinctness intent for v1.0). **As of MVP 6:** `npm run check:bundle` reports **0.96 MB gzip / 5.00 MB budget (19% used)** for the full production build (`dist/` + `network.tmb`), up from MVP 5's ≈0.85 MB — comfortable headroom. `src/data/network.json` was measured at **135,038 bytes** raw (up from 134,568 before the gradient-limit + Mo Chit fixes in `b4c1cb9`, which changed the altitude channel and one station's position) and deliberately **kept** as a static import baked into the main JS chunk rather than moved to an async fetch — still comfortably under the ~150 KB threshold that would have justified the extra failure mode.
 - **As of MVP 7 (2026-08-05):** `npm run check:bundle` reports **1.03 MB gzip / 5.00 MB budget (21% used)** for the full production build — up from 1.01 MB after Orange/Purple Phase 2 landed, from MVP 7's added UI/control-surface code (theme tri-state, basemap style cycle, auto-underground, sky dome, eco mode) and its CSS. Still comfortable headroom against the 5 MB budget.
+- **As of the custom-rolling-stock branch (2026-08-23):** **1.08 MB gzip / 5.00 MB budget (22% used)** — 1.06 MB for the per-line stock geometry itself, plus a 12.5 KB gzip `GLTFLoader` chunk that appears only because the `.glb` seam is now actually wired in (see the `glbUrl` note above). That chunk is lazy and is never fetched at runtime while no line declares `glbUrl`.
 - Browser matrix: Chrome 90+, Safari 15+, Firefox 88+, Edge (Chromium) — WebGL 2.0 + WebAssembly baseline. **As of MVP 6:** Chrome, Firefox, and Edge were each driven against the real dev server via `puppeteer-core` against their real installed binaries (CDP for Chrome/Edge, WebDriver BiDi for Firefox) — a genuine browser engine and automation protocol, but not a human clicking through a visible window; all three passed the same 9-point smoke check (engine ready, base map renders, all 10 lines present, trains move, a real canvas click selects the correct run, the underground toggle flips both store and DOM state, zero console/page errors). **Safari 15 is UNTESTED** — unavailable on this Windows machine; no attempt was made to fake or simulate a pass.
 - OpenStreetMap-derived geometry requires ODbL attribution; any scraped fallback data must respect the source's ToS and is preprocessor-only, never live in the client.

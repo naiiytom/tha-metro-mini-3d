@@ -13,7 +13,11 @@ import { SKIRT_HEX, stockLengthM, type StockBand, type StockSpec } from "./rolli
  * so `rideHeightM` lifts the shell clear of it.
  */
 
-/** How far a band stands proud of the shell, per side, so it never z-fights. */
+/**
+ * How far a band stands proud of the shell on each SIDE — and, negated, how
+ * far short of the shell it stops at each END. See `bandPart` for why the end
+ * inset is not optional.
+ */
 const PROUD_M = 0.03;
 
 /**
@@ -50,14 +54,30 @@ export function taperNose(
 ): void {
   const p = NOSE_SHAPES[profile];
   const pos = geometry.attributes.position as THREE.BufferAttribute;
+  // The vertical taper is anchored at the FLOOR, not at the box's centre.
+  // Scaling z about the centre shrinks the underside too, lifting it by
+  // heightM/2 * (1 - tipHeight) — 0.42 m on raked heavy stock (h=3.8,
+  // tipHeight=0.78) — which wedges the leading car's floor visibly upward
+  // toward the nose and contradicts the comment below. Found in code review
+  // 2026-08-23. The tip's overall cross-section height is identical either
+  // way (heightM * tipHeight, less roofDropM); only which face stays put
+  // changes, and on a train it is the floor that must.
+  geometry.computeBoundingBox();
+  const floorZ = geometry.boundingBox!.min.z;
   for (let i = 0; i < pos.count; i++) {
     const t = Math.min(1, Math.max(0, (pos.getX(i) + lengthM / 2) / lengthM));
     const z = pos.getZ(i);
     pos.setY(i, pos.getY(i) * (1 + (p.tipWidth - 1) * t));
     // The drop applies to the roofline only — the floor stays flat on the bogies.
-    pos.setZ(i, z * (1 + (p.tipHeight - 1) * t) - (z > 0 ? p.roofDropM * t : 0));
+    pos.setZ(
+      i,
+      floorZ + (z - floorZ) * (1 + (p.tipHeight - 1) * t) - (z > floorZ ? p.roofDropM * t : 0),
+    );
   }
   pos.needsUpdate = true;
+  // The cached box above described the UNTAPERED geometry; drop it so any
+  // later computeBoundingBox() reader cannot pick up the stale extent.
+  geometry.boundingBox = null;
   geometry.computeVertexNormals();
 }
 
@@ -71,7 +91,17 @@ function paint(geometry: THREE.BufferGeometry, hex: number): THREE.BufferGeometr
   return geometry;
 }
 
-/** One band wrapping a car body, standing PROUD_M proud on each side. */
+/**
+ * One band wrapping a car body: PROUD_M proud of the shell on each SIDE, and
+ * PROUD_M short of it at each END.
+ *
+ * The end inset is load-bearing, not tidiness. A band built to the shell's own
+ * `lengthM` and sharing its `xCenter` puts its ±X caps EXACTLY coplanar and
+ * co-wound with the shell's — the sides were always separated by PROUD_M, the
+ * ends never were — which z-fights on every car end face, visible through the
+ * 0.5-0.8 m inter-car gaps and on the rear face of the trailing car. Found in
+ * code review 2026-08-23.
+ */
 function bandPart(
   band: StockBand,
   lengthM: number,
@@ -79,7 +109,7 @@ function bandPart(
   xCenter: number,
   rideHeightM: number,
 ): THREE.BufferGeometry {
-  const g = new THREE.BoxGeometry(lengthM, widthM + PROUD_M * 2, band.heightM);
+  const g = new THREE.BoxGeometry(lengthM - PROUD_M * 2, widthM + PROUD_M * 2, band.heightM);
   g.translate(xCenter, 0, rideHeightM + band.zM);
   return paint(g, band.hex);
 }
@@ -128,5 +158,19 @@ export function buildStockGeometry(spec: StockSpec): THREE.BufferGeometry {
 
   const merged = mergeGeometries(parts);
   parts.forEach((g) => g.dispose());
+  if (!merged) {
+    // mergeGeometries returns null (console.error only, no throw) when its
+    // inputs' attribute sets differ, and @types/three declares the return
+    // non-null so TS cannot catch it. Unreachable while every part is a
+    // BoxGeometry plus `color`; it stops being unreachable the moment one
+    // part carries `uv` or comes from a different primitive. Without this
+    // guard that surfaces as `Cannot read properties of null` inside
+    // VehicleManager's constructor at style.load — a dead map with no clue
+    // what caused it. Same guard glbStock.ts already applies to its own call.
+    throw new Error(
+      "rolling stock parts could not be merged into one geometry — every part " +
+        "must carry the identical attribute set (position, normal, color)",
+    );
+  }
   return merged;
 }

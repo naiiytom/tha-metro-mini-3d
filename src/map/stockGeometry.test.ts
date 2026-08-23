@@ -44,6 +44,31 @@ describe("taperNose", () => {
     expect(NOSE_SHAPES.blunt.roofDropM).toBeLessThan(NOSE_SHAPES.raked.roofDropM);
   });
 
+  it("keeps the nose floor flat on the bogies — only the roofline drops", () => {
+    // Regression, code review 2026-08-23: the vertical taper used to scale z
+    // about the box CENTRE, which lifted the tip's underside by
+    // heightM/2 * (1 - tipHeight) = 0.42 m here and wedged the leading car's
+    // floor upward toward the nose, contradicting taperNose's own comment.
+    const length = 3.2;
+    const height = 3.8;
+    const geo = new THREE.BoxGeometry(length, 3.2, height);
+    taperNose(geo, length, "raked");
+    const pos = geo.attributes.position;
+
+    let tipMinZ = Infinity;
+    let tipMaxZ = -Infinity;
+    for (let i = 0; i < pos.count; i++) {
+      if (pos.getX(i) <= 0) continue;
+      tipMinZ = Math.min(tipMinZ, pos.getZ(i));
+      tipMaxZ = Math.max(tipMaxZ, pos.getZ(i));
+    }
+    expect(tipMinZ).toBeCloseTo(-height / 2, 6);
+    // The tip's overall cross-section is unchanged by anchoring at the floor
+    // rather than the centre — only which face stays put moves.
+    const p = NOSE_SHAPES.raked;
+    expect(tipMaxZ - tipMinZ).toBeCloseTo(height * p.tipHeight - p.roofDropM, 6);
+  });
+
   it("does not move the rear face, which butts onto the leading car", () => {
     const length = 3.2;
     const geo = new THREE.BoxGeometry(length, 3.2, 3.8);
@@ -100,6 +125,31 @@ describe("buildStockGeometry", () => {
     }
     expect(found).toBeGreaterThan(0);
     expect(widest).toBeGreaterThan(spec.widthM / 2);
+  });
+
+  it("insets each band's end caps so they never sit coplanar with the shell's", () => {
+    // Regression, code review 2026-08-23: bands were built to the shell's own
+    // length and share its xCenter, so their +/-X caps were exactly coplanar
+    // and co-wound with the shell's and z-fought on every car end face.
+    const spec = specFor("heavy");
+    const geo = buildStockGeometry(spec);
+    const pos = geo.getAttribute("position");
+    const color = geo.getAttribute("color");
+    const maxXOf = (hex: number) => {
+      const c = new THREE.Color(hex);
+      let max = -Infinity;
+      for (let i = 0; i < color.count; i++) {
+        if (
+          Math.abs(color.getX(i) - c.r) < 1e-4 &&
+          Math.abs(color.getY(i) - c.g) < 1e-4 &&
+          Math.abs(color.getZ(i) - c.b) < 1e-4
+        ) {
+          max = Math.max(max, pos.getX(i));
+        }
+      }
+      return max;
+    };
+    expect(maxXOf(spec.glazing.hex)).toBeLessThan(maxXOf(spec.shellHex) - 1e-6);
   });
 
   it("scales vertex count with car count", () => {

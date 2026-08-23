@@ -732,6 +732,74 @@ export const INTERCHANGE_OVERRIDES = [
   { aLine: "arl", aStop: "326", bLine: "apm", bStop: "13373875189" },
 ];
 
+/**
+ * The order `tools/fetch-network.mjs` writes a line's NON-GEOMETRY fields in,
+ * before spreading that line's fetched geometry keys on the end.
+ *
+ * Exported so the one real writer and every hand patch agree on it. A patch
+ * script that appends its new field instead of slotting it in here produces a
+ * committed file a real `data:fetch` would re-serialize in a different order —
+ * so the whole file diffs, and the "diff line by line to tell my change apart
+ * from upstream OSM vertex drift" practice this repo depends on stops working.
+ * That is exactly what happened to `estimatedRunTimes` and `rollingStock`,
+ * found in code review 2026-08-23.
+ *
+ * `fetch-network.mjs` asserts its own object literal against this list, and
+ * `lines.config.test.mjs` pins the committed `network.json` against it, so
+ * drift on either side is a failure rather than a silent whole-file diff.
+ */
+export const NETWORK_LINE_FIELD_ORDER = [
+  "key",
+  "name",
+  "nameTh",
+  "color",
+  "structure",
+  "vehicleType",
+  "gtfsRouteId",
+  "preRevenue",
+  "excludeGtfsStopIds",
+  "claimGtfsStopIds",
+  "syntheticSchedule",
+  "estimatedRunTimes",
+  "rollingStock",
+  "allowLargeSnapStopIds",
+  "snapWarnExemptStopIds",
+];
+
+/**
+ * Reorder one `network.json` line object into `NETWORK_LINE_FIELD_ORDER`,
+ * keeping any remaining (geometry) keys in their existing relative order —
+ * `fetch-network.mjs` spreads those last, so their own order is whatever the
+ * fetch produced and must not be disturbed.
+ */
+export function orderLineFields(line) {
+  const out = {};
+  for (const key of NETWORK_LINE_FIELD_ORDER) {
+    if (key in line) out[key] = line[key];
+  }
+  for (const key of Object.keys(line)) {
+    if (!(key in out)) out[key] = line[key];
+  }
+  return out;
+}
+
+/**
+ * Throws if a line object's non-geometry keys are not exactly
+ * `NETWORK_LINE_FIELD_ORDER`, in order, as its leading keys.
+ */
+export function assertLineFieldOrder(line, where) {
+  const actual = Object.keys(line).slice(0, NETWORK_LINE_FIELD_ORDER.length);
+  const expected = NETWORK_LINE_FIELD_ORDER;
+  for (let i = 0; i < expected.length; i++) {
+    if (actual[i] !== expected[i]) {
+      throw new Error(
+        `${where}: line field ${i} is '${actual[i]}', expected '${expected[i]}' ` +
+          `— NETWORK_LINE_FIELD_ORDER and the writer have drifted apart`,
+      );
+    }
+  }
+}
+
 const HEX = /^#[0-9a-fA-F]{6}$/;
 
 /** Throws on any registry mistake that would corrupt the index invariant. */

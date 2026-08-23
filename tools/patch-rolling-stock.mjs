@@ -10,13 +10,30 @@
  * gradient limiter: fetch-network.mjs is updated so a future real fetch
  * reproduces this as a no-op diff, and the committed file is patched here.
  *
- * Idempotent: running it twice produces the identical file.
+ * That no-op-diff claim is only true if the patched file's KEY ORDER matches
+ * what fetch-network.mjs writes. Assigning `line.rollingStock` appends it as
+ * each line's last key, whereas the fetch emits it between `syntheticSchedule`
+ * and `allowLargeSnapStopIds` — so the whole file would re-serialize on the
+ * next real fetch, burying this change's diff (and, worse, any upstream OSM
+ * drift alongside it). Every line is therefore reordered through the shared
+ * NETWORK_LINE_FIELD_ORDER, which also repairs `estimatedRunTimes` — appended
+ * out of order by an earlier patch and never noticed. Found in code review
+ * 2026-08-23.
+ *
+ * Idempotent: running it twice produces a byte-identical file, including the
+ * handPatches date stamp (an existing entry keeps its original date rather
+ * than being restamped with today's).
  *
  * Run: node tools/patch-rolling-stock.mjs
  */
 import { readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { LINES, assertRegistryValid } from "./lines.config.mjs";
+import {
+  LINES,
+  assertLineFieldOrder,
+  assertRegistryValid,
+  orderLineFields,
+} from "./lines.config.mjs";
 
 const OUT_PATH = fileURLToPath(new URL("../src/data/network.json", import.meta.url));
 const NOTE =
@@ -35,18 +52,28 @@ if (doc.lines.length !== LINES.length) {
 }
 
 let changed = 0;
-doc.lines.forEach((line, i) => {
+doc.lines = doc.lines.map((line, i) => {
   if (line.key !== LINES[i].key) {
     throw new Error(`lines[${i}] is '${line.key}' but registry index ${i} is '${LINES[i].key}'`);
   }
   const next = LINES[i].rollingStock ?? null;
   if (JSON.stringify(line.rollingStock ?? null) !== JSON.stringify(next)) changed++;
-  line.rollingStock = next;
+  const ordered = orderLineFields({ ...line, rollingStock: next });
+  assertLineFieldOrder(ordered, `patch-rolling-stock.mjs (${line.key})`);
+  return ordered;
 });
 
+const priorPatches = doc.handPatches ?? [];
+// Reuse the original date when this patch is already recorded, so a re-run is
+// byte-identical rather than merely semantically equal.
+const existing = priorPatches.find((p) => p.note === NOTE);
 doc.handPatches = [
-  ...(doc.handPatches ?? []).filter((p) => p.note !== NOTE),
-  { date: new Date().toISOString().slice(0, 10), line: "*", note: NOTE },
+  ...priorPatches.filter((p) => p.note !== NOTE),
+  {
+    date: existing?.date ?? new Date().toISOString().slice(0, 10),
+    line: "*",
+    note: NOTE,
+  },
 ];
 
 await writeFile(OUT_PATH, JSON.stringify(doc));

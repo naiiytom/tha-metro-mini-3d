@@ -55,6 +55,22 @@ describe("rolling-stock contrast", () => {
   // (#660066). Scoping to night only is not a threshold change — it is
   // asking the question at the one hour where the answer is meaningful,
   // exactly matching the sibling gate's own established scope.
+  //
+  // READ THIS BEFORE CITING A NUMBER FROM THE GATE BELOW. Half of it is
+  // tautological, which the two tests after it pin explicitly. `liveryColors`
+  // returns [shellHex, bands[0].hex], and `bands[0]` is ROUTE_TINT on all 14
+  // registry lines — so that half scores the ROUTE COLOUR under the lift
+  // `nightLift` bisected FROM that same route colour to the minimum intensity
+  // clearing MIN_CONTRAST. It can only ever come out at ~MIN_CONTRAST: measured
+  // 3.000 (red-dark, gold) to 3.032 (apm), nothing above. That arm confirms the
+  // lift is wired in; it says nothing about whether a livery was well chosen,
+  // and it is NOT evidence about the rolling stock this PR added.
+  //
+  // The SHELL is the new information. It takes the route's lift but not the
+  // route's hue, so it can genuinely fail — and its real margins are 3.081
+  // (BTS Gold's champagne, the only non-white/silver shell in the network) to
+  // 3.234 (purple-ext). Cite those, not 3.00. Found in code review 2026-08-23,
+  // where the docs were quoting the tautological number as the headline.
   test("every large-area livery colour clears the floor at 02:00", () => {
     const { palette, ndotl, elevationDeg } = paletteAt(DEEP_NIGHT);
     const failures: string[] = [];
@@ -122,6 +138,39 @@ describe("rolling-stock contrast", () => {
       }
     }
     expect(failures).toEqual([]);
+  });
+
+  test("every shell clears the floor on its own hue, not on the band's bisection", () => {
+    // The genuinely independent half of the gate above, asserted on its own so
+    // a shell regression cannot hide behind the identity band's guaranteed
+    // ~3.00. Kept as a floor check rather than a pinned worst-case number: the
+    // floor is the property that matters, and pinning 3.081 would break on any
+    // harmless palette nudge.
+    const { palette, ndotl, elevationDeg } = paletteAt(DEEP_NIGHT);
+    const failures: string[] = [];
+    for (const line of lines) {
+      const spec = resolveStock(line);
+      const lift = nightLift(parseInt(line.color.slice(1), 16), palette, ndotl, elevationDeg);
+      const ratio = contrastRatio(
+        predictRendered(spec.shellHex, palette, ndotl, lift),
+        CONTRAST_REFERENCE,
+      );
+      if (ratio < MIN_CONTRAST) failures.push(`${line.key} shell ${ratio.toFixed(3)}:1`);
+    }
+    expect(failures).toEqual([]);
+  });
+
+  test("the identity band IS the route colour, which is why its own ratio is pinned", () => {
+    // Pins the premise the comment above rests on. If a line ever gives its
+    // identity band a literal hex instead of ROUTE_TINT, that band stops being
+    // covered by nightLift's bisection and its ratio becomes real, independent
+    // information — at which point the "half of this gate is tautological"
+    // reasoning no longer applies to it and this test should be narrowed to
+    // whichever lines still use the sentinel.
+    for (const line of lines) {
+      const spec = resolveStock(line);
+      expect(spec.bands[0]!.hex, line.key).toBe(parseInt(line.color.slice(1), 16));
+    }
   });
 
   test("covers every line, including the ones falling back to a type default", () => {
