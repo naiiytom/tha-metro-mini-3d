@@ -77,8 +77,6 @@ export function MapContainer() {
       },
     });
     map.addControl(new NavigationControl({ visualizePitch: true }), "top-right");
-    const removeCameraControls = installCameraControls(map);
-
     let sim: SimClient | null = null;
     let unsubscribeTooltipSelection: (() => void) | null = null;
     let tooltipTimer: ReturnType<typeof setInterval> | null = null;
@@ -90,6 +88,13 @@ export function MapContainer() {
     // end of the style.load handler.
     let disposed = false;
     const follow = new FollowCamera();
+    const controls = installCameraControls(map, {
+      onOrbit: (bearingDelta) => {
+        if (!useAppStore.getState().following) return false;
+        follow.addYawOffset(bearingDelta);
+        return true;
+      },
+    });
     // On-map label tracking whichever train is selected — see its own doc
     // comment for why this exists as a class rather than a React component.
     const trainTooltip = new TrainTooltip(containerRef.current!);
@@ -499,6 +504,7 @@ export function MapContainer() {
     // Panning while following would fight the per-frame jumpTo, so the first
     // user drag hands control back (Mini Tokyo 3D does the same).
     const onDragStart = () => {
+      if (controls.isOrbiting()) return;
       if (useAppStore.getState().following) useAppStore.getState().setFollowing(false);
     };
     map.on("dragstart", onDragStart);
@@ -564,7 +570,7 @@ export function MapContainer() {
     return () => {
       disposed = true;
       cancelAnimationFrame(rafId);
-      removeCameraControls();
+      controls.dispose();
       unsubscribeFollow();
       unsubscribeFlyTo();
       unsubscribeVisibility();

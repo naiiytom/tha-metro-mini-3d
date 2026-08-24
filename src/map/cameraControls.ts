@@ -1,5 +1,19 @@
 import type { Map as MapLibreMap } from "maplibre-gl";
 
+export interface CameraControlOptions {
+  /**
+   * Called when an orbit gesture is performed (middle-drag, right-drag, or ctrl+left-drag).
+   * Return `true` if the callback claimed/handled the bearing delta (e.g. routing it into
+   * a follow camera offset), preventing MapLibre's bearing from being updated directly.
+   */
+  onOrbit?: (bearingDeltaDeg: number, pitchDeltaDeg: number) => boolean;
+}
+
+export interface CameraControls {
+  dispose: () => void;
+  isOrbiting: () => boolean;
+}
+
 /**
  * Camera input policy for the aerial view.
  *
@@ -16,9 +30,12 @@ import type { Map as MapLibreMap } from "maplibre-gl";
  * rates (pitch `-0.5 * dy`, bearing `+0.8 * dx`) uniformly across all three
  * buttons, with both axes in one motion so a diagonal drag tilts and turns.
  *
- * @returns a teardown function that removes every listener it added.
+ * @returns a handle containing `dispose()` and `isOrbiting()`.
  */
-export function installCameraControls(map: MapLibreMap): () => void {
+export function installCameraControls(
+  map: MapLibreMap,
+  options: CameraControlOptions = {},
+): CameraControls {
   const canvas = map.getCanvas();
   /** Degrees per pixel of travel — MapLibre's own rates. */
   const PITCH_DEG_PER_PX = 0.5;
@@ -57,10 +74,14 @@ export function installCameraControls(map: MapLibreMap): () => void {
     // Same signs as MapLibre's drag-rotate — drag up tilts toward the horizon,
     // drag right turns right. One jumpTo so a diagonal drag is a single camera
     // update, not two.
-    const pitch = map.getPitch() - PITCH_DEG_PER_PX * dy;
+    const pitchDelta = -PITCH_DEG_PER_PX * dy;
+    const bearingDelta = BEARING_DEG_PER_PX * dx;
+    const claimed = options.onOrbit?.(bearingDelta, pitchDelta) ?? false;
+
+    const pitch = map.getPitch() + pitchDelta;
     map.jumpTo({
       pitch: Math.min(map.getMaxPitch(), Math.max(map.getMinPitch(), pitch)),
-      bearing: map.getBearing() + BEARING_DEG_PER_PX * dx,
+      ...(claimed ? {} : { bearing: map.getBearing() + bearingDelta }),
     });
   };
 
@@ -85,12 +106,15 @@ export function installCameraControls(map: MapLibreMap): () => void {
   canvas.addEventListener("contextmenu", onContextMenu);
   canvas.addEventListener("auxclick", onAuxClick);
 
-  return () => {
-    canvas.removeEventListener("pointerdown", onPointerDown);
-    canvas.removeEventListener("pointermove", onPointerMove);
-    canvas.removeEventListener("pointerup", onPointerUp);
-    canvas.removeEventListener("pointercancel", onPointerUp);
-    canvas.removeEventListener("contextmenu", onContextMenu);
-    canvas.removeEventListener("auxclick", onAuxClick);
+  return {
+    dispose: () => {
+      canvas.removeEventListener("pointerdown", onPointerDown);
+      canvas.removeEventListener("pointermove", onPointerMove);
+      canvas.removeEventListener("pointerup", onPointerUp);
+      canvas.removeEventListener("pointercancel", onPointerUp);
+      canvas.removeEventListener("contextmenu", onContextMenu);
+      canvas.removeEventListener("auxclick", onAuxClick);
+    },
+    isOrbiting: () => pointerId !== null,
   };
 }
