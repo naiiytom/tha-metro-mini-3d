@@ -567,10 +567,18 @@ fn expand_complex(idx: &RouteIndex, stop: usize) -> Vec<(usize, f64)> {
     out
 }
 
-/// Plan a journey. `None` ONLY for a structurally invalid request (a bad
-/// route or station index); a well-formed request that simply does not
-/// connect returns `Some(RoutePlan { unreachable: true, .. })`.
-pub fn plan(doc: &CacheDoc, idx: &RouteIndex, req: &PlanRequest) -> Option<RoutePlan> {
+struct RaptorResult {
+    target: usize,
+    target_stops: Vec<(usize, f64)>,
+    rounds: Vec<Vec<Option<Label>>>,
+    t0: i64,
+}
+
+fn compute_raptor_rounds(
+    doc: &CacheDoc,
+    idx: &RouteIndex,
+    req: &PlanRequest,
+) -> Option<RaptorResult> {
     let origin = idx.stop_id(doc, req.from.0, req.from.1)?;
     let target = idx.stop_id(doc, req.to.0, req.to.1)?;
 
@@ -748,7 +756,163 @@ pub fn plan(doc: &CacheDoc, idx: &RouteIndex, req: &PlanRequest) -> Option<Route
         marked = next_marked;
     }
 
-    finish(doc, idx, &rounds, &target_stops, target, t0, req)
+    Some(RaptorResult {
+        target,
+        target_stops,
+        rounds,
+        t0,
+    })
+}
+
+fn build_plan(
+    doc: &CacheDoc,
+    idx: &RouteIndex,
+    rounds: &[Vec<Option<Label>>],
+    k: usize,
+    stop: usize,
+    arrive: i64,
+    dest_walk_m: f64,
+    target: usize,
+    t0: i64,
+    req: &PlanRequest,
+) -> RoutePlan {
+    let mut legs = reconstruct(doc, idx, rounds, k, stop, req.transfer_buffer_s, t0);
+    // The winning target-complex member is a real walk from the stop the user
+    // actually picked, so the journey is not over on alighting: disclose the
+    // walk as a leg and charge it, rather than silently reporting an arrival
+    // at a different station on a different line.
+    let mut arrive_sec = arrive;
+    if dest_walk_m >= SAME_STATION_COMPLEX_M {
+        let (from_route_idx, from_station_idx) = idx.unpack(stop);
+        let (to_route_idx, to_station_idx) = idx.unpack(target);
+        legs.push(PlanLeg::Transfer {
+            from_route_idx,
+            from_station_idx,
+            to_route_idx,
+            to_station_idx,
+            walk_m: dest_walk_m,
+            transfer_s: req.transfer_buffer_s,
+            wait_s: 0,
+        });
+        arrive_sec += req.transfer_buffer_s as i64;
+    }
+    let ride_count = legs
+        .iter()
+        .filter(|l| matches!(l, PlanLeg::Ride { .. }))
+        .count();
+    let depart_sec = legs
+        .iter()
+        .find_map(|l| match l {
+            PlanLeg::Ride { board_sec, .. } => Some(*board_sec),
+            _ => None,
+        })
+        .unwrap_or(t0);
+    // Only a genuinely trivial same-stop plan (no legs at all — origin and
+    // destination resolved to the identical complex-free stop) pins both
+    // times to the query instant; a real walk-only or ride-bearing plan
+    // reports its true arrival, computed above.
+    let arrive_sec = if legs.is_empty() { t0 } else { arrive_sec };
+    RoutePlan {
+        depart_sec,
+        arrive_sec,
+        duration_s: arrive_sec - depart_sec,
+        transfers: ride_count.saturating_sub(1),
+        transfer_times_estimated: true,
+        legs,
+        unreachable: false,
+    }
+}
+
+/// Plan a journey. `None` ONLY for a structurally invalid request (a bad
+/// route or station index); a well-formed request that simply does not
+/// connect returns `Some(RoutePlan { unreachable: true, .. })`.
+pub fn plan(doc: &CacheDoc, idx: &RouteIndex, req: &PlanRequest) -> Option<RoutePlan> {
+    let raptor = compute_raptor_rounds(doc, idx, req)?;
+    finish(
+        doc,
+        idx,
+        &raptor.rounds,
+        &raptor.target_stops,
+        raptor.target,
+        raptor.t0,
+        req,
+    )
+}
+
+/// Plan alternative itineraries across RAPTOR rounds.
+/// Returns top 3 non-dominated plans sorted by `arrive_sec` ascending.
+pub fn plan_alternatives(doc: &CacheDoc, idx: &RouteIndex, req: &PlanRequest) -> Vec<RoutePlan> {
+    let Some(raptor) = compute_raptor_rounds(doc, idx, req) else {
+        return Vec::new();
+    };
+
+    let mut candidate_plans = Vec::new();
+    for (k, labels) in raptor.rounds.iter().enumerate() {
+        let mut chosen_in_round: Option<(usize, i64, f64, i64)> = None;
+        for &(s, walk_m) in &raptor.target_stops {
+            if let Some(l) = &labels[s] {
+                let effective = l.arrival
+                    + if walk_m >= SAME_STATION_COMPLEX_M {
+                        req.transfer_buffer_s as i64
+                    } else {
+                        0
+                    };
+                if chosen_in_round.is_none_or(|(_, _, _, e)| effective < e) {
+                    chosen_in_round = Some((s, l.arrival, walk_m, effective));
+                }
+            }
+        }
+        if let Some((stop, arrive, dest_walk_m, _)) = chosen_in_round {
+            let plan = build_plan(
+                doc,
+                idx,
+                &raptor.rounds,
+                k,
+                stop,
+                arrive,
+                dest_walk_m,
+                raptor.target,
+                raptor.t0,
+                req,
+            );
+            candidate_plans.push(plan);
+        }
+    }
+
+    if candidate_plans.is_empty() {
+        return vec![RoutePlan {
+            depart_sec: raptor.t0,
+            arrive_sec: raptor.t0,
+            duration_s: 0,
+            transfers: 0,
+            transfer_times_estimated: true,
+            legs: Vec::new(),
+            unreachable: true,
+        }];
+    }
+
+    let mut non_dominated = Vec::new();
+    for (i, p) in candidate_plans.iter().enumerate() {
+        let is_dominated = candidate_plans.iter().enumerate().any(|(j, other)| {
+            if i == j {
+                return false;
+            }
+            if other.arrive_sec <= p.arrive_sec && other.transfers <= p.transfers {
+                if other.arrive_sec < p.arrive_sec || other.transfers < p.transfers {
+                    return true;
+                }
+                return j < i;
+            }
+            false
+        });
+        if !is_dominated {
+            non_dominated.push(p.clone());
+        }
+    }
+
+    non_dominated.sort_by_key(|p| p.arrive_sec);
+    non_dominated.truncate(3);
+    non_dominated
 }
 
 /// Pick the best target label across rounds and turn it into a `RoutePlan`.
@@ -804,51 +968,18 @@ fn finish(
         });
     };
 
-    let mut legs = reconstruct(doc, idx, rounds, k, stop, req.transfer_buffer_s, t0);
-    // The winning target-complex member is a real walk from the stop the user
-    // actually picked, so the journey is not over on alighting: disclose the
-    // walk as a leg and charge it, rather than silently reporting an arrival
-    // at a different station on a different line.
-    let mut arrive_sec = arrive;
-    if dest_walk_m >= SAME_STATION_COMPLEX_M {
-        let (from_route_idx, from_station_idx) = idx.unpack(stop);
-        let (to_route_idx, to_station_idx) = idx.unpack(target);
-        legs.push(PlanLeg::Transfer {
-            from_route_idx,
-            from_station_idx,
-            to_route_idx,
-            to_station_idx,
-            walk_m: dest_walk_m,
-            transfer_s: req.transfer_buffer_s,
-            wait_s: 0,
-        });
-        arrive_sec += req.transfer_buffer_s as i64;
-    }
-    let ride_count = legs
-        .iter()
-        .filter(|l| matches!(l, PlanLeg::Ride { .. }))
-        .count();
-    let depart_sec = legs
-        .iter()
-        .find_map(|l| match l {
-            PlanLeg::Ride { board_sec, .. } => Some(*board_sec),
-            _ => None,
-        })
-        .unwrap_or(t0);
-    // Only a genuinely trivial same-stop plan (no legs at all — origin and
-    // destination resolved to the identical complex-free stop) pins both
-    // times to the query instant; a real walk-only or ride-bearing plan
-    // reports its true arrival, computed above.
-    let arrive_sec = if legs.is_empty() { t0 } else { arrive_sec };
-    Some(RoutePlan {
-        depart_sec,
-        arrive_sec,
-        duration_s: arrive_sec - depart_sec,
-        transfers: ride_count.saturating_sub(1),
-        transfer_times_estimated: true,
-        legs,
-        unreachable: false,
-    })
+    Some(build_plan(
+        doc,
+        idx,
+        rounds,
+        k,
+        stop,
+        arrive,
+        dest_walk_m,
+        target,
+        t0,
+        req,
+    ))
 }
 
 #[cfg(test)]
@@ -1953,6 +2084,50 @@ mod plan_tests {
                     }
                 }
             }
+        }
+    }
+
+    #[test]
+    fn alternatives_are_distinct_and_ordered_fastest_first() {
+        let bytes = std::fs::read("../../public/data/network.tmb").expect("cache");
+        let world = SimWorld::from_bytes(&bytes).expect("decode");
+        let doc = world.doc();
+        let find = |name: &str| -> (u8, u16) {
+            doc.routes
+                .iter()
+                .enumerate()
+                .find_map(|(r, route)| {
+                    route
+                        .stations
+                        .iter()
+                        .position(|s| s.name_en == name)
+                        .map(|s| (r as u8, s as u16))
+                })
+                .unwrap_or_else(|| panic!("{name} not in the cache"))
+        };
+        // A cross-city pair with genuinely different sensible itineraries.
+        let req = PlanRequest {
+            from: find("Mo Chit"),
+            to: find("Suvarnabhumi"),
+            date_yyyymmdd: 20260824,
+            sec_of_day: 17.0 * 3600.0,
+            max_transfers: 4,
+            max_wait_s: 5400,
+            transfer_buffer_s: 180,
+        };
+        let plans = world.plan_alternatives(&req);
+        assert!(!plans.is_empty(), "a routable pair must yield at least one plan");
+        assert!(plans.len() <= 3, "at most three, or the chooser is noise");
+        // Fastest first.
+        for w in plans.windows(2) {
+            assert!(w[0].arrive_sec <= w[1].arrive_sec);
+        }
+        // Genuinely different journeys, not the same one relabelled.
+        for w in plans.windows(2) {
+            assert!(
+                w[0].transfers != w[1].transfers || w[0].depart_sec != w[1].depart_sec,
+                "alternatives must differ in transfers or departure"
+            );
         }
     }
 }

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { activeSimClient } from "../sim/SimClient";
-import type { PlanLeg, StationInfo } from "../sim/protocol";
+import type { PlanLeg, RoutePlan, StationInfo } from "../sim/protocol";
 import { DEFAULT_MAX_WAIT_S } from "../sim/protocol";
 import { formatCountdown, formatServiceSec } from "../sim/time";
 import { useAppStore } from "../stores/useAppStore";
@@ -112,6 +112,8 @@ export function RoutePlanner() {
   const [from, setFrom] = useState<StationInfo | null>(null);
   const [to, setTo] = useState<StationInfo | null>(null);
   const [status, setStatus] = useState<Status>({ kind: "idle" });
+  const [plans, setPlans] = useState<RoutePlan[]>([]);
+  const [selectedIndex, setSelectedIndex] = useState<number>(0);
 
   // Mirrors StationSearch's own hiddenRoutes skip: a station on a hidden line
   // has no visible track to highlight a leg on.
@@ -120,7 +122,8 @@ export function RoutePlanner() {
     [stations, hiddenRoutes],
   );
 
-  const disclosures = useMemo(() => planDisclosures(plan, routes), [plan, routes]);
+  const currentPlan = plans[selectedIndex] ?? plan;
+  const disclosures = useMemo(() => planDisclosures(currentPlan, routes), [currentPlan, routes]);
 
   // The panel only gates its OWN render on `open` (below) — it stays mounted
   // the whole page lifetime, so its local from/to/status state would
@@ -132,6 +135,8 @@ export function RoutePlanner() {
       setFrom(null);
       setTo(null);
       setStatus({ kind: "idle" });
+      setPlans([]);
+      setSelectedIndex(0);
     }
   }, [open]);
 
@@ -144,9 +149,11 @@ export function RoutePlanner() {
     // the query is even in flight — a stale highlight next to a spinner reads
     // as the new answer.
     setPlan(null);
+    setPlans([]);
+    setSelectedIndex(0);
     setStatus({ kind: "loading" });
     try {
-      const result = await client.getRoutePlan(
+      const results = await client.planAlternatives(
         from.route_idx,
         from.station_idx,
         to.route_idx,
@@ -158,11 +165,13 @@ export function RoutePlanner() {
       // stale resolve must not silently resurrect it (and its map
       // highlight) behind a panel that is no longer open.
       if (!useAppStore.getState().routePlannerOpen) return;
-      if (result === null) {
+      if (!results || results.length === 0) {
         setStatus({ kind: "failed" });
         return;
       }
-      setPlan(result);
+      setPlans(results);
+      setSelectedIndex(0);
+      setPlan(results[0]);
       setStatus({ kind: "done" });
     } catch {
       setStatus({ kind: "failed" });
@@ -209,22 +218,51 @@ export function RoutePlanner() {
             Couldn&apos;t plan a route — the engine rejected that request.
           </p>
         )}
-        {plan?.unreachable && (
+        {currentPlan?.unreachable && (
           <p className="px-4 py-2 text-xs text-ink-muted">
             No route found within {Math.round(DEFAULT_MAX_WAIT_S / 60)} minutes of this departure
             time. Try a different time of day.
           </p>
         )}
 
-        {plan && !plan.unreachable && (
+        {currentPlan && !currentPlan.unreachable && (
           <>
+            {plans.length > 1 && (
+              <div className="flex gap-2 px-4 pb-2" data-testid="route-plan-alternatives">
+                {plans.map((p, idx) => {
+                  const active = idx === selectedIndex;
+                  return (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => {
+                        setSelectedIndex(idx);
+                        setPlan(p);
+                      }}
+                      className={`flex-1 rounded-md border p-2 text-left transition-colors ${
+                        active
+                          ? "border-accent bg-surface-sunken"
+                          : "border-edge hover:bg-surface-sunken/50"
+                      }`}
+                    >
+                      <p className="text-xs font-semibold text-ink">
+                        {formatCountdown(p.durationS)}
+                      </p>
+                      <p className="text-[10px] text-ink-muted">
+                        {p.transfers} transfer{p.transfers === 1 ? "" : "s"}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
             <p data-testid="route-plan-summary" className="px-4 pb-1 text-sm text-ink">
               <span className="font-semibold">
-                {formatServiceSec(plan.departSec)} → {formatServiceSec(plan.arriveSec)}
+                {formatServiceSec(currentPlan.departSec)} → {formatServiceSec(currentPlan.arriveSec)}
               </span>
               <span className="ml-2 text-xs text-ink-muted">
-                {formatCountdown(plan.durationS)} · {plan.transfers} transfer
-                {plan.transfers === 1 ? "" : "s"}
+                {formatCountdown(currentPlan.durationS)} · {currentPlan.transfers} transfer
+                {currentPlan.transfers === 1 ? "" : "s"}
               </span>
             </p>
             {/* Every caveat renders BEFORE the times it qualifies — a clipped
@@ -245,13 +283,13 @@ export function RoutePlanner() {
               </p>
             )}
             <ul className="divide-y divide-edge">
-              {plan.legs.map((leg, i) => (
+              {currentPlan.legs.map((leg, i) => (
                 <LegRow
                   key={`${leg.kind}-${i}`}
                   leg={leg}
                   routes={routes}
-                  rideBefore={plan.legs.slice(0, i).some((l) => l.kind === "ride")}
-                  rideAfter={plan.legs.slice(i + 1).some((l) => l.kind === "ride")}
+                  rideBefore={currentPlan.legs.slice(0, i).some((l) => l.kind === "ride")}
+                  rideAfter={currentPlan.legs.slice(i + 1).some((l) => l.kind === "ride")}
                 />
               ))}
             </ul>

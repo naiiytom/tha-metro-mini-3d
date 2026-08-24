@@ -55,6 +55,17 @@ declare module "*/pkg/metro_sim_wasm" {
       max_wait_s: number,
       transfer_buffer_s: number,
     ): string;
+    plan_alternatives_json(
+      from_route_idx: number,
+      from_station_idx: number,
+      to_route_idx: number,
+      to_station_idx: number,
+      date_yyyymmdd: number,
+      sec_of_day: number,
+      max_transfers: number,
+      max_wait_s: number,
+      transfer_buffer_s: number,
+    ): string;
 
     free(): void;
   }

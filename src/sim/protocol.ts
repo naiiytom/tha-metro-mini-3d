@@ -207,6 +207,17 @@ export type SimQuery =
       maxWaitS?: number;
       transferBufferS?: number;
     }
+  | {
+      kind: "planAlternatives";
+      fromRouteIdx: number;
+      fromStationIdx: number;
+      toRouteIdx: number;
+      toStationIdx: number;
+      simEpochMs: number;
+      maxTransfers?: number;
+      maxWaitS?: number;
+      transferBufferS?: number;
+    }
   | { kind: "stations" };
 
 /** Query result payloads (worker -> main), keyed by request id. */
@@ -214,6 +225,7 @@ export type SimQueryResult =
   | { kind: "runDetail"; detail: RunDetail | null }
   | { kind: "stationBoard"; board: StationBoard | null }
   | { kind: "routePlan"; plan: RoutePlan | null }
+  | { kind: "planAlternatives"; plans: RoutePlan[] }
   | { kind: "stations"; stations: StationInfo[] };
 
 /** Raw snake_case shape emitted by the Rust side; the worker maps it. */

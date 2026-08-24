@@ -56,7 +56,7 @@ describe("RoutePlanner", () => {
 
   beforeEach(() => {
     activeSimClient.current = {
-      getRoutePlan: vi.fn().mockResolvedValue(PLAN),
+      planAlternatives: vi.fn().mockResolvedValue([PLAN]),
       getSimNow: vi.fn().mockReturnValue(1_800_000_000_000),
     } as unknown as SimClient;
 
@@ -81,7 +81,7 @@ describe("RoutePlanner", () => {
     expect(screen.getByLabelText("To station")).toBeTruthy();
   });
 
-  it("picking From and To, then submitting, calls getRoutePlan with the picked indices and the sim clock", async () => {
+  it("picking From and To, then submitting, calls planAlternatives with the picked indices and the sim clock", async () => {
     render(<RoutePlanner />);
     fireEvent.change(screen.getByLabelText("From station"), { target: { value: "alpha" } });
     fireEvent.click(screen.getByText("Alpha"));
@@ -90,7 +90,7 @@ describe("RoutePlanner", () => {
     fireEvent.click(screen.getByRole("button", { name: "Find route" }));
 
     const client = activeSimClient.current!;
-    expect(client.getRoutePlan).toHaveBeenCalledWith(0, 0, 0, 1, 1_800_000_000_000);
+    expect(client.planAlternatives).toHaveBeenCalledWith(0, 0, 0, 1, 1_800_000_000_000);
     expect(await screen.findByTestId("route-plan-summary")).toBeTruthy();
   });
 
@@ -111,11 +111,13 @@ describe("RoutePlanner", () => {
   });
 
   it("shows a distinct message for an unreachable plan, not a failure", async () => {
-    (activeSimClient.current!.getRoutePlan as ReturnType<typeof vi.fn>).mockResolvedValue({
-      ...PLAN,
-      unreachable: true,
-      legs: [],
-    });
+    (activeSimClient.current!.planAlternatives as ReturnType<typeof vi.fn>).mockResolvedValue([
+      {
+        ...PLAN,
+        unreachable: true,
+        legs: [],
+      },
+    ]);
     render(<RoutePlanner />);
     fireEvent.change(screen.getByLabelText("From station"), { target: { value: "alpha" } });
     fireEvent.click(screen.getByText("Alpha"));
@@ -126,8 +128,8 @@ describe("RoutePlanner", () => {
     expect(screen.queryByTestId("route-plan-summary")).toBeNull();
   });
 
-  it("shows a distinct message for a null (rejected-request) result", async () => {
-    (activeSimClient.current!.getRoutePlan as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+  it("shows a distinct message for an empty (rejected-request) result", async () => {
+    (activeSimClient.current!.planAlternatives as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     render(<RoutePlanner />);
     fireEvent.change(screen.getByLabelText("From station"), { target: { value: "alpha" } });
     fireEvent.click(screen.getByText("Alpha"));
@@ -167,11 +169,11 @@ describe("RoutePlanner", () => {
     // Confirms the SECOND pick (Bravo) genuinely replaced the first (Alpha)
     // as "From" — a stuck picker would still submit Alpha's indices here.
     const client = activeSimClient.current!;
-    expect(client.getRoutePlan).toHaveBeenCalledWith(0, 1, 0, 0, 1_800_000_000_000);
+    expect(client.planAlternatives).toHaveBeenCalledWith(0, 1, 0, 0, 1_800_000_000_000);
   });
 
   it("resets to a fresh state when the panel is closed and reopened", async () => {
-    (activeSimClient.current!.getRoutePlan as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    (activeSimClient.current!.planAlternatives as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     render(<RoutePlanner />);
     fireEvent.change(screen.getByLabelText("From station"), { target: { value: "alpha" } });
     fireEvent.click(screen.getByText("Alpha"));
@@ -198,5 +200,32 @@ describe("RoutePlanner", () => {
     expect(screen.queryByText(/Couldn't plan a route/)).toBeNull();
     expect(screen.getByLabelText("From station")).toHaveValue("");
     expect(screen.getByLabelText("To station")).toHaveValue("");
+  });
+
+  it("renders alternative itinerary cards when multiple plans are returned and switching updates selected plan", async () => {
+    const plan2: RoutePlan = {
+      ...PLAN,
+      transfers: 1,
+      durationS: 700,
+    };
+    (activeSimClient.current!.planAlternatives as ReturnType<typeof vi.fn>).mockResolvedValue([
+      PLAN,
+      plan2,
+    ]);
+    render(<RoutePlanner />);
+    fireEvent.change(screen.getByLabelText("From station"), { target: { value: "alpha" } });
+    fireEvent.click(screen.getByText("Alpha"));
+    fireEvent.change(screen.getByLabelText("To station"), { target: { value: "bravo" } });
+    fireEvent.click(screen.getByText("Bravo"));
+    fireEvent.click(screen.getByRole("button", { name: "Find route" }));
+
+    expect(await screen.findByTestId("route-plan-alternatives")).toBeTruthy();
+    expect(useAppStore.getState().routePlan).toEqual(PLAN);
+
+    const cards = screen.getAllByRole("button").filter((b) => b.textContent?.includes("transfer"));
+    expect(cards.length).toBe(2);
+
+    fireEvent.click(cards[1]);
+    expect(useAppStore.getState().routePlan).toEqual(plan2);
   });
 });

@@ -120,6 +120,21 @@ function runQuery(query: SimQuery): SimQueryResult {
       );
       return { kind: "routePlan", plan: JSON.parse(json) as RoutePlan | null };
     }
+    case "planAlternatives": {
+      const { dateYyyymmdd, secOfDay } = bangkokFields(query.simEpochMs);
+      const json = engine.plan_alternatives_json(
+        query.fromRouteIdx,
+        query.fromStationIdx,
+        query.toRouteIdx,
+        query.toStationIdx,
+        dateYyyymmdd,
+        secOfDay,
+        query.maxTransfers ?? DEFAULT_MAX_TRANSFERS,
+        query.maxWaitS ?? DEFAULT_MAX_WAIT_S,
+        query.transferBufferS ?? DEFAULT_TRANSFER_BUFFER_S,
+      );
+      return { kind: "planAlternatives", plans: JSON.parse(json) as RoutePlan[] };
+    }
     case "stations":
       return { kind: "stations", stations: JSON.parse(engine.stations_json()) as StationInfo[] };
   }
