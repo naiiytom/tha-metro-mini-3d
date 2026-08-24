@@ -13,6 +13,7 @@ import { buildSkyDome, type SkyDome } from "./skyDome";
 import { PRE_REVENUE_OPACITY, buildStationMarkers, buildTrackDeck, buildTrackLine } from "./trackGeometry";
 import { nightLift } from "./nightLift";
 import { materialAlbedo } from "./materialAlbedo";
+import type { ViewProjection } from "./screenProject";
 import type { SkyPalette } from "./sun";
 import type { VehicleManager } from "./VehicleManager";
 
@@ -78,6 +79,15 @@ export class NetworkLayer implements CustomLayerInterface {
    *  network geometry. */
   private highlightGroup: THREE.Group | null = null;
   private highlightMaterials: LineMaterial[] = [];
+
+  /**
+   * The mercator->clip matrix from the most recent render, copied (not
+   * aliased — MapLibre may reuse its own array) so click hit-testing can
+   * project candidates exactly as they were drawn, altitude included.
+   * See src/map/screenProject.ts and issue #25.
+   */
+  private mainMatrix = new Float64Array(16);
+  private hasMainMatrix = false;
 
   /**
    * Per-frame hook, invoked at the start of every render() before drawing —
@@ -301,6 +311,18 @@ export class NetworkLayer implements CustomLayerInterface {
     this.applyUndergroundMode();
   }
 
+  /** The current view for screen-space hit-testing, or null before the first
+   *  frame has rendered. */
+  viewProjection(): ViewProjection | null {
+    if (!this.hasMainMatrix || !this.renderer) return null;
+    const canvas = this.renderer.domElement;
+    return {
+      matrix: this.mainMatrix,
+      widthPx: canvas.clientWidth || canvas.width,
+      heightPx: canvas.clientHeight || canvas.height,
+    };
+  }
+
   setShadowsEnabled(on: boolean): void {
     if (!this.renderer) return;
     this.renderer.shadowMap.enabled = on;
@@ -360,6 +382,8 @@ export class NetworkLayer implements CustomLayerInterface {
     // maplibre-gl v5+ passes an args object; `defaultProjectionData.mainMatrix`
     // is the mercator(0..1)->clip matrix that v4 handed over as `matrix`.
     const matrix = options.defaultProjectionData.mainMatrix;
+    this.mainMatrix.set(matrix as unknown as ArrayLike<number>);
+    this.hasMainMatrix = true;
     this.projection.fromArray(matrix as unknown as number[]).multiply(this.originMatrix);
     this.camera.projectionMatrix = this.projection;
     const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
@@ -390,6 +414,7 @@ export class NetworkLayer implements CustomLayerInterface {
     // onAdd()'s applyUndergroundMode() from a clean flag instead of seeding
     // a freshly rebuilt scene from a stale prior value.
     this.undergroundMode = false;
+    this.hasMainMatrix = false;
     this.sunLight = null;
     this.ambientLight = null;
     // The GL context belongs to MapLibre — dispose Three's wrapper only.

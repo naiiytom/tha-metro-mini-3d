@@ -454,7 +454,9 @@ export function MapContainer() {
     // buffer — the same poses that are on screen.
     const onMapClick = (e: { point: { x: number; y: number } }) => {
       const { stations, selectRun, selectStation, hiddenRoutes } = useAppStore.getState();
-      const hit = pickAt(map, lastVehicles, lastCount, stations, e.point, hiddenRoutes);
+      const view = layer?.viewProjection();
+      if (!view) return;
+      const hit = pickAt(view, lastVehicles, lastCount, stations, e.point, hiddenRoutes, map.getZoom());
       if (!hit) {
         // Clicking empty map clears the selection, like clicking away from
         // anything else.
