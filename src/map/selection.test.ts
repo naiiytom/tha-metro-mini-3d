@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MERC_PER_METER, ORIGIN_MERC } from "./coordinates";
-import { pickAt } from "./selection";
+import { pickAt, pickRadiusPx } from "./selection";
 import type { ViewProjection } from "./screenProject";
 import { LANE_ROUTE_IDX, LANE_RUN_IDX, LANE_X, LANE_Y, LANE_Z, VEHICLE_STRIDE } from "../sim/protocol";
 import type { StationInfo } from "../sim/protocol";
@@ -80,9 +80,10 @@ describe("pickAt with altitude", () => {
     // ground click would still (correctly, coincidentally) register as a
     // hit and this test would not actually exercise anything. 30 m draws
     // 30 px away, outside the radius, so a hit here can only happen if the
-    // implementation is still comparing against the ground position.
+    // implementation is still comparing against the ground position. Use
+    // zoom=15 (REFERENCE_ZOOM) to keep the radius at 22 px.
     const vehicles = vehicleBuffer(0, 0, 30, 7, 0);
-    expect(pickAt(view, vehicles, 1, [], { x: 500, y: 500 }, [], 18)).toBeNull();
+    expect(pickAt(view, vehicles, 1, [], { x: 500, y: 500 }, [], 15)).toBeNull();
   });
 
   it("still respects hidden routes", () => {
@@ -103,5 +104,25 @@ describe("pickAt with altitude", () => {
     expect(pickAt(view, vehicles, 1, [s], { x: 500, y: 500 }, [], 18)).toEqual({
       type: "vehicle", runIdx: 9,
     });
+  });
+});
+
+describe("pickRadiusPx", () => {
+  it("returns the base radius at the reference zoom", () => {
+    expect(pickRadiusPx(22, 15)).toBeCloseTo(22, 6);
+  });
+
+  it("never shrinks below the base radius when zoomed out", () => {
+    expect(pickRadiusPx(22, 10)).toBe(22);
+    expect(pickRadiusPx(22, 3)).toBe(22);
+  });
+
+  it("grows as the target renders larger", () => {
+    expect(pickRadiusPx(22, 19)).toBeGreaterThan(22);
+    expect(pickRadiusPx(22, 19)).toBeGreaterThan(pickRadiusPx(22, 17));
+  });
+
+  it("caps at 3x so a click never claims half the screen", () => {
+    expect(pickRadiusPx(22, 24)).toBeCloseTo(66, 6);
   });
 });

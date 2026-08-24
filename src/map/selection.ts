@@ -46,10 +46,25 @@ function screenDistanceSq(
   return dx * dx + dy * dy;
 }
 
-/** `pickRadiusPx` lands in Task 3 (zoom-scaled pick radii); this is a
- *  temporary passthrough so this task's tests pass on their own. */
-function pickRadiusPx(basePx: number, _zoom: number): number {
-  return basePx;
+/**
+ * Zoom at which the fixed pick radii were chosen. Below it the target is
+ * already smaller than the radius, so growing further would only make
+ * neighbouring lines steal each other's clicks.
+ */
+const REFERENCE_ZOOM = 15;
+
+/**
+ * Pick radius in pixels for a given zoom.
+ *
+ * A 65 m consist spans roughly 230 px at z19 and about 7 px at z14, so one
+ * fixed pixel radius is either far too small or far too greedy depending on
+ * where the user is. Doubling every 4 zoom levels tracks the rendered size
+ * loosely without needing the metres-per-pixel of the live view; the 3x cap
+ * keeps a click from claiming an implausible area.
+ */
+export function pickRadiusPx(basePx: number, zoom: number): number {
+  const scaled = basePx * Math.pow(2, (zoom - REFERENCE_ZOOM) / 4);
+  return Math.max(basePx, Math.min(basePx * 3, scaled));
 }
 
 /**
