@@ -72,6 +72,7 @@ export class NetworkLayer implements CustomLayerInterface {
    */
   private litMaterialWorstOpacity = new WeakMap<THREE.MeshLambertMaterial, number>();
   private undergroundMode = false;
+  private shadowCatcher: THREE.Mesh<THREE.PlaneGeometry, THREE.ShadowMaterial> | null = null;
   private skyDome: SkyDome | null = null;
   /** Planned-route highlight, rebuilt wholesale on every plan change. Kept in
    *  its own group and its own material list so it never enters the
@@ -143,6 +144,16 @@ export class NetworkLayer implements CustomLayerInterface {
     scene.add(sun);
     this.ambientLight = ambient;
     this.sunLight = sun;
+
+    const shadowCatcher = new THREE.Mesh(
+      new THREE.PlaneGeometry(8000, 8000),
+      new THREE.ShadowMaterial({ opacity: 0.35 }),
+    );
+    shadowCatcher.position.set(0, 0, 0);
+    shadowCatcher.receiveShadow = true;
+    shadowCatcher.visible = false;
+    scene.add(shadowCatcher);
+    this.shadowCatcher = shadowCatcher;
 
     for (const line of this.data.lines) {
       const group = new THREE.Group();
@@ -303,6 +314,9 @@ export class NetworkLayer implements CustomLayerInterface {
       m.depthWrite = !on;
       m.needsUpdate = true;
     }
+    if (this.shadowCatcher) {
+      this.shadowCatcher.visible = on ? false : (this.renderer?.shadowMap.enabled ?? false);
+    }
   }
 
   setUndergroundMode(on: boolean): void {
@@ -326,6 +340,9 @@ export class NetworkLayer implements CustomLayerInterface {
   setShadowsEnabled(on: boolean): void {
     if (!this.renderer) return;
     this.renderer.shadowMap.enabled = on;
+    if (this.shadowCatcher) {
+      this.shadowCatcher.visible = on && !this.undergroundMode;
+    }
     // Three caches compiled programs per material; flipping shadowMap.enabled
     // requires a recompile or existing materials keep their old defines.
     this.renderer.shadowMap.needsUpdate = true;
@@ -404,6 +421,7 @@ export class NetworkLayer implements CustomLayerInterface {
     });
     this.skyDome?.dispose();
     this.skyDome = null;
+    this.shadowCatcher = null;
     this.scene = null;
     this.lineMaterials = [];
     this.lineGroups = [];
