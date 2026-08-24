@@ -487,7 +487,7 @@ fn reconstruct(
                     route_name: route.name_en.clone(),
                     color_rgb: format!("#{:06X}", route.color_rgb & 0x00FF_FFFF),
                     headsign: pattern.headsign_en.clone(),
-                    direction: pattern.direction,
+                    direction: if alight.arc_m < board.arc_m { 1 } else { 0 },
                     run_idx,
                     board_station_idx: board.station_idx,
                     board_name: route.stations[board.station_idx as usize].name_en.clone(),
@@ -1177,8 +1177,9 @@ mod index_tests {
 #[cfg(test)]
 mod plan_tests {
     use super::tests_support::{far_interchange_doc, routing_doc};
-    use super::{Label, PlanLeg, PlanRequest, RouteIndex, Via, finish, plan};
+    use super::{finish, plan, Label, PlanLeg, PlanRequest, RouteIndex, Via};
     use crate::model::CacheDoc;
+    use crate::world::SimWorld;
 
     const WED: u32 = 20260722;
 
@@ -1874,5 +1875,84 @@ mod plan_tests {
         assert!(!planned(&doc, &req).unreachable);
         req.max_wait_s = 6_029;
         assert!(planned(&doc, &req).unreachable);
+    }
+
+    /// A ride leg must move FORWARD in time, and its arc must move consistently
+    /// with the direction it claims. A leg that alights before it boards, or
+    /// whose arc runs against its own direction flag, is the "wrong direction /
+    /// wrong stops" symptom of issue #27.
+    #[test]
+    fn ride_legs_are_self_consistent_in_time_and_arc() {
+        let bytes = std::fs::read("../../public/data/network.tmb").expect("cache");
+        let world = SimWorld::from_bytes(&bytes).expect("decode");
+
+        let pairs = [
+            ("Siam", "Asok"),
+            ("Siam", "Chatuchak Park"),
+            ("Mo Chit", "Suvarnabhumi"),
+            ("Bang Wa", "Tao Poon"),
+        ];
+        let doc = world.doc();
+        let find = |name: &str| -> Option<(u8, u16)> {
+            doc.routes.iter().enumerate().find_map(|(r, route)| {
+                route
+                    .stations
+                    .iter()
+                    .position(|s| s.name_en == name)
+                    .map(|s| (r as u8, s as u16))
+            })
+        };
+
+        for (from_name, to_name) in pairs {
+            let (Some(from), Some(to)) = (find(from_name), find(to_name)) else {
+                continue;
+            };
+            let req = PlanRequest {
+                from,
+                to,
+                date_yyyymmdd: 20260824,
+                sec_of_day: 17.0 * 3600.0,
+                max_transfers: 4,
+                max_wait_s: 5400,
+                transfer_buffer_s: 180,
+            };
+            let Some(plan) = world.plan_route(&req) else {
+                panic!("{from_name} -> {to_name}: malformed request");
+            };
+            if plan.unreachable {
+                continue;
+            }
+            for leg in &plan.legs {
+                if let PlanLeg::Ride {
+                    board_sec,
+                    alight_sec,
+                    board_arc_m,
+                    alight_arc_m,
+                    direction,
+                    route_name,
+                    ..
+                } = leg
+                {
+                    assert!(
+                        alight_sec > board_sec,
+                        "{from_name} -> {to_name} on {route_name}: alights at {alight_sec} \
+                         but boards at {board_sec}",
+                    );
+                    if *direction == 0 {
+                        assert!(
+                            alight_arc_m > board_arc_m,
+                            "{from_name} -> {to_name} on {route_name}: direction 0 \
+                             but arc runs backwards ({board_arc_m} -> {alight_arc_m})",
+                        );
+                    } else {
+                        assert!(
+                            alight_arc_m < board_arc_m,
+                            "{from_name} -> {to_name} on {route_name}: direction 1 \
+                             but arc runs forwards ({board_arc_m} -> {alight_arc_m})",
+                        );
+                    }
+                }
+            }
+        }
     }
 }
