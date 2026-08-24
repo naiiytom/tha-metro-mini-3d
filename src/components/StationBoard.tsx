@@ -73,19 +73,19 @@ export function StationBoard() {
   const info = stationByKey.get(stationKey(selectedStation.routeIdx, selectedStation.stationIdx));
 
   return (
-    <div className="pointer-events-auto flex max-h-[50dvh] w-full flex-col overflow-hidden rounded-t-2xl border border-white/40 bg-white/70 shadow-xl shadow-slate-900/10 backdrop-blur-md ring-1 ring-slate-900/5 md:absolute md:right-4 md:top-4 md:max-h-[calc(100dvh-2rem)] md:w-72 md:rounded-xl">
-      <div className="flex items-start gap-2 border-b border-slate-200 px-4 py-3">
+    <div className="panel-glass pointer-events-auto flex max-h-[50dvh] w-full flex-col overflow-hidden rounded-t-2xl border shadow-xl shadow-ink/10 backdrop-blur-md md:absolute md:right-4 md:top-4 md:max-h-[calc(100dvh-2rem)] md:w-72 md:rounded-xl">
+      <div className="flex items-start gap-2 border-b border-edge px-4 py-3">
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold text-slate-900">
+          <p className="truncate text-sm font-semibold text-ink">
             {board ? `${board.code ? `${board.code} · ` : ""}${board.name_en}` : "Station"}
           </p>
-          <p className="truncate text-xs text-slate-600">{board?.name_th ?? ""}</p>
+          <p className="truncate text-xs text-ink-muted">{board?.name_th ?? ""}</p>
         </div>
         <button
           type="button"
           onClick={() => selectStation(null)}
           aria-label="Close station board"
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-sm leading-none text-slate-500 hover:bg-slate-200 hover:text-slate-700 md:h-auto md:w-auto md:px-1.5 md:py-0.5"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-sm leading-none text-ink-muted hover:bg-surface-sunken hover:text-ink-muted md:h-auto md:w-auto md:px-1.5 md:py-0.5"
         >
           ×
         </button>
@@ -93,7 +93,7 @@ export function StationBoard() {
 
       {info && info.interchanges.length > 0 && (
         <div className="flex flex-wrap items-center gap-1 px-4 pb-2">
-          <span className="text-[10px] uppercase tracking-wide text-slate-500">Interchange</span>
+          <span className="text-[10px] uppercase tracking-wide text-ink-muted">Interchange</span>
           {info.interchanges.map((ix) => (
             <span
               key={`${ix.route_idx}-${ix.station_idx}`}
@@ -107,7 +107,7 @@ export function StationBoard() {
       )}
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
-        <p className="px-2 pb-1 text-[10px] uppercase tracking-wide text-slate-500">
+        <p className="px-2 pb-1 text-[10px] uppercase tracking-wide text-ink-muted">
           Next departures
         </p>
         {/* Every departure below is synthesized, not published — say so
@@ -115,26 +115,27 @@ export function StationBoard() {
         {routes[selectedStation.routeIdx]?.syntheticSchedule != null && (
           <p
             data-testid="synthetic-schedule-note"
-            className="mx-2 mb-1 rounded bg-sky-50 px-2 py-1 text-[10px] leading-snug text-sky-800"
+            className="mx-2 mb-1 rounded bg-note-bg px-2 py-1 text-[10px] leading-snug text-note-ink"
           >
             {SYNTHETIC_SCHEDULE_NOTE}
           </p>
         )}
         {/* Same box as the syntheticSchedule note directly above — this card
-         * is light (bg-white/70), so this note needs the same dark-on-light
-         * treatment, not the white-on-white this originally shipped with. */}
+         * sits on the translucent panel-glass surface, so this note needs the
+         * same dark-on-light treatment, not the white-on-white this
+         * originally shipped with. */}
         {routes[selectedStation.routeIdx]?.estimatedRunTimes != null && (
           <p
             data-testid="estimated-run-times-note"
-            className="mx-2 mb-1 rounded bg-sky-50 px-2 py-1 text-[10px] leading-snug text-sky-800"
+            className="mx-2 mb-1 rounded bg-note-bg px-2 py-1 text-[10px] leading-snug text-note-ink"
           >
             {ESTIMATED_RUN_TIMES_NOTE}
           </p>
         )}
         {!board ? (
-          <p className="px-2 py-2 text-xs text-slate-600">Loading…</p>
+          <p className="px-2 py-2 text-xs text-ink-muted">Loading…</p>
         ) : board.entries.length === 0 ? (
-          <p className="px-2 py-2 text-xs text-slate-600">
+          <p className="px-2 py-2 text-xs text-ink-muted">
             No further services scheduled today.
           </p>
         ) : (
@@ -144,17 +145,17 @@ export function StationBoard() {
                 <button
                   type="button"
                   onClick={() => selectRun(e.run_idx)}
-                  className="flex w-full items-baseline justify-between gap-2 rounded-md px-3 py-2.5 text-left text-sm text-slate-700 transition-colors hover:bg-slate-200 md:px-2 md:py-1.5 md:text-xs"
+                  className="flex w-full items-baseline justify-between gap-2 rounded-md px-3 py-2.5 text-left text-sm text-ink-muted transition-colors hover:bg-surface-sunken md:px-2 md:py-1.5 md:text-xs"
                 >
                   <span className="min-w-0 flex-1 truncate">
-                    <span className="font-medium text-slate-900">{e.destination}</span>
-                    <span className="ml-1 text-slate-500">
+                    <span className="font-medium text-ink">{e.destination}</span>
+                    <span className="ml-1 text-ink-muted">
                       {formatServiceSec(e.departure_sec)}
                     </span>
                   </span>
                   <span
                     className={`shrink-0 font-mono tabular-nums ${
-                      e.in_s <= 0 ? "font-semibold text-slate-900" : ""
+                      e.in_s <= 0 ? "font-semibold text-ink" : ""
                     }`}
                   >
                     {formatCountdown(e.in_s)}

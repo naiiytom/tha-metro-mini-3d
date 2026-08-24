@@ -18,8 +18,8 @@ function LineRow({ line, routeIdx }: { line: LineGeometry; routeIdx: number }) {
         type="button"
         aria-pressed={visible}
         onClick={() => toggleRoute(routeIdx)}
-        className={`flex w-full items-center gap-2 rounded-md px-3 py-2.5 text-left text-sm transition-colors hover:bg-slate-200/60 md:px-1.5 md:py-1 md:text-xs ${
-          visible ? "text-slate-800" : "text-slate-400"
+        className={`flex w-full items-center gap-2 rounded-md px-3 py-2.5 text-left text-sm transition-colors hover:bg-surface-sunken md:px-1.5 md:py-1 md:text-xs ${
+          visible ? "text-ink" : "text-ink-subtle"
         }`}
       >
         <span
@@ -36,7 +36,7 @@ function LineRow({ line, routeIdx }: { line: LineGeometry; routeIdx: number }) {
           // line also has gtfsRouteId === null, but it is emphatically NOT
           // track only — it runs trains, just on estimated times.
           <span
-            className="ml-auto shrink-0 rounded bg-sky-100 px-1 text-[9px] uppercase text-sky-700"
+            className="ml-auto shrink-0 rounded bg-note-bg px-1 text-[9px] uppercase text-note-ink"
             title={SYNTHETIC_SCHEDULE_NOTE}
             data-testid="synthetic-schedule-badge"
           >
@@ -48,10 +48,11 @@ function LineRow({ line, routeIdx }: { line: LineGeometry; routeIdx: number }) {
           // but keeping this ahead of it matches the syntheticSchedule
           // precedent and keeps every "runs trains on non-standard times"
           // case together, ahead of "doesn't run trains at all." Same
-          // classes as the syntheticSchedule badge just above (this card is
-          // light — bg-white/70 — so a badge needs a dark-on-light palette
-          // like every other one here, not the white-on-white this
-          // originally shipped with).
+          // classes as the syntheticSchedule badge just above (this card sits
+          // on the translucent panel-glass surface, which darkens in dark
+          // mode — so the badge stays a fixed, self-contained light chip with
+          // a dark-on-light palette regardless of theme, not the
+          // white-on-white this originally shipped with).
           //
           // `!= null`, not `!== null`: StationBoard/TrainInspector both use
           // `!= null` for this same field, and network.json is routinely
@@ -62,13 +63,13 @@ function LineRow({ line, routeIdx }: { line: LineGeometry; routeIdx: number }) {
           // correctly showed nothing. Found in code review.
           <span
             data-testid="estimated-run-times-badge"
-            className="ml-auto shrink-0 rounded bg-sky-100 px-1 text-[9px] uppercase text-sky-700"
+            className="ml-auto shrink-0 rounded bg-note-bg px-1 text-[9px] uppercase text-note-ink"
             title={ESTIMATED_RUN_TIMES_NOTE}
           >
             Est. times
           </span>
         ) : line.gtfsRouteId === null ? (
-          <span className="ml-auto shrink-0 text-[9px] uppercase text-slate-500">
+          <span className="ml-auto shrink-0 text-[9px] uppercase text-ink-muted">
             track only
           </span>
         ) : null}
@@ -120,12 +121,12 @@ export function LineSelector() {
       // `viewport-fit=cover` (index.html) exposes a left inset a fixed
       // offset doesn't, and this card can end up rendered partly under the
       // cutout otherwise (finding 7).
-      className="pointer-events-auto absolute left-[max(1rem,env(safe-area-inset-left))] top-4 max-h-[calc(100dvh-16rem)] w-[min(15rem,calc(100vw-6rem))] overflow-y-auto rounded-xl border border-white/40 bg-white/70 px-4 py-3 shadow-xl shadow-slate-900/10 backdrop-blur-md ring-1 ring-slate-900/5 md:left-4 md:max-h-[calc(100dvh-2rem)] md:w-60"
+      className="panel-glass pointer-events-auto absolute left-[max(1rem,env(safe-area-inset-left))] top-4 max-h-[calc(100dvh-16rem)] w-[min(15rem,calc(100vw-6rem))] overflow-y-auto rounded-xl border px-4 py-3 shadow-xl shadow-ink/10 backdrop-blur-md md:left-4 md:max-h-[calc(100dvh-2rem)] md:w-60"
     >
       <div className="flex items-start gap-1">
         <div className="min-w-0 flex-1">
-          <h1 className="text-sm font-semibold text-slate-900">Greater Bangkok Metro Mini 3D</h1>
-          <p className="text-xs text-slate-600">
+          <h1 className="text-sm font-semibold text-ink">Greater Bangkok Metro Mini 3D</h1>
+          <p className="text-xs text-ink-muted">
             {mapReady ? "Click a train or station to inspect it." : "Loading map…"}
           </p>
         </div>
@@ -141,7 +142,7 @@ export function LineSelector() {
             aria-pressed={searchOpen}
             aria-label={searchOpen ? "Close station search" : "Search stations"}
             title={searchOpen ? "Close station search" : "Search stations"}
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-base leading-none text-slate-600 hover:bg-slate-200/60 md:h-8 md:w-8 md:text-sm"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-base leading-none text-ink-muted hover:bg-surface-sunken md:h-8 md:w-8 md:text-sm"
           >
             🔍
           </button>
@@ -156,7 +157,7 @@ export function LineSelector() {
             aria-pressed={routePlannerOpen}
             aria-label={routePlannerOpen ? "Close route planner" : "Plan a route"}
             title={routePlannerOpen ? "Close route planner" : "Plan a route"}
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-base leading-none text-slate-600 hover:bg-slate-200/60 md:h-8 md:w-8 md:text-sm"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-base leading-none text-ink-muted hover:bg-surface-sunken md:h-8 md:w-8 md:text-sm"
           >
             🧭
           </button>
@@ -167,7 +168,7 @@ export function LineSelector() {
           aria-pressed={uiHidden}
           aria-label={uiHidden ? "Show map controls" : "Hide map controls"}
           title={uiHidden ? "Show map controls" : "Hide map controls"}
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-base leading-none text-slate-600 hover:bg-slate-200/60 md:hidden"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-base leading-none text-ink-muted hover:bg-surface-sunken md:hidden"
         >
           {uiHidden ? "☰" : "✕"}
         </button>
@@ -182,7 +183,7 @@ export function LineSelector() {
             onClick={() => setExpanded((e) => !e)}
             aria-expanded={bodyVisible}
             aria-label={expanded ? "Collapse line list" : "Expand line list"}
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-slate-500 hover:bg-slate-200/60 md:hidden"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-ink-muted hover:bg-surface-sunken md:hidden"
           >
             {expanded ? "▲" : "▼"}
           </button>
