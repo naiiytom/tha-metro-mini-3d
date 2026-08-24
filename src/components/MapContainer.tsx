@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 // maplibre-gl v6 ships named exports only — there is no default export.
-import { Map as MapLibreMap, NavigationControl, setWorkerUrl } from "maplibre-gl";
+import { Map as MapLibreMap, NavigationControl, setWorkerUrl, type MapMouseEvent } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 // v6 locates its tile worker with `new URL(\`./${name}\`, import.meta.url)` —
 // a dynamic specifier no bundler can rewrite, so after bundling it points at a
@@ -472,6 +472,27 @@ export function MapContainer() {
     };
     map.on("click", onMapClick);
 
+    // Hover affordance: without it a user cannot tell a missed click from a
+    // click on nothing, which is most of why #25 read as "hard to click"
+    // rather than "offset by 23px".
+    let hoverQueued = false;
+    let lastHoverPoint: { x: number; y: number } | null = null;
+    const onMouseMove = (e: MapMouseEvent) => {
+      lastHoverPoint = { x: e.point.x, y: e.point.y };
+      if (hoverQueued) return;
+      hoverQueued = true;
+      requestAnimationFrame(() => {
+        hoverQueued = false;
+        const point = lastHoverPoint;
+        const view = layer?.viewProjection();
+        if (!point || !view) return;
+        const { stations, hiddenRoutes } = useAppStore.getState();
+        const hit = pickAt(view, lastVehicles, lastCount, stations, point, hiddenRoutes, map.getZoom());
+        map.getCanvas().style.cursor = hit ? "pointer" : "";
+      });
+    };
+    map.on("mousemove", onMouseMove);
+
     // Panning while following would fight the per-frame jumpTo, so the first
     // user drag hands control back (Mini Tokyo 3D does the same).
     const onDragStart = () => {
@@ -548,6 +569,8 @@ export function MapContainer() {
       unsubscribeTooltipSelection?.();
       trainTooltip.dispose();
       map.off("click", onMapClick);
+      map.off("mousemove", onMouseMove);
+      map.getCanvas().style.cursor = "";
       map.off("dragstart", onDragStart);
       window.removeEventListener("keydown", onKeyDown);
       activeSimClient.current = null;
