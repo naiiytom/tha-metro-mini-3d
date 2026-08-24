@@ -44,10 +44,38 @@ export function lerpBearing(from: number, to: number, t: number): number {
   return from + d * t;
 }
 
+/** Wrap a bearing into [0, 360). Exported for tests. */
+export function normalizeBearing(deg: number): number {
+  return ((deg % 360) + 360) % 360;
+}
+
 export class FollowCamera {
   private pose: { x: number; y: number; yaw: number } | null = null;
   /** Smoothed bearing, so heading changes on curves don't snap. */
   private bearing: number | null = null;
+
+  /**
+   * User-chosen viewing angle relative to the train's heading, in degrees
+   * (issue #31).
+   *
+   * The camera used to set bearing absolutely from the train's yaw and
+   * `jumpTo` every frame, so an orbit gesture was overwritten on the very
+   * next frame — the view was effectively locked behind the train. Holding
+   * the user's contribution as an OFFSET means the camera keeps tracking
+   * the heading while the user picks where to watch from.
+   *
+   * Survives `resetBearing()` (switching followed train) and is cleared by
+   * `reset()` (ending the follow session).
+   */
+  private offsetDeg = 0;
+
+  get yawOffset(): number {
+    return this.offsetDeg;
+  }
+
+  addYawOffset(deltaDeg: number): void {
+    this.offsetDeg = normalizeBearing(this.offsetDeg + deltaDeg);
+  }
 
   /**
    * Read the selected run's pose out of an interpolated frame. Cheap linear
@@ -81,7 +109,7 @@ export class FollowCamera {
     this.bearing = this.bearing === null ? target : lerpBearing(this.bearing, target, 0.08);
     map.jumpTo({
       center: localToLngLat(this.pose.x, this.pose.y),
-      bearing: this.bearing,
+      bearing: normalizeBearing(this.bearing + this.offsetDeg),
     });
   }
 
@@ -89,6 +117,7 @@ export class FollowCamera {
   reset(): void {
     this.pose = null;
     this.bearing = null;
+    this.offsetDeg = 0;
   }
 
   /**
