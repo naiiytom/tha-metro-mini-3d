@@ -327,9 +327,46 @@ mod tests {
     #[test]
     fn all_days_service_runs_every_weekday_with_no_invented_exceptions() {
         let s = all_days_service("apm", 20260101, 20261231);
+        assert_eq!(s.gtfs_service_id, "synthetic:apm:daily");
+        assert_eq!(s.start_date, 20260101);
+        assert_eq!(s.end_date, 20261231);
         assert_eq!(s.weekday_mask, 0b111_1111);
         assert!(s.added_dates.is_empty());
         assert!(s.removed_dates.is_empty());
+    }
+
+    #[test]
+    fn all_days_service_active_on_all_days_within_date_range_and_inactive_outside() {
+        use sim_core::calendar::service_active_on;
+
+        let s = all_days_service("line-x", 20260101, 20260107);
+        assert_eq!(s.gtfs_service_id, "synthetic:line-x:daily");
+
+        // 20260101 (Thursday) to 20260107 (Wednesday) spans all 7 weekdays.
+        for date in 20260101..=20260107 {
+            assert!(
+                service_active_on(&s, date),
+                "expected service to be active on date {date}"
+            );
+        }
+
+        // Dates outside range must be inactive.
+        assert!(!service_active_on(&s, 20251231), "day before start_date");
+        assert!(!service_active_on(&s, 20260108), "day after end_date");
+    }
+
+    #[test]
+    fn all_days_service_handles_single_day_span() {
+        use sim_core::calendar::service_active_on;
+
+        let s = all_days_service("test-line", 20260515, 20260515);
+        assert_eq!(s.gtfs_service_id, "synthetic:test-line:daily");
+        assert_eq!(s.start_date, 20260515);
+        assert_eq!(s.end_date, 20260515);
+
+        assert!(service_active_on(&s, 20260515));
+        assert!(!service_active_on(&s, 20260514));
+        assert!(!service_active_on(&s, 20260516));
     }
 
     #[test]
