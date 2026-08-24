@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { useAppStore } from "../stores/useAppStore";
 import { ESTIMATED_RUN_TIMES_NOTE, type LineGeometry, SYNTHETIC_SCHEDULE_NOTE } from "../types";
+import { PANEL_COLLAPSE_KEY, loadCollapsed, saveCollapsed } from "./panelCollapse";
 import { ViewControls } from "./ViewControls";
 
 /** One toggleable row — its own component so it can call the store's
@@ -86,11 +87,15 @@ function LineRow({ line, routeIdx }: { line: LineGeometry; routeIdx: number }) {
  * engine evaluating it: the sim is a pure function of time, and skipping runs
  * would make the vehicle count and the station boards disagree with the clock.
  *
- * Below `md:` this card is collapsible (default collapsed) so it doesn't
- * dominate a phone screen, and its header carries the "hide UI" toggle —
- * deliberately kept here rather than as a separate floating button, since
- * this corner is the only one on the map MapLibre's own `NavigationControl`
- * (top-right) doesn't already occupy.
+ * This card is collapsible at every width (issue #29) — not just below
+ * `md:` as it originally shipped, where a 14-line list plus the whole
+ * `ViewControls` block sat permanently over the map it controls on desktop.
+ * The collapsed/expanded choice persists (`panelCollapse.ts`) and, once the
+ * user has stated one, wins at both widths; until then it still defaults
+ * collapsed on mobile / expanded on desktop. Below `md:` the header also
+ * carries the "hide UI" toggle — deliberately kept here rather than as a
+ * separate floating button, since this corner is the only one on the map
+ * MapLibre's own `NavigationControl` (top-right) doesn't already occupy.
  */
 export function LineSelector() {
   const routes = useAppStore((s) => s.routes);
@@ -102,16 +107,23 @@ export function LineSelector() {
   const routePlannerOpen = useAppStore((s) => s.routePlannerOpen);
   const setRoutePlannerOpen = useAppStore((s) => s.setRoutePlannerOpen);
   const isMobile = useIsMobile();
-  const [expanded, setExpanded] = useState(!isMobile);
+  const [expanded, setExpanded] = useState(() => !loadCollapsed(localStorage, isMobile));
 
-  // useState's initial value only runs once — without this, resizing
-  // desktop -> mobile mid-session leaves the card expanded on a phone
-  // (and vice versa), rather than picking up each side's own default.
+  // Follows the breakpoint ONLY until the user states a preference; after
+  // that their choice wins at both widths, which is the point of #29.
   useEffect(() => {
-    setExpanded(!isMobile);
+    if (localStorage.getItem(PANEL_COLLAPSE_KEY) === null) setExpanded(!isMobile);
   }, [isMobile]);
 
-  const bodyVisible = !isMobile || (expanded && !uiHidden);
+  const toggleExpanded = () => {
+    setExpanded((e) => {
+      saveCollapsed(localStorage, e); // `e` is the state BEFORE the flip: collapsing stores true
+      return !e;
+    });
+  };
+
+  // The isMobile gate is gone: the panel collapses at every width now.
+  const bodyVisible = expanded && !uiHidden;
 
   return (
     <div
@@ -180,10 +192,10 @@ export function LineSelector() {
         {!uiHidden && (
           <button
             type="button"
-            onClick={() => setExpanded((e) => !e)}
+            onClick={toggleExpanded}
             aria-expanded={bodyVisible}
             aria-label={expanded ? "Collapse line list" : "Expand line list"}
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-ink-muted hover:bg-surface-sunken md:hidden"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-ink-muted hover:bg-surface-sunken"
           >
             {expanded ? "▲" : "▼"}
           </button>
