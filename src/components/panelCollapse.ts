@@ -38,3 +38,21 @@ export function saveCollapsed(storage: WritableStorage, collapsed: boolean): voi
     // Preference not persisted; the session still works.
   }
 }
+
+/**
+ * Whether a preference has been stored at all, guarded the same way as
+ * `loadCollapsed`/`saveCollapsed` above. Exists so callers that need to
+ * distinguish "no preference yet" from "preference is false" (the resize
+ * effect in `LineSelector.tsx`) never have to reach for a raw
+ * `storage.getItem()` call themselves — a throwing storage there would
+ * otherwise fire inside a passive effect with no Error Boundary, which in
+ * React 18 can unmount the whole app rather than just fail to persist a
+ * preference.
+ */
+export function hasStoredPreference(storage: ReadableStorage): boolean {
+  try {
+    return storage.getItem(PANEL_COLLAPSE_KEY) !== null;
+  } catch {
+    return false;
+  }
+}

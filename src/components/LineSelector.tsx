@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { useAppStore } from "../stores/useAppStore";
 import { ESTIMATED_RUN_TIMES_NOTE, type LineGeometry, SYNTHETIC_SCHEDULE_NOTE } from "../types";
-import { PANEL_COLLAPSE_KEY, loadCollapsed, saveCollapsed } from "./panelCollapse";
+import { hasStoredPreference, loadCollapsed, saveCollapsed } from "./panelCollapse";
 import { ViewControls } from "./ViewControls";
 
 /** One toggleable row — its own component so it can call the store's
@@ -112,7 +112,7 @@ export function LineSelector() {
   // Follows the breakpoint ONLY until the user states a preference; after
   // that their choice wins at both widths, which is the point of #29.
   useEffect(() => {
-    if (localStorage.getItem(PANEL_COLLAPSE_KEY) === null) setExpanded(!isMobile);
+    if (!hasStoredPreference(localStorage)) setExpanded(!isMobile);
   }, [isMobile]);
 
   const toggleExpanded = () => {
