@@ -15,9 +15,28 @@ describe("yawToBearing", () => {
     expect(yawToBearing(-Math.PI / 2)).toBe(180); // heading south
   });
 
+  it("maps intercardinal / diagonal directions correctly", () => {
+    expect(yawToBearing(Math.PI / 4)).toBeCloseTo(45); // heading northeast -> bearing 45°
+    expect(yawToBearing((3 * Math.PI) / 4)).toBeCloseTo(-45); // heading northwest -> bearing -45°
+    expect(yawToBearing(-Math.PI / 4)).toBeCloseTo(135); // heading southeast -> bearing 135°
+    expect(yawToBearing((-3 * Math.PI) / 4)).toBeCloseTo(225); // heading southwest -> bearing 225°
+  });
+
+  it("handles multi-turn rotations and unwrapped angles gracefully", () => {
+    expect(yawToBearing(2 * Math.PI)).toBeCloseTo(-270); // 360° CCW -> -270° bearing (equivalent to 90°)
+    expect(yawToBearing(-2 * Math.PI)).toBeCloseTo(450); // -360° CCW -> 450° bearing (equivalent to 90°)
+  });
+
   it("is monotonic in the opposite rotational sense", () => {
     // Yaw increases counter-clockwise, bearing increases clockwise.
     expect(yawToBearing(0.5)).toBeLessThan(yawToBearing(0));
+  });
+
+  it("maintains strict 1:1 angular scaling", () => {
+    const deltaYaw = 0.1;
+    const deltaBearing = yawToBearing(deltaYaw) - yawToBearing(0);
+    // 0.1 rad is ~5.72957795° decrease in bearing
+    expect(deltaBearing).toBeCloseTo(-0.1 * (180 / Math.PI));
   });
 });
 
