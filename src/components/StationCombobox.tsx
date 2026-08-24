@@ -1,4 +1,4 @@
-import { useId, useMemo, useReducer, type KeyboardEvent } from "react";
+import { useEffect, useId, useMemo, useReducer, useRef, type KeyboardEvent } from "react";
 import { groupByRoute, stationOptions } from "../search/stationSearch";
 import { INITIAL_COMBO, comboReducer, type ComboEvent, type ComboState } from "../search/comboboxState";
 import type { StationInfo } from "../sim/protocol";
@@ -35,6 +35,16 @@ export function StationCombobox({
     [options, stations, state.query],
   );
   const groups = useMemo(() => groupByRoute(visible), [visible]);
+
+  // Populated via each option button's ref callback below; keyed by the same
+  // flat index the reducer's activeIndex uses, so arrow-key navigation can
+  // scroll the highlighted row into view without a DOM query.
+  const optionRefs = useRef(new Map<number, HTMLButtonElement>());
+
+  useEffect(() => {
+    if (!state.open) return;
+    optionRefs.current.get(state.activeIndex)?.scrollIntoView({ block: "nearest" });
+  }, [state.open, state.activeIndex]);
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "ArrowDown") {
@@ -107,9 +117,14 @@ export function StationCombobox({
                     <li key={`${s.route_idx}-${s.station_idx}`}>
                       <button
                         type="button"
+                        ref={(el) => {
+                          if (el) optionRefs.current.set(index, el);
+                          else optionRefs.current.delete(index);
+                        }}
                         id={`${listId}-opt-${index}`}
                         role="option"
                         aria-selected={state.activeIndex === index}
+                        tabIndex={-1}
                         onMouseDown={(e) => e.preventDefault()}
                         onClick={() => {
                           onPick(s);
