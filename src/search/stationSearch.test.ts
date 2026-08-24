@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { filterStations, nearestStation } from "./stationSearch";
+import { filterStations, groupByRoute, nearestStation, stationOptions } from "./stationSearch";
 import type { StationInfo } from "../sim/protocol";
 
 function makeStation(overrides: Partial<StationInfo>): StationInfo {
@@ -70,3 +70,61 @@ describe("nearestStation", () => {
     expect(nearestStation([0, 0], [])).toBeNull();
   });
 });
+
+const s = (routeIdx: number, stationIdx: number, nameEn: string, arcM: number): StationInfo => ({
+  route_idx: routeIdx,
+  station_idx: stationIdx,
+  code: "",
+  name_en: nameEn,
+  name_th: "",
+  arc_m: arcM,
+  x: 0,
+  y: 0,
+  z: 0,
+  interchanges: [],
+});
+
+describe("stationOptions", () => {
+  const stations = [s(1, 0, "Bang Wa", 0), s(0, 1, "Asok", 100), s(0, 0, "Siam", 0)];
+
+  it("returns EVERY station for an empty query — the field must be browsable", () => {
+    expect(stationOptions(stations, "")).toHaveLength(3);
+    expect(stationOptions(stations, "   ")).toHaveLength(3);
+  });
+
+  it("orders an empty query by route, then along the line", () => {
+    expect(stationOptions(stations, "").map((x) => x.name_en)).toEqual(["Siam", "Asok", "Bang Wa"]);
+  });
+
+  it("does not cap the browse list", () => {
+    const many = Array.from({ length: 50 }, (_, i) => s(0, i, `S${i}`, i));
+    expect(stationOptions(many, "")).toHaveLength(50);
+  });
+
+  it("falls through to filterStations for a real query", () => {
+    expect(stationOptions(stations, "sia").map((x) => x.name_en)).toEqual(["Siam"]);
+  });
+
+  it("honours the limit only for a real query", () => {
+    const many = Array.from({ length: 50 }, (_, i) => s(0, i, `Station ${i}`, i));
+    expect(stationOptions(many, "Station", 5)).toHaveLength(5);
+  });
+});
+
+describe("groupByRoute", () => {
+  it("groups in first-appearance order, preserving order within a group", () => {
+    const grouped = groupByRoute([s(0, 0, "Siam", 0), s(1, 0, "Bang Wa", 0), s(0, 1, "Asok", 100)]);
+    expect(grouped).toEqual([
+      {
+        routeIdx: 0,
+        stations: [expect.objectContaining({ name_en: "Siam" }), expect.objectContaining({ name_en: "Asok" })],
+      },
+      { routeIdx: 1, stations: [expect.objectContaining({ name_en: "Bang Wa" })] },
+    ]);
+  });
+
+  it("returns nothing for an empty list", () => {
+    expect(groupByRoute([])).toEqual([]);
+  });
+});
+

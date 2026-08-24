@@ -43,3 +43,37 @@ export function nearestStation(
   }
   return best;
 }
+
+export function stationOptions(
+  stations: StationInfo[],
+  query: string,
+  limit = MAX_RESULTS,
+): StationInfo[] {
+  if (query.trim() === "") {
+    return [...stations].sort(
+      (a, b) => a.route_idx - b.route_idx || a.arc_m - b.arc_m,
+    );
+  }
+  return filterStations(stations, query).slice(0, limit);
+}
+
+export interface StationGroup {
+  routeIdx: number;
+  stations: StationInfo[];
+}
+
+export function groupByRoute(stations: StationInfo[]): StationGroup[] {
+  const groups: StationGroup[] = [];
+  const byRoute = new Map<number, StationGroup>();
+  for (const station of stations) {
+    let group = byRoute.get(station.route_idx);
+    if (!group) {
+      group = { routeIdx: station.route_idx, stations: [] };
+      byRoute.set(station.route_idx, group);
+      groups.push(group);
+    }
+    group.stations.push(station);
+  }
+  return groups;
+}
+
