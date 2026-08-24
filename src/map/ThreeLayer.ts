@@ -152,6 +152,27 @@ export class NetworkLayer implements CustomLayerInterface {
     shadowCatcher.position.set(0, 0, 0);
     shadowCatcher.receiveShadow = true;
     shadowCatcher.visible = false;
+    // ShadowMaterial sets `transparent = true` by default but leaves
+    // `depthWrite`/`depthTest` at Material's own default (true/true) —
+    // neither is a no-op here. The catcher sits at z=0, coplanar with
+    // at-grade track and nearer the camera than every underground run
+    // (rendered at -12 to -25 m). `applyUndergroundMode()`'s default (OFF)
+    // state deliberately renders sub-surface track translucent with
+    // depthWrite=false so it "reads as beneath" without real depth interop
+    // with MapLibre's tiles (see that method's own doc comment). If the
+    // catcher kept depthWrite=true, it would write depth at those pixels
+    // and the translucent tunnel track drawn afterward — itself not
+    // writing depth — would still depthTest against what the catcher wrote
+    // and get incorrectly hidden behind it, defeating the whole point of
+    // the see-through underground view. depthWrite: false is the standard
+    // fix for a transparent receiver that must not falsely occlude
+    // geometry drawn after it. depthTest stays at its default (true)
+    // on purpose, unlike skyDome.ts's sky mesh: the catcher's job is to be
+    // properly occluded BY opaque foreground Three geometry (e.g. an
+    // elevated viaduct deck passing between the camera and the ground
+    // plane), not to sit permanently behind everything the way the sky
+    // does — so only depthWrite is the bug here, not depthTest too.
+    shadowCatcher.material.depthWrite = false;
     scene.add(shadowCatcher);
     this.shadowCatcher = shadowCatcher;
 

@@ -59,6 +59,23 @@ describe("shadowCatcher ground plane", () => {
     expect(shadowCatcher.visible).toBe(false);
   });
 
+  it("never writes depth, but still depth-tests against opaque foreground geometry", () => {
+    // Regression test for the finding in task-15's round-1 review: the
+    // catcher sits at z=0, nearer the camera than underground track
+    // (-12 to -25 m). ShadowMaterial leaves depthWrite/depthTest at
+    // Material's own default (true/true) unless overridden — if this
+    // material wrote depth, translucent tunnel track drawn afterward
+    // (depthWrite=false in applyUndergroundMode()'s default state) would
+    // depth-fail against it and vanish, defeating the see-through
+    // underground view. depthTest is deliberately left at its default
+    // (true) — unlike skyDome.ts's sky mesh, the catcher must still be
+    // properly occluded by opaque Three geometry drawn before it (e.g. an
+    // elevated viaduct deck between the camera and the ground plane).
+    const shadowCatcher = (layer as unknown as { shadowCatcher: THREE.Mesh<THREE.PlaneGeometry, THREE.ShadowMaterial> }).shadowCatcher;
+    expect(shadowCatcher.material.depthWrite).toBe(false);
+    expect(shadowCatcher.material.depthTest).toBe(true);
+  });
+
   it("toggles shadowCatcher visibility when setShadowsEnabled is called", () => {
     const shadowCatcher = (layer as unknown as { shadowCatcher: THREE.Mesh }).shadowCatcher;
     const renderer = (layer as unknown as { renderer: { shadowMap: { enabled: boolean } } }).renderer;
