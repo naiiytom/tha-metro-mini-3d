@@ -85,7 +85,7 @@ export function StationBoard() {
           type="button"
           onClick={() => selectStation(null)}
           aria-label="Close station board"
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-sm leading-none text-ink-muted hover:bg-surface-sunken hover:text-ink-muted md:h-auto md:w-auto md:px-1.5 md:py-0.5"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-sm leading-none text-ink-muted hover:bg-surface-sunken hover:text-ink md:h-auto md:w-auto md:px-1.5 md:py-0.5"
         >
           ×
         </button>

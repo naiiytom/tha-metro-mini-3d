@@ -165,7 +165,7 @@ export function TrainInspector() {
               className={`w-full rounded-md px-4 py-3 text-sm font-medium transition-colors md:px-2 md:py-1.5 md:text-xs ${
                 following
                   ? "bg-ink text-surface hover:opacity-90"
-                  : "bg-surface-sunken text-ink hover:bg-edge"
+                  : "bg-surface-sunken text-ink-muted hover:bg-edge"
               }`}
             >
               {following ? "Following — click to release" : "Follow this train"}
