@@ -1,5 +1,68 @@
 @import "tailwindcss";
 
+/*
+ * Semantic colour tokens (issue #26).
+ *
+ * Before this, `grep -c "dark:"` over every component and this file returned
+ * 0 in all ten: `themeMode` reached the Three.js scene lighting and the
+ * basemap paint colours, and never the DOM. Every panel was hardcoded light.
+ *
+ * Roles, not shades. A component asks for `bg-surface`, never `bg-white`, so
+ * the light/dark pair is decided in exactly one place. The @theme block maps
+ * each role onto a plain CSS variable, and the variable is what the
+ * [data-theme] blocks below swap — @theme itself is evaluated once at build
+ * time and cannot be re-declared per theme.
+ */
+@theme {
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-sunken: var(--surface-sunken);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-ink-subtle: var(--ink-subtle);
+  --color-edge: var(--edge);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-note-bg: var(--note-bg);
+  --color-note-ink: var(--note-ink);
+}
+
+:root {
+  --surface: #ffffff;
+  --surface-raised: #f8fafc;
+  --surface-sunken: #e2e8f0;
+  --ink: #0f172a;
+  --ink-muted: #475569;
+  --ink-subtle: #94a3b8;
+  --edge: #cbd5e1;
+  --accent: #10b981;
+  --accent-ink: #ffffff;
+  --note-bg: #f0f9ff;
+  --note-ink: #075985;
+}
+
+[data-theme="dark"] {
+  --surface: #0f172a;
+  --surface-raised: #1e293b;
+  --surface-sunken: #334155;
+  --ink: #f1f5f9;
+  --ink-muted: #cbd5e1;
+  --ink-subtle: #64748b;
+  --edge: #334155;
+  --accent: #10b981;
+  --accent-ink: #04241a;
+  --note-bg: #0c2a3d;
+  --note-ink: #bae6fd;
+}
+
+/* The glassmorphism panels blur whatever is behind them, so their own
+   backdrop has to stay translucent in both themes rather than adopt an
+   opaque surface token. */
+.panel-glass {
+  background-color: color-mix(in srgb, var(--surface) 82%, transparent);
+  border-color: color-mix(in srgb, var(--edge) 70%, transparent);
+}
+
 html,
 body,
 #root {

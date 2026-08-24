@@ -19,6 +19,7 @@ import { skyPalette, sunDirection } from "../map/sun";
 import { bindStyle, type StyleBinding } from "../map/styleBinding";
 import { TrainTooltip } from "../map/trainTooltip";
 import { effectiveElevationDeg } from "../map/themeMode";
+import { effectiveTheme } from "../map/effectiveTheme";
 import { resolveStock, type StockSpec } from "../map/rollingStock";
 import { loadStockGeometry } from "../map/glbStock";
 import { VehicleManager } from "../map/VehicleManager";
@@ -221,6 +222,7 @@ export function MapContainer() {
           const eff = effectiveElevationDeg(state.themeMode, dir.elevationDeg);
           layer.setSun(dir, skyPalette(eff), eff);
           layer.setSkyElevation(eff);
+          document.documentElement.dataset.theme = effectiveTheme(state.themeMode, dir.elevationDeg);
         }
         // Force the next tick to recompute: `lastApplied` still holds the
         // previous mode's blended values, so without this the redundant-
@@ -397,6 +399,7 @@ export function MapContainer() {
         layer?.setSun(dir, skyPalette(eff), eff);
         layer?.setSkyElevation(eff);
         binding?.applyThemeElevation(eff);
+        document.documentElement.dataset.theme = effectiveTheme(mode, dir.elevationDeg);
       };
 
       // MapLibre only repaints on demand — keep frames coming while the
