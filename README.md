@@ -14,6 +14,20 @@ Greater Bangkok Metro Mini 3D renders the Bangkok Metropolitan Region's metro/ra
 
 Full requirements live in [`docs/SRS.md`](./docs/SRS.md).
 
+## Demo & Screenshots
+
+### Live Demo Animations
+
+| 3D Network Overview & Route Search | Zoomed-in Follow Camera & Orbit |
+|---|---|
+| ![3D Network Overview](docs/media/metro_3d_demo.gif) | ![Follow Camera & Orbit](docs/media/follow_train_demo.gif) |
+
+### Camera Angles
+
+| Siam Station Closeup | Sukhumvit Elevated Track | System Overview |
+|---|---|---|
+| ![Siam Station Closeup](docs/media/mvp1_siam_closeup.png) | ![Sukhumvit Elevated Track](docs/media/mvp1_sukhumvit_tilt.png) | ![System Overview](docs/media/mvp1_overview.png) |
+
 ## Features
 
 - 3D track geometry with real elevations — elevated (+12–22 m), at-grade, and underground (−12 to −25 m) segments.
