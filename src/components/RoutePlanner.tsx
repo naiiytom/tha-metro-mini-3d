@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { filterStations } from "../search/stationSearch";
 import { activeSimClient } from "../sim/SimClient";
 import type { PlanLeg, StationInfo } from "../sim/protocol";
 import { DEFAULT_MAX_WAIT_S } from "../sim/protocol";
 import { formatCountdown, formatServiceSec } from "../sim/time";
 import { useAppStore } from "../stores/useAppStore";
 import { planDisclosures } from "../route/routePlanDisclosures";
+import { StationCombobox } from "./StationCombobox";
 import {
   ESTIMATED_RUN_TIMES_NOTE,
   SYNTHETIC_SCHEDULE_NOTE,
@@ -19,86 +19,6 @@ import {
 const NOTE_CLASS = "mx-2 mb-1 rounded bg-note-bg px-2 py-1 text-[10px] leading-snug text-note-ink";
 
 type Status = { kind: "idle" } | { kind: "loading" } | { kind: "done" } | { kind: "failed" };
-
-/**
- * One station picker: a text input filtered through the same `filterStations`
- * station search already uses, closing its own result list on pick. Kept
- * local to this file rather than promoted to `src/search/` — unlike
- * `filterStations` itself, there is no pure logic here worth testing in
- * isolation from the DOM it renders.
- */
-function StationPicker({
-  label,
-  value,
-  onPick,
-  stations,
-  routes,
-}: {
-  label: "From" | "To";
-  value: StationInfo | null;
-  onPick: (s: StationInfo | null) => void;
-  stations: StationInfo[];
-  routes: LineGeometry[];
-}) {
-  // `value` (the parent's picked station) doesn't drive the input's
-  // display — the input is always `query`, kept genuinely editable per
-  // Task 14's fix — but the parent's pick must not silently outlive an
-  // edit that no longer names it: every keystroke clears the parent's
-  // selection via `onPick(null)`, so a stale `from`/`to` can never plan a
-  // route for a station the input no longer shows. A fresh pick from the
-  // result list re-sets it. `value` itself stays unused here for the same
-  // reason LegRow reserves its own unused `routes` prop.
-  void value;
-  const [query, setQuery] = useState("");
-  const results = useMemo(() => (query.trim() === "" ? [] : filterStations(stations, query)), [
-    query,
-    stations,
-  ]);
-
-  return (
-    <div className="px-4 py-2">
-      <label className="mb-1 block text-[10px] uppercase tracking-wide text-ink-muted">
-        {label}
-        <input
-          type="text"
-          aria-label={`${label} station`}
-          value={query}
-          onChange={(e) => {
-            setQuery(e.target.value);
-            onPick(null);
-          }}
-          placeholder="Search stations…"
-          className="mt-1 block w-full rounded-md border border-edge bg-surface px-2 py-1.5 text-sm text-ink"
-        />
-      </label>
-      {query.trim() !== "" && (
-        <ul className="mt-1 max-h-40 space-y-0.5 overflow-y-auto">
-          {results.map((s) => (
-            <li key={`${s.route_idx}-${s.station_idx}`}>
-              <button
-                type="button"
-                onClick={() => {
-                  onPick(s);
-                  setQuery(s.name_en);
-                }}
-                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-ink-muted hover:bg-surface-sunken"
-              >
-                <span
-                  className="inline-block h-2 w-4 shrink-0 rounded-sm"
-                  style={{ background: routes[s.route_idx]?.color ?? "#64748b" }}
-                />
-                <span className="min-w-0 flex-1 truncate">
-                  <span className="font-medium text-ink">{s.name_en}</span>
-                  <span className="ml-1 text-ink-muted">{s.name_th}</span>
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
 
 function LegRow({
   leg,
@@ -267,8 +187,8 @@ export function RoutePlanner() {
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto py-2">
-        <StationPicker label="From" value={from} onPick={setFrom} stations={visibleStations} routes={routes} />
-        <StationPicker label="To" value={to} onPick={setTo} stations={visibleStations} routes={routes} />
+        <StationCombobox label="From" stations={visibleStations} routes={routes} onPick={setFrom} />
+        <StationCombobox label="To" stations={visibleStations} routes={routes} onPick={setTo} />
 
         <div className="px-4 py-2">
           <button

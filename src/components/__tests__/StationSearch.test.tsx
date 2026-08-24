@@ -55,7 +55,9 @@ describe("StationSearch", () => {
   it("filters results as the user types", () => {
     act(() => useAppStore.getState().setSearchOpen(true));
     render(<StationSearch />);
-    fireEvent.change(screen.getByLabelText("Search stations"), { target: { value: "asok" } });
+    fireEvent.change(screen.getByLabelText("Find a station station"), {
+      target: { value: "asok" },
+    });
     expect(screen.getByText("Asok")).toBeTruthy();
     expect(screen.queryByText("Siam")).toBeNull();
   });
@@ -84,7 +86,9 @@ describe("StationSearch", () => {
       useAppStore.getState().setSearchOpen(true);
     });
     render(<StationSearch />);
-    fireEvent.change(screen.getByLabelText("Search stations"), { target: { value: "a" } });
+    fireEvent.change(screen.getByLabelText("Find a station station"), {
+      target: { value: "a" },
+    });
     expect(screen.queryByText("Asok")).toBeNull();
     expect(screen.getByText("Siam")).toBeTruthy();
   });
@@ -114,7 +118,9 @@ describe("StationSearch", () => {
   it("selecting a result selects the station, requests a fly-to, and closes the panel", () => {
     act(() => useAppStore.getState().setSearchOpen(true));
     render(<StationSearch />);
-    fireEvent.change(screen.getByLabelText("Search stations"), { target: { value: "siam" } });
+    fireEvent.change(screen.getByLabelText("Find a station station"), {
+      target: { value: "siam" },
+    });
     fireEvent.click(screen.getByText("Siam"));
 
     expect(useAppStore.getState().selectedStation).toEqual({ routeIdx: 0, stationIdx: 0 });

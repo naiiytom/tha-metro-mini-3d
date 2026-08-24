@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { lngLatToLocal, localToLngLat } from "../map/coordinates";
-import { filterStations, nearestStation } from "../search/stationSearch";
+import { nearestStation } from "../search/stationSearch";
 import { useAppStore } from "../stores/useAppStore";
+import { StationCombobox } from "./StationCombobox";
 
 type GeoState =
   | { status: "idle" }
@@ -46,7 +47,6 @@ export function StationSearch() {
   const selectStation = useAppStore((s) => s.selectStation);
   const requestFlyTo = useAppStore((s) => s.requestFlyTo);
 
-  const [query, setQuery] = useState("");
   const [geo, setGeo] = useState<GeoState>({ status: "idle" });
   const requestedRef = useRef(false);
 
@@ -78,10 +78,6 @@ export function StationSearch() {
     [stations, hiddenRoutes],
   );
 
-  const results = useMemo(
-    () => filterStations(visibleStations, query),
-    [visibleStations, query],
-  );
   const nearest = useMemo(
     () => (geo.status === "ready" ? nearestStation(geo.userLocal, visibleStations) : null),
     [geo, visibleStations],
@@ -93,7 +89,6 @@ export function StationSearch() {
     selectStation({ routeIdx, stationIdx });
     requestFlyTo(localToLngLat(x, y));
     setSearchOpen(false);
-    setQuery("");
   };
 
   return (
@@ -101,16 +96,18 @@ export function StationSearch() {
       data-testid="station-search"
       className="panel-glass pointer-events-auto flex max-h-[50dvh] w-full flex-col overflow-hidden rounded-t-2xl border shadow-xl shadow-ink/10 backdrop-blur-md md:absolute md:left-[17rem] md:top-4 md:max-h-[calc(100dvh-2rem)] md:w-72 md:rounded-xl"
     >
-      <div className="flex items-center gap-2 border-b border-edge px-4 py-3">
-        <input
-          type="text"
-          autoFocus
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search stations…"
-          aria-label="Search stations"
-          className="min-w-0 flex-1 rounded-md border border-edge bg-surface px-2 py-1.5 text-sm text-ink outline-none focus:ring-2 focus:ring-accent"
-        />
+      <div className="flex items-center gap-2 border-b border-edge px-2 py-1">
+        <div className="min-w-0 flex-1">
+          <StationCombobox
+            label="Find a station"
+            stations={visibleStations}
+            routes={routes}
+            onPick={(s) => {
+              if (!s) return;
+              goToStation(s.route_idx, s.station_idx, s.x, s.y);
+            }}
+          />
+        </div>
         <button
           type="button"
           onClick={() => setSearchOpen(false)}
@@ -156,32 +153,6 @@ export function StationSearch() {
             </span>
             <span className="shrink-0 text-ink-muted">{formatDistance(nearest.distanceM)}</span>
           </button>
-        )}
-
-        <p className="px-2 pb-1 text-[10px] uppercase tracking-wide text-ink-muted">Results</p>
-        {query.trim() === "" ? null : results.length === 0 ? (
-          <p className="px-2 py-2 text-xs text-ink-muted">No stations match.</p>
-        ) : (
-          <ul className="space-y-0.5">
-            {results.map((s) => (
-              <li key={`${s.route_idx}-${s.station_idx}`}>
-                <button
-                  type="button"
-                  onClick={() => goToStation(s.route_idx, s.station_idx, s.x, s.y)}
-                  className="flex w-full items-center gap-2 rounded-md px-3 py-2.5 text-left text-sm text-ink-muted transition-colors hover:bg-surface-sunken md:px-2 md:py-1.5 md:text-xs"
-                >
-                  <span
-                    className="inline-block h-2 w-4 shrink-0 rounded-sm"
-                    style={{ background: routes[s.route_idx]?.color ?? "#64748b" }}
-                  />
-                  <span className="min-w-0 flex-1 truncate">
-                    <span className="font-medium text-ink">{s.name_en}</span>
-                    <span className="ml-1 text-ink-muted">{s.name_th}</span>
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
         )}
       </div>
     </div>
