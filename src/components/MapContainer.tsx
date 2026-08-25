@@ -23,7 +23,12 @@ import { effectiveTheme } from "../map/effectiveTheme";
 import { resolveStock, type StockSpec } from "../map/rollingStock";
 import { loadStockGeometry } from "../map/glbStock";
 import { VehicleManager } from "../map/VehicleManager";
-import { lngLatToLocal, localToLngLat, ORIGIN_LNG_LAT } from "../map/coordinates";
+import {
+  lngLatToLocal,
+  localToLngLat,
+  ORIGIN_LNG_LAT,
+  reconcileStationAltitude,
+} from "../map/coordinates";
 import { SimClient, activeSimClient } from "../sim/SimClient";
 import { DEFAULT_TICK_MS, ECO_TICK_MS, LANE_RUN_IDX, LANE_Z, VEHICLE_STRIDE } from "../sim/protocol";
 import { formatCountdown } from "../sim/time";
@@ -323,10 +328,17 @@ export function MapContainer() {
           s.setValidation(validation);
           s.setEngineStatus("ready");
           // Static station list, fetched once — powers click hit-testing and
-          // the station board's indices (contract §7).
+          // the station board's indices (contract §7). `z` is reconciled to
+          // the ALTITUDE THE MARKER IS ACTUALLY DRAWN AT (network.json's
+          // static per-station altitude via `buildMarkerPair`), not the
+          // engine's more "correct" per-point track altitude — click/hover
+          // picking must agree with what's on screen. See
+          // `reconcileStationAltitude`'s own doc comment (src/map/coordinates.ts).
           void sim
             ?.getStations()
-            .then((stations) => useAppStore.getState().setStations(stations))
+            .then((stations) =>
+              useAppStore.getState().setStations(reconcileStationAltitude(stations, net.lines)),
+            )
             .catch(() => undefined);
         },
         onError: (message) => useAppStore.getState().setEngineStatus("error", message),
