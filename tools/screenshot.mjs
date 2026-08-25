@@ -34,10 +34,18 @@ await page.goto(URL, { waitUntil: "networkidle2", timeout: 60_000 });
 
 // Expose the map instance? Instead poll: wait until tiles + layer settled.
 await new Promise((r) => setTimeout(r, 12_000));
-await page.screenshot({ path: `${OUT_DIR}/mvp1_overview.png` });
-console.log(`wrote ${OUT_DIR}/mvp1_overview.png`);
+await page.screenshot({ path: `${OUT_DIR}/overview.png` });
+console.log(`wrote ${OUT_DIR}/overview.png`);
 
 // Camera poses: [center, zoom, pitch, bearing, name]
+//
+// These filenames used to carry an "mvp1_" prefix baked in here — a holdover
+// from when this script only had the Green-Line-only MVP 1 network to shoot.
+// The registry has grown to 14 lines since, so a "mvp1_" screenshot of
+// today's full network is a wrong claim about what it shows, not a
+// versioned label — dropped in the final whole-branch review of the UX
+// Defects and Interaction work (2026-08-24) alongside renaming the
+// already-committed docs/media/*.png files this script had produced.
 const poses = [
   [[100.5332, 13.7456], 14.5, 65, 30, "siam_closeup"],
   [[100.5698, 13.7304], 13.5, 70, -120, "sukhumvit_tilt"],
@@ -53,8 +61,8 @@ for (const [center, zoom, pitch, bearing, name] of poses) {
     [center, zoom, pitch, bearing],
   );
   await new Promise((r) => setTimeout(r, 6_000));
-  await page.screenshot({ path: `${OUT_DIR}/mvp1_${name}.png` });
-  console.log(`wrote ${OUT_DIR}/mvp1_${name}.png`);
+  await page.screenshot({ path: `${OUT_DIR}/${name}.png` });
+  console.log(`wrote ${OUT_DIR}/${name}.png`);
 }
 
 await browser.close();

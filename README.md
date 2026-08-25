@@ -26,7 +26,7 @@ Full requirements live in [`docs/SRS.md`](./docs/SRS.md).
 
 | Siam Station Closeup | Sukhumvit Elevated Track | System Overview |
 |---|---|---|
-| ![Siam Station Closeup](docs/media/mvp1_siam_closeup.png) | ![Sukhumvit Elevated Track](docs/media/mvp1_sukhumvit_tilt.png) | ![System Overview](docs/media/mvp1_overview.png) |
+| ![Siam Station Closeup](docs/media/siam_closeup.png) | ![Sukhumvit Elevated Track](docs/media/sukhumvit_tilt.png) | ![System Overview](docs/media/overview.png) |
 
 ## Features
 
