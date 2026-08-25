@@ -706,9 +706,19 @@ real walking distance** by `SAME_STATION_COMPLEX_M` (150 m):
   picking either side never costs a spurious transfer.
 - **At or above 150 m** the link is a real walk between two *separate*
   stations. Every `INTERCHANGE_OVERRIDES` entry in the registry is in this
-  class (Silom↔Blue 319 m, ARL↔Blue 305 m, ARL↔APM 332 m, Purple↔Pink 555 m) —
-  they exist precisely because those pairs fall just outside the 300 m
-  auto-link radius. On the ORIGIN side such a neighbour is seeded at
+  class — they exist precisely because those pairs fall just outside the
+  300 m auto-link radius. Eight entries as of the UX Defects and Interaction
+  work (2026-08-24, Task 17): Silom↔Blue 319 m (Sala Daeng/Si Lom), ARL↔Blue
+  305 m (Makkasan/Phetchaburi), ARL↔APM 332 m (Suvarnabhumi), Purple↔Pink
+  555 m (Nonthaburi Civic Center), Sukhumvit↔Blue 364.8 m (Ha Yaek Lat
+  Phrao/Phahon Yothin), ARL↔Yellow 497.8 m (Hua Mak), and Bang Sue — TWO
+  separate entries, not one pair, since SRT Dark Red and SRT Light Red each
+  carry their own `gtfs_stop_id` for Krung Thep Aphiwat and each needs its
+  own link to MRT Blue's Bang Sue: SRT Dark Red↔Blue 305.1 m and SRT Light
+  Red↔Blue 344.9 m. All four new pairs connect via a real skywalk or
+  underground concourse, measured the same way as the pre-existing four (a
+  temporary debug print in `link_interchanges`, since reverted). On the
+  ORIGIN side such a neighbour is seeded at
   `t0 + transfer_buffer_s` as a `Via::Walk`, so a departure from it earlier
   than that is genuinely not selectable — the gate is in the SEARCH, not a
   label applied afterwards. On the DESTINATION side the walk is appended as a
@@ -764,6 +774,78 @@ The three routing parameters' defaults (`maxTransfers: 4`, `maxWaitS: 5400`,
 `transferBufferS: 180`) live in `src/sim/protocol.ts`, **not** in the registry
 and **not** hardcoded in Rust: they are global search parameters, not per-line
 displayed timetable data, so they stay tunable without a cache regeneration.
+
+### 7.2 Route search alternatives (UX Defects and Interaction, 2026-08-24, Task 19)
+
+```rust
+pub fn plan_alternatives(doc: &CacheDoc, idx: &RouteIndex, req: &PlanRequest) -> Vec<RoutePlan>;
+```
+
+Same `RouteIndex`/RAPTOR machinery as `plan()` above — not a second search
+implementation. Where `plan()` reconstructs only the single best label at the
+target, `plan_alternatives()` walks every RAPTOR round (`k = 0..`), builds a
+candidate `RoutePlan` from whichever label is best in THAT round (fewer
+boardings, by construction of the round index), then Pareto-filters the
+candidates on `(arrive_sec, transfers)` — a plan dominated by another that
+arrives no later AND transfers no more is dropped — and returns at most the
+top 3 non-dominated plans, sorted by `arrive_sec` ascending. An unreachable
+request still returns a one-element `Vec` carrying `unreachable: true`, the
+same shape `plan()`'s `Some(RoutePlan { unreachable: true, .. })` uses, so a
+caller does not need a second "empty means unreachable" convention; `None`
+(structurally invalid request) still returns an empty `Vec`, since there is
+no request to answer.
+
+`build_plan` (`route.rs:767`, the per-round-candidate constructor `plan()`'s
+own `finish()` also calls for the k=final-round case) takes 10 parameters —
+past clippy's `too_many_arguments` threshold, allowed with a comment at its
+definition site for the same reason `plan_route_json`'s allow is: most of the
+10 are independent pieces of borrowed state threaded through from different
+loop scopes (the RAPTOR rounds table, the winning round index, the winning
+stop/arrival/dest-walk for THAT round, the target stop, the query start time,
+and the original request), not a natural single struct.
+
+Wasm surface:
+
+```rust
+pub fn plan_alternatives_json(
+    &self,
+    from_route_idx: u8,
+    from_station_idx: u16,
+    to_route_idx: u8,
+    to_station_idx: u16,
+    date_yyyymmdd: u32,
+    sec_of_day: f64,
+    max_transfers: u8,
+    max_wait_s: u32,
+    transfer_buffer_s: u32,
+) -> String; // JSON array of RoutePlan, "[]" on a structurally invalid request
+```
+
+Same parameter list as `plan_route_json`, same `#[allow(clippy::too_many_arguments)]`
+justification (one UI-rate call per submit).
+
+Worker protocol:
+
+```ts
+// SimQuery +=
+| { kind: "planAlternatives"; fromRouteIdx: number; fromStationIdx: number;
+    toRouteIdx: number; toStationIdx: number; simEpochMs: number;
+    maxTransfers?: number; maxWaitS?: number; transferBufferS?: number }
+// SimQueryResult +=
+| { kind: "planAlternatives"; plans: RoutePlan[] }
+```
+
+`SimClient.planAlternatives(...)` (`src/sim/SimClient.ts`) mirrors
+`getRoutePlan`'s parameter list and default-resolution (the three routing
+defaults are applied at the call site, same as `getRoutePlan`, so the wire
+request is self-describing) and resolves `[]` for a structurally invalid
+request rather than `null` — a caller iterates the result instead of
+null-checking it. `RoutePlanner.tsx` is `planAlternatives`'s only production
+caller today; `getRoutePlan` (the single-best-plan primitive `plan_alternatives`
+is built on) has none, and is kept anyway rather than deleted, per a
+controller ruling in the final whole-branch review (2026-08-23): removing it
+would touch this contract, `worker.ts`, `protocol.ts` and the wasm bindings'
+tests for a purely cosmetic gain.
 
 ### Frontend (MVP 4)
 

@@ -91,14 +91,25 @@ function LegRow({
 
 /**
  * Route search panel (roadmap item 8). Two station pickers plus a submit
- * action call `SimClient.getRoutePlan` against the app's own scrubbed clock
- * (`getSimNow()`, not `Date.now()`), so a plan made while scrubbed to 23:50
- * is the plan FOR 23:50 — the same rule every other live view in this app
- * already follows.
+ * action call `SimClient.planAlternatives` against the app's own scrubbed
+ * clock (`getSimNow()`, not `Date.now()`), so a plan made while scrubbed to
+ * 23:50 is the plan FOR 23:50 — the same rule every other live view in this
+ * app already follows.
  *
  * `null` (a rejected request) and `unreachable: true` (a well-formed request
  * nothing connects) are deliberately different copy — an unreachable plan is
  * an ANSWER, not a failure.
+ *
+ * `SimClient.getRoutePlan` (the single-best-plan primitive) has no
+ * production caller today — this panel, its only consumer, moved to
+ * `planAlternatives` (up to 3 non-dominated itineraries) once that landed.
+ * `getRoutePlan` is kept anyway: `planAlternatives` is built on the exact
+ * same RAPTOR machinery as `plan()`/`getRoutePlan`, just returning every
+ * non-dominated round's result instead of the single best one, so the two
+ * are one mechanism, not two to maintain — deleting the unused primitive
+ * would touch `worker.ts`, `protocol.ts`, the wasm bindings and their tests
+ * with no second fix wave available to catch a mistake, for a purely
+ * cosmetic gain (controller ruling, final review, 2026-08-23).
  */
 export function RoutePlanner() {
   const open = useAppStore((s) => s.routePlannerOpen);
