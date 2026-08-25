@@ -45,6 +45,15 @@ export function StationCombobox({
     [options, stations, state.query],
   );
   const groups = useMemo(() => groupByRoute(visible), [visible]);
+  // The render loop below walks `groups` (grouped-by-route order), not
+  // `visible` (flat alphabetical order) — those two orders diverge whenever
+  // a typed query's alphabetical matches interleave routes. `flatIndex`
+  // (assigned during the render walk) and `state.activeIndex` are indices
+  // into the GROUPED order, so any lookup that resolves an index back to a
+  // `StationInfo` (the Enter handler, below) must index into `flatOptions`,
+  // not `visible` — indexing `visible` with a grouped-order index silently
+  // picks the wrong station whenever the two orders disagree.
+  const flatOptions = useMemo(() => groups.flatMap((g) => g.stations), [groups]);
 
   // Populated via each option button's ref callback below; keyed by the same
   // flat index the reducer's activeIndex uses, so arrow-key navigation can
@@ -64,7 +73,7 @@ export function StationCombobox({
       e.preventDefault();
       rawDispatch({ type: "move", delta: -1 });
     } else if (e.key === "Enter") {
-      const chosen = visible[state.activeIndex];
+      const chosen = flatOptions[state.activeIndex];
       if (chosen) {
         e.preventDefault();
         onPick(chosen);
