@@ -38,12 +38,17 @@ fn main() {
                     let other_route = &doc.routes[ix.route_idx as usize];
                     let other_station = &other_route.stations[ix.station_idx as usize];
                     let [ax, ay, _] = sim_core::world::position_at_arc(route, station.arc_m);
-                    let [bx, by, _] = sim_core::world::position_at_arc(other_route, other_station.arc_m);
+                    let [bx, by, _] =
+                        sim_core::world::position_at_arc(other_route, other_station.arc_m);
                     let walk_m = ((bx - ax) as f64).hypot((by - ay) as f64);
                     println!(
                         "  [{}] {} ({}) <-> [{}] {} ({}): {:.1} m",
-                        route.line_key, station.name_en, station.gtfs_stop_id,
-                        other_route.line_key, other_station.name_en, other_station.gtfs_stop_id,
+                        route.line_key,
+                        station.name_en,
+                        station.gtfs_stop_id,
+                        other_route.line_key,
+                        other_station.name_en,
+                        other_station.gtfs_stop_id,
                         walk_m
                     );
                     total_interchanges += 1;
@@ -60,7 +65,10 @@ fn main() {
             let route2 = &doc.routes[r2];
             for st1 in &route1.stations {
                 for (s2, st2) in route2.stations.iter().enumerate() {
-                    let is_linked = st1.interchanges.iter().any(|ix| ix.route_idx == r2 as u16 && ix.station_idx == s2 as u16);
+                    let is_linked = st1
+                        .interchanges
+                        .iter()
+                        .any(|ix| ix.route_idx == r2 as u16 && ix.station_idx == s2 as u16);
                     let [ax, ay, _] = sim_core::world::position_at_arc(route1, st1.arc_m);
                     let [bx, by, _] = sim_core::world::position_at_arc(route2, st2.arc_m);
                     let walk_m = ((bx - ax) as f64).hypot((by - ay) as f64);
@@ -69,8 +77,12 @@ fn main() {
                         println!(
                             "  UNLINKED ({:.1}m): [{}] {} ({}) <-> [{}] {} ({})",
                             walk_m,
-                            route1.line_key, st1.name_en, st1.gtfs_stop_id,
-                            route2.line_key, st2.name_en, st2.gtfs_stop_id
+                            route1.line_key,
+                            st1.name_en,
+                            st1.gtfs_stop_id,
+                            route2.line_key,
+                            st2.name_en,
+                            st2.gtfs_stop_id
                         );
                     }
                 }
@@ -105,4 +117,3 @@ fn main() {
         }
     }
 }
-

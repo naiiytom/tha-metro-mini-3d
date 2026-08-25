@@ -764,6 +764,16 @@ fn compute_raptor_rounds(
     })
 }
 
+/// Ten parameters is past clippy's threshold, and accepted here for the same
+/// reason `wasm/src/lib.rs`'s `plan_route_json` allow is: most of these are
+/// independent pieces of borrowed state threaded through from different loop
+/// scopes in `plan_alternatives`/`plan` (the RAPTOR rounds table, the
+/// winning round index, that round's winning stop/arrival/dest-walk, the
+/// target stop, the query start time, and the original request) — not a
+/// natural single struct, and this is an internal reconstruction helper
+/// called from one or two sites inside this file, not a public API where the
+/// call-site ergonomics of a struct would pay for itself.
+#[allow(clippy::too_many_arguments)]
 fn build_plan(
     doc: &CacheDoc,
     idx: &RouteIndex,
@@ -1308,7 +1318,7 @@ mod index_tests {
 #[cfg(test)]
 mod plan_tests {
     use super::tests_support::{far_interchange_doc, routing_doc};
-    use super::{finish, plan, Label, PlanLeg, PlanRequest, RouteIndex, Via};
+    use super::{Label, PlanLeg, PlanRequest, RouteIndex, Via, finish, plan};
     use crate::model::CacheDoc;
     use crate::world::SimWorld;
 
@@ -2116,7 +2126,10 @@ mod plan_tests {
             transfer_buffer_s: 180,
         };
         let plans = world.plan_alternatives(&req);
-        assert!(!plans.is_empty(), "a routable pair must yield at least one plan");
+        assert!(
+            !plans.is_empty(),
+            "a routable pair must yield at least one plan"
+        );
         assert!(plans.len() <= 3, "at most three, or the chooser is noise");
         // Fastest first.
         for w in plans.windows(2) {
