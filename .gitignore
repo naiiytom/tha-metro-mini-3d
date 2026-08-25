@@ -7,6 +7,11 @@ rust-engine/target/
 .superpowers/
 .worktrees/
 
+# Scratch output from tools/capture-*.mjs (frame PNGs, multi-MB GIF copies) —
+# never meant to be tracked, but wasn't ignored, so it was one `git add -A`
+# away from an accidental commit.
+scratch/
+
 # Namtang GTFS feed, fetched on demand by tools/fetch-gtfs.mjs — ~230 MB
 # extracted, dominated by shapes.txt/fare_*.txt the preprocessor never reads.
 # Never committed; re-download instead of trusting a stale local copy.
