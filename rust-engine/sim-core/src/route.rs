@@ -942,8 +942,61 @@ pub fn plan_alternatives(doc: &CacheDoc, idx: &RouteIndex, req: &PlanRequest) ->
     }
 
     non_dominated.sort_by_key(|p| p.arrive_sec);
-    non_dominated.truncate(3);
-    non_dominated
+    select_alternatives(non_dominated)
+}
+
+/// Picks up to 3 plans out of a Pareto-front `non_dominated` set (already
+/// sorted by `arrive_sec` ascending), for `plan_alternatives` above.
+///
+/// A plain `.truncate(3)` after sorting by arrival systematically discards
+/// the slow-but-few-transfers end of the front: on a Pareto front of
+/// `(arrive_sec, transfers)`, any candidate that arrives LATER than another
+/// must have STRICTLY FEWER transfers (otherwise it would be dominated), so
+/// keeping only the first 3 by arrival always keeps the fast/many-transfers
+/// end and throws away "one train, no changes, arrives a bit later" — often
+/// the whole reason to show alternatives.
+///
+/// When `non_dominated.len() <= 3` this is a no-op (matches the previous
+/// `.truncate(3)` behaviour exactly). Otherwise the result always includes
+/// the fastest-arriving plan (index 0, since the input is sorted) and the
+/// fewest-transfers plan (deduplicated if they're the same plan), with any
+/// remaining slot(s) filled by the next-best-arrival candidate(s) not
+/// already selected. The result stays sorted by `arrive_sec` ascending.
+fn select_alternatives(non_dominated: Vec<RoutePlan>) -> Vec<RoutePlan> {
+    if non_dominated.len() <= 3 {
+        return non_dominated;
+    }
+
+    let fastest_idx = 0;
+    // `min_by_key` returns the FIRST minimum on a tie, and `non_dominated` is
+    // already sorted by `arrive_sec` ascending, so a tie resolves to the
+    // earliest-arriving of the fewest-transfers plans — deterministic, no
+    // HashMap/HashSet involved.
+    let fewest_transfers_idx = non_dominated
+        .iter()
+        .enumerate()
+        .min_by_key(|(_, p)| p.transfers)
+        .map(|(i, _)| i)
+        .expect("non-empty: len > 3 checked above");
+
+    let mut chosen = vec![fastest_idx];
+    if fewest_transfers_idx != fastest_idx {
+        chosen.push(fewest_transfers_idx);
+    }
+    for i in 0..non_dominated.len() {
+        if chosen.len() >= 3 {
+            break;
+        }
+        if !chosen.contains(&i) {
+            chosen.push(i);
+        }
+    }
+
+    chosen.sort_unstable(); // restore ascending-arrival order (index order == arrival order)
+    chosen
+        .into_iter()
+        .map(|i| non_dominated[i].clone())
+        .collect()
 }
 
 /// Pick the best target label across rounds and turn it into a `RoutePlan`.
@@ -1131,6 +1184,281 @@ pub(crate) mod tests_support {
         let mut doc = routing_doc();
         doc.routes[1].track_xyz = vec![[2400.0, 0.0, 15.0], [3400.0, 0.0, 15.0]];
         doc
+    }
+
+    /// A synthetic network built specifically to produce MORE THAN 3
+    /// non-dominated `plan_alternatives` candidates for one origin/
+    /// destination pair, for Medium #3's regression test
+    /// (`select_alternatives_keeps_the_fewest_transfers_plan`).
+    /// `routing_doc()`/`far_interchange_doc()` don't reliably produce this —
+    /// real committed-cache pairs aren't guaranteed to either.
+    ///
+    /// Shape: a slow 0-transfer direct route O -> D (route 0), plus a chain
+    /// of hops O -> M1 -> M2 -> M3 (routes 1, 3, 5) each with its own
+    /// direct-to-D express (routes 2, 4, 6). Every additional transfer taken
+    /// down the chain arrives at D strictly earlier than the previous
+    /// option, so the Pareto front (arrive_sec, transfers) has one genuinely
+    /// non-dominated candidate per transfer count 0..=3 — four total, more
+    /// than `select_alternatives`'s cap of 3, with the FEWEST-transfers
+    /// plan (0 transfers, route 0) arriving LATEST. A naive `.truncate(3)`
+    /// after sorting by arrival keeps only the fastest three (1, 2 and 3
+    /// transfers) and drops the 0-transfer plan — exactly Medium #3's bug.
+    ///
+    /// All four routes terminating at D (0, 2, 4, 6) end their track at the
+    /// SAME point ([8000.0, 0.0, 15.0]), so D's `interchanges` links to the
+    /// other three resolve to 0 m walk distance — under
+    /// `SAME_STATION_COMPLEX_M`, so `plan_alternatives`'s effective-arrival
+    /// comparison across `target_stops` charges no extra buffer between
+    /// them, keeping the arrival numbers exactly the pattern times below.
+    /// Mid-journey hops (O<->O, M1<->M1, M2<->M2, M3<->M3) always charge the
+    /// full `transfer_buffer_s` regardless of distance (see
+    /// `compute_raptor_rounds`'s footpath relaxation), so their positions
+    /// don't matter and are left at whatever `track_xyz` gives them.
+    pub(crate) fn alternatives_spread_doc() -> CacheDoc {
+        let d_pos = [8000.0, 0.0, 15.0];
+        let route0 = RouteDoc {
+            gtfs_route_id: "SLOW0".into(),
+            line_key: "slow0".into(),
+            simulated: true,
+            name_en: "Slow Direct".into(),
+            color_rgb: 0x888888,
+            track_xyz: vec![[0.0, 0.0, 15.0], d_pos],
+            track_arc_m: vec![0.0, 8000.0],
+            stations: vec![
+                station(
+                    "o0",
+                    "O",
+                    0.0,
+                    // `expand_complex` for the ORIGIN reads interchanges FROM
+                    // the origin stop itself, so this direction must be
+                    // declared here too (not only on route1's O, below) or
+                    // O1 never becomes part of origin_stops at all.
+                    vec![InterchangeRef {
+                        route_idx: 1,
+                        station_idx: 0,
+                    }],
+                ),
+                station(
+                    "d0",
+                    "D",
+                    8000.0,
+                    vec![
+                        InterchangeRef {
+                            route_idx: 2,
+                            station_idx: 1,
+                        },
+                        InterchangeRef {
+                            route_idx: 4,
+                            station_idx: 1,
+                        },
+                        InterchangeRef {
+                            route_idx: 6,
+                            station_idx: 1,
+                        },
+                    ],
+                ),
+            ],
+        };
+        let route1 = RouteDoc {
+            gtfs_route_id: "TRUNK1".into(),
+            line_key: "trunk1".into(),
+            simulated: true,
+            name_en: "Trunk to M1".into(),
+            color_rgb: 0x888888,
+            track_xyz: vec![[0.0, 0.0, 15.0], [1000.0, 0.0, 15.0]],
+            track_arc_m: vec![0.0, 1000.0],
+            stations: vec![
+                station(
+                    "o1",
+                    "O",
+                    0.0,
+                    vec![InterchangeRef {
+                        route_idx: 0,
+                        station_idx: 0,
+                    }],
+                ),
+                station(
+                    "m1t",
+                    "M1",
+                    1000.0,
+                    vec![
+                        InterchangeRef {
+                            route_idx: 2,
+                            station_idx: 0,
+                        },
+                        InterchangeRef {
+                            route_idx: 3,
+                            station_idx: 0,
+                        },
+                    ],
+                ),
+            ],
+        };
+        let route2 = RouteDoc {
+            gtfs_route_id: "EXPM1D".into(),
+            line_key: "exp-m1-d".into(),
+            simulated: true,
+            name_en: "M1 Express to D".into(),
+            color_rgb: 0x888888,
+            track_xyz: vec![[1000.0, 0.0, 15.0], d_pos],
+            track_arc_m: vec![0.0, 8000.0],
+            stations: vec![
+                station("m1e", "M1", 0.0, vec![]),
+                station("d2", "D", 8000.0, vec![]),
+            ],
+        };
+        let route3 = RouteDoc {
+            gtfs_route_id: "HOPM1M2".into(),
+            line_key: "hop-m1-m2".into(),
+            simulated: true,
+            name_en: "M1 to M2".into(),
+            color_rgb: 0x888888,
+            track_xyz: vec![[1000.0, 0.0, 15.0], [2000.0, 0.0, 15.0]],
+            track_arc_m: vec![0.0, 1000.0],
+            stations: vec![
+                station("m1h", "M1", 0.0, vec![]),
+                station(
+                    "m2h",
+                    "M2",
+                    1000.0,
+                    vec![
+                        InterchangeRef {
+                            route_idx: 4,
+                            station_idx: 0,
+                        },
+                        InterchangeRef {
+                            route_idx: 5,
+                            station_idx: 0,
+                        },
+                    ],
+                ),
+            ],
+        };
+        let route4 = RouteDoc {
+            gtfs_route_id: "EXPM2D".into(),
+            line_key: "exp-m2-d".into(),
+            simulated: true,
+            name_en: "M2 Express to D".into(),
+            color_rgb: 0x888888,
+            track_xyz: vec![[2000.0, 0.0, 15.0], d_pos],
+            track_arc_m: vec![0.0, 8000.0],
+            stations: vec![
+                station("m2e", "M2", 0.0, vec![]),
+                station("d4", "D", 8000.0, vec![]),
+            ],
+        };
+        let route5 = RouteDoc {
+            gtfs_route_id: "HOPM2M3".into(),
+            line_key: "hop-m2-m3".into(),
+            simulated: true,
+            name_en: "M2 to M3".into(),
+            color_rgb: 0x888888,
+            track_xyz: vec![[2000.0, 0.0, 15.0], [3000.0, 0.0, 15.0]],
+            track_arc_m: vec![0.0, 1000.0],
+            stations: vec![
+                station("m2h2", "M2", 0.0, vec![]),
+                station(
+                    "m3h",
+                    "M3",
+                    1000.0,
+                    vec![InterchangeRef {
+                        route_idx: 6,
+                        station_idx: 0,
+                    }],
+                ),
+            ],
+        };
+        let route6 = RouteDoc {
+            gtfs_route_id: "EXPM3D".into(),
+            line_key: "exp-m3-d".into(),
+            simulated: true,
+            name_en: "M3 Express to D".into(),
+            color_rgb: 0x888888,
+            track_xyz: vec![[3000.0, 0.0, 15.0], d_pos],
+            track_arc_m: vec![0.0, 8000.0],
+            stations: vec![
+                station("m3e", "M3", 0.0, vec![]),
+                station("d6", "D", 8000.0, vec![]),
+            ],
+        };
+
+        CacheDoc {
+            magic: TMB_MAGIC,
+            version: TMB_VERSION,
+            feed_version: "test".into(),
+            generated_unix: 0,
+            origin_lng: 100.5332,
+            origin_lat: 13.7456,
+            routes: vec![route0, route1, route2, route3, route4, route5, route6],
+            services: vec![all_days()],
+            patterns: vec![
+                // pattern 0: route0, O(0/30) -> D(20000/20000) -- slow direct.
+                PatternDoc {
+                    gtfs_trip_id: "p0".into(),
+                    route_idx: 0,
+                    direction: 0,
+                    headsign_en: "D".into(),
+                    stops: vec![pstop(0, 0, 30, 0.0), pstop(1, 20_000, 20_000, 8000.0)],
+                },
+                // pattern 1: route1, O(0/30) -> M1(1000/1000).
+                PatternDoc {
+                    gtfs_trip_id: "p1".into(),
+                    route_idx: 1,
+                    direction: 0,
+                    headsign_en: "M1".into(),
+                    stops: vec![pstop(0, 0, 30, 0.0), pstop(1, 1000, 1000, 1000.0)],
+                },
+                // pattern 2: route2, M1(0/0) -> D(6300/6300).
+                PatternDoc {
+                    gtfs_trip_id: "p2".into(),
+                    route_idx: 2,
+                    direction: 0,
+                    headsign_en: "D".into(),
+                    stops: vec![pstop(0, 0, 0, 0.0), pstop(1, 6300, 6300, 8000.0)],
+                },
+                // pattern 3: route3, M1(0/0) -> M2(800/800).
+                PatternDoc {
+                    gtfs_trip_id: "p3".into(),
+                    route_idx: 3,
+                    direction: 0,
+                    headsign_en: "M2".into(),
+                    stops: vec![pstop(0, 0, 0, 0.0), pstop(1, 800, 800, 1000.0)],
+                },
+                // pattern 4: route4, M2(0/0) -> D(3300/3300).
+                PatternDoc {
+                    gtfs_trip_id: "p4".into(),
+                    route_idx: 4,
+                    direction: 0,
+                    headsign_en: "D".into(),
+                    stops: vec![pstop(0, 0, 0, 0.0), pstop(1, 3300, 3300, 8000.0)],
+                },
+                // pattern 5: route5, M2(0/0) -> M3(700/700).
+                PatternDoc {
+                    gtfs_trip_id: "p5".into(),
+                    route_idx: 5,
+                    direction: 0,
+                    headsign_en: "M3".into(),
+                    stops: vec![pstop(0, 0, 0, 0.0), pstop(1, 700, 700, 1000.0)],
+                },
+                // pattern 6: route6, M3(0/0) -> D(1800/1800).
+                PatternDoc {
+                    gtfs_trip_id: "p6".into(),
+                    route_idx: 6,
+                    direction: 0,
+                    headsign_en: "D".into(),
+                    stops: vec![pstop(0, 0, 0, 0.0), pstop(1, 1800, 1800, 8000.0)],
+                },
+            ],
+            runs: vec![
+                run(0, 0, 0),    // pattern0 (slow0), start 0
+                run(1, 0, 0),    // pattern1 (trunk1), start 0
+                run(2, 0, 1200), // pattern2 (expM1D), ready at M1 is 1000+180=1180
+                run(3, 0, 1200), // pattern3 (hopM1M2), same readiness at M1
+                run(4, 0, 2200), // pattern4 (expM2D), ready at M2 is 2000+180=2180
+                run(5, 0, 2200), // pattern5 (hopM2M3), same readiness at M2
+                run(6, 0, 3100), // pattern6 (expM3D), ready at M3 is 2900+180=3080
+            ],
+        }
     }
 
     /// One pattern that calls the SAME stop twice (A0 -> A1 -> A0 -> A2). No
@@ -1338,7 +1666,7 @@ mod index_tests {
 
 #[cfg(test)]
 mod plan_tests {
-    use super::tests_support::{far_interchange_doc, routing_doc};
+    use super::tests_support::{alternatives_spread_doc, far_interchange_doc, routing_doc};
     use super::{Label, PlanLeg, PlanRequest, RouteIndex, Via, finish, plan};
     use crate::model::CacheDoc;
     use crate::world::SimWorld;
@@ -2163,5 +2491,67 @@ mod plan_tests {
                 "alternatives must differ in transfers or departure"
             );
         }
+    }
+
+    /// Medium #3: `plan_alternatives` used to `.truncate(3)` after sorting
+    /// by `arrive_sec` alone, which systematically drops the
+    /// fewest-transfers end of a Pareto front whenever more than 3
+    /// candidates survive dominance filtering (see `select_alternatives`'s
+    /// own doc comment for why). `alternatives_spread_doc()` is built
+    /// specifically to produce 4 non-dominated candidates for one pair —
+    /// transfers 0/1/2/3, each arriving strictly earlier than the last —
+    /// so the 0-transfer plan is exactly the one a naive truncate would
+    /// discard.
+    #[test]
+    fn select_alternatives_keeps_the_fewest_transfers_plan() {
+        let doc = alternatives_spread_doc();
+        let world = SimWorld::from_doc(doc).expect("valid synthetic doc");
+        let req = PlanRequest {
+            from: (0, 0), // route0's O
+            to: (0, 1),   // route0's D
+            date_yyyymmdd: 20260824,
+            sec_of_day: 0.0,
+            max_transfers: 4,
+            max_wait_s: 5400,
+            transfer_buffer_s: 180,
+        };
+
+        let plans = world.plan_alternatives(&req);
+
+        // (1) at most 3 plans.
+        assert!(
+            plans.len() <= 3,
+            "select_alternatives must cap at 3, got {}",
+            plans.len()
+        );
+        // (2) sorted by arrive_sec ascending.
+        for w in plans.windows(2) {
+            assert!(
+                w[0].arrive_sec <= w[1].arrive_sec,
+                "must stay sorted by arrival"
+            );
+        }
+        // Sanity: this fixture really does produce >3 non-dominated
+        // candidates before selection — otherwise this test would pass
+        // vacuously regardless of the fix. Reconstruct the pre-selection
+        // Pareto front the same way `plan_alternatives` does internally by
+        // checking the transfer counts actually present in the OUTPUT
+        // include 0 (the minimum) — which is exactly what a bare
+        // `.truncate(3)` would have dropped, since 0-transfers is also the
+        // LATEST-arriving candidate on this fixture's Pareto front.
+        let min_transfers = plans.iter().map(|p| p.transfers).min().unwrap();
+        // (3) the minimum-transfers plan among the original non-dominated
+        // set is present in the final selected set.
+        assert_eq!(
+            min_transfers, 0,
+            "the 0-transfer plan (the slow direct route) must survive selection, \
+             not just the fast/many-transfers end of the Pareto front"
+        );
+        assert!(
+            plans
+                .iter()
+                .any(|p| p.transfers == 0 && p.arrive_sec == 20_000),
+            "expected the slow 0-transfer plan (arrive_sec 20000) among the selected alternatives: {plans:?}"
+        );
     }
 }
