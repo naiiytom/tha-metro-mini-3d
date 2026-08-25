@@ -230,6 +230,13 @@ export class VehicleManager {
    * The MATERIAL is deliberately untouched — it carries the route's
    * liveryHex stamp and the compiled emissive patch, and rebuilding it would
    * drop the night lift `ThreeLayer.setSun()` has already applied.
+   *
+   * KNOWN GAP (code review 2026-08-25, unreachable today — `glbUrl` has zero
+   * registry users): this does not touch `glowMeshes[routeIdx]`. A `.glb`
+   * override would keep the OLD, procedurally-built window-glow band —
+   * sized and positioned from the previous `StockSpec`, unrelated to the new
+   * geometry's real window positions — rather than being hidden or rebuilt
+   * to match. Revisit this the day a real `glbUrl` lands.
    */
   setRouteGeometry(routeIdx: number, geometry: THREE.BufferGeometry): void {
     const mesh = this.meshes[routeIdx];
