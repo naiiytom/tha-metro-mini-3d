@@ -10,12 +10,22 @@ export function StationCombobox({
   routes,
   onPick,
   placeholder = "Search or browse stations…",
+  autoFocus = false,
 }: {
   label: string;
   stations: StationInfo[];
   routes: LineGeometry[];
   onPick: (s: StationInfo | null) => void;
   placeholder?: string;
+  /** Default false: `RoutePlanner`'s two comboboxes (From/To) don't want a
+   *  fight over which one grabs focus on open. `StationSearch`'s single
+   *  combobox — issue #28's actual entry point — passes true so the panel
+   *  opens with a browsable, focused list rather than an unfocused, closed
+   *  one the user has to click a second time. React's `autoFocus` fires a
+   *  real `focus` event on mount, which reaches this input's own `onFocus`
+   *  handler below and opens the list the normal way — no separate open
+   *  path to keep in sync. */
+  autoFocus?: boolean;
 }) {
   const listId = useId();
   const options = useMemo(() => stationOptions(stations, ""), [stations]);
@@ -82,6 +92,7 @@ export function StationCombobox({
           }
           aria-label={`${label} station`}
           value={state.query}
+          autoFocus={autoFocus}
           onFocus={() => rawDispatch({ type: "focus" })}
           onBlur={() => window.setTimeout(() => rawDispatch({ type: "close" }), 120)}
           onChange={(e) => {

@@ -52,6 +52,24 @@ describe("StationSearch", () => {
     expect(screen.queryByTestId("station-search")).toBeNull();
   });
 
+  // Issue #28 regression (found in the final whole-branch review): the
+  // combobox only opens its list on the input's own `onFocus`, and the old
+  // `StationSearch` input had `autoFocus` before the combobox replaced it.
+  // Losing that prop meant the panel opened with a closed, unfocused input —
+  // the user had to click a SECOND time before anything was browsable at
+  // all, defeating the "browsable, not just searchable" affordance #28 asked
+  // for.
+  it("opens with the input focused and the full station list already browsable, with no extra click", () => {
+    act(() => useAppStore.getState().setSearchOpen(true));
+    render(<StationSearch />);
+
+    const input = screen.getByLabelText("Find a station station");
+    expect(input).toHaveFocus();
+    // Every fixture station should already be listed — nothing was typed.
+    expect(screen.getByText("Siam")).toBeTruthy();
+    expect(screen.getByText("Asok")).toBeTruthy();
+  });
+
   it("filters results as the user types", () => {
     act(() => useAppStore.getState().setSearchOpen(true));
     render(<StationSearch />);

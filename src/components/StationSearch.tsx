@@ -96,7 +96,14 @@ export function StationSearch() {
       data-testid="station-search"
       className="panel-glass pointer-events-auto flex max-h-[50dvh] w-full flex-col overflow-hidden rounded-t-2xl border shadow-xl shadow-ink/10 backdrop-blur-md md:absolute md:left-[17rem] md:top-4 md:max-h-[calc(100dvh-2rem)] md:w-72 md:rounded-xl"
     >
-      <div className="flex items-center gap-2 border-b border-edge px-2 py-1">
+      {/* items-start, not items-center: StationCombobox renders its open
+       * dropdown inside this same flex child, which grows the row's height
+       * once results are showing. items-center would then vertically center
+       * the close button against (input + open dropdown) instead of just the
+       * input row, drifting it down every time the list opens. A small top
+       * margin on the button re-aligns it with the input's own text, since
+       * items-start alone puts it flush with the label above the input. */}
+      <div className="flex items-start gap-2 border-b border-edge px-2 py-1">
         <div className="min-w-0 flex-1">
           <StationCombobox
             label="Find a station"
@@ -106,13 +113,14 @@ export function StationSearch() {
               if (!s) return;
               goToStation(s.route_idx, s.station_idx, s.x, s.y);
             }}
+            autoFocus
           />
         </div>
         <button
           type="button"
           onClick={() => setSearchOpen(false)}
           aria-label="Close search"
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-sm leading-none text-ink-muted hover:bg-surface-sunken hover:text-ink md:h-auto md:w-auto md:px-1.5 md:py-0.5"
+          className="mt-4 flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-sm leading-none text-ink-muted hover:bg-surface-sunken hover:text-ink md:mt-3.5 md:h-auto md:w-auto md:px-1.5 md:py-0.5"
         >
           ×
         </button>
