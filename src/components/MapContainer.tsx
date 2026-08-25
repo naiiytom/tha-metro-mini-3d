@@ -507,6 +507,12 @@ export function MapContainer() {
         const point = lastHoverPoint;
         const view = layer?.viewProjection();
         if (!point || !view) return;
+        // Skip the write entirely mid-drag: an inline `style.cursor` set
+        // directly on the canvas wins over MapLibre's own class-driven
+        // grab/grabbing cursor on the CONTAINER, so writing "pointer" here
+        // while dragPan is active fights MapLibre's own cursor for the
+        // duration of the drag.
+        if (map.dragPan.isActive()) return;
         const { stations, hiddenRoutes } = useAppStore.getState();
         const hit = pickAt(view, lastVehicles, lastCount, stations, point, hiddenRoutes, map.getZoom());
         map.getCanvas().style.cursor = hit ? "pointer" : "";
