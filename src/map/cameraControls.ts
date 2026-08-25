@@ -49,7 +49,21 @@ export function installCameraControls(
   let lastX = 0;
   let lastY = 0;
 
-  /** Middle button, right button, or ctrl/⌘ + left — all orbit. */
+  /**
+   * Middle button, right button, or ctrl/⌘ + left — all orbit. All three are
+   * MOUSE gestures; there is deliberately no touch-orbit gesture (e.g. a
+   * two-finger drag) here today. On a touch device every single-finger drag
+   * falls through to MapLibre's own `dragPan` untouched (confirmed live with
+   * a real touch drag in the mobile-pass work, per CLAUDE.md's mobile-pass
+   * notes) — `isOrbiting()` therefore always reports `false` for a touch
+   * drag, so `MapContainer.tsx`'s `onDragStart` cancels follow mode on
+   * EVERY touch drag while following, not just a real pan. Issue #31's yaw-
+   * offset fix (`addYawOffset` in followCamera.ts) only helps the mouse
+   * gestures bound below. This is a disclosed limitation (Minor #11), not a
+   * bug: building real touch-orbit support would need gesture
+   * disambiguation (most plausibly two-finger-drag-to-orbit vs.
+   * one-finger-drag-to-pan) with its own testing burden, out of scope here.
+   */
   const isOrbitDrag = (e: PointerEvent) =>
     e.button === 1 || e.button === 2 || (e.button === 0 && (e.ctrlKey || e.metaKey));
 

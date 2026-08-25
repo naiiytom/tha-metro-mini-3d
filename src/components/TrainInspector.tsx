@@ -162,6 +162,16 @@ export function TrainInspector() {
             <button
               type="button"
               onClick={() => setFollowing(!following)}
+              // Orbit-while-following (middle-drag, right-drag, ctrl+left-
+              // drag — see cameraControls.ts) is mouse-only; on a touch
+              // device any drag releases follow instead, same as before
+              // issue #31's yaw-offset fix (Minor #11, disclosed rather
+              // than silently different on touch).
+              title={
+                following
+                  ? "Orbit with middle/right-drag or ctrl+drag (mouse only) — on touch, any drag releases follow"
+                  : undefined
+              }
               className={`w-full rounded-md px-4 py-3 text-sm font-medium transition-colors md:px-2 md:py-1.5 md:text-xs ${
                 following
                   ? "bg-ink text-surface hover:opacity-90"

@@ -504,6 +504,14 @@ export function MapContainer() {
 
     // Panning while following would fight the per-frame jumpTo, so the first
     // user drag hands control back (Mini Tokyo 3D does the same).
+    //
+    // `controls.isOrbiting()` is mouse-gesture-only (see cameraControls.ts's
+    // `isOrbitDrag` for the full explanation) — a touch device has no orbit
+    // gesture at all, so `isOrbiting()` is always false there and EVERY drag
+    // while following (there being no other kind, on touch) cancels follow.
+    // Disclosed limitation (Minor #11): issue #31's yaw-offset fix helps
+    // mouse orbit only; a touch user following a train still loses follow
+    // mode on the very next drag, same as before that fix.
     const onDragStart = () => {
       if (controls.isOrbiting()) return;
       if (useAppStore.getState().following) useAppStore.getState().setFollowing(false);
@@ -587,6 +595,17 @@ export function MapContainer() {
       activeSimClient.current = null;
       sim?.dispose();
       map.remove();
+      // The sun/theme tick above (and the style.load handler) stamp
+      // `data-theme` on <html> as a GLOBAL DOM side effect — it outlives this
+      // component's own React tree. Remove it here rather than leaving the
+      // last-applied value stuck forever if MapContainer is ever unmounted
+      // while the document persists (a future route change, a test mounting
+      // multiple instances in one jsdom environment, React Strict Mode's
+      // mount-unmount-remount cycle). No explicit "no preference" value
+      // exists to restore instead: `:root` in index.css IS the light-mode
+      // default with no `data-theme` attribute present, so removing the
+      // attribute is the correct reset, not just an approximation of one.
+      delete document.documentElement.dataset.theme;
       const store = useAppStore.getState();
       store.setEngineStatus("off");
       store.setValidation(null);
