@@ -484,12 +484,13 @@ export function MapContainer() {
     // click on nothing, which is most of why #25 read as "hard to click"
     // rather than "offset by 23px".
     let hoverQueued = false;
+    let hoverRafId = 0;
     let lastHoverPoint: { x: number; y: number } | null = null;
     const onMouseMove = (e: MapMouseEvent) => {
       lastHoverPoint = { x: e.point.x, y: e.point.y };
       if (hoverQueued) return;
       hoverQueued = true;
-      requestAnimationFrame(() => {
+      hoverRafId = requestAnimationFrame(() => {
         hoverQueued = false;
         const point = lastHoverPoint;
         const view = layer?.viewProjection();
@@ -570,6 +571,7 @@ export function MapContainer() {
     return () => {
       disposed = true;
       cancelAnimationFrame(rafId);
+      cancelAnimationFrame(hoverRafId);
       controls.dispose();
       unsubscribeFollow();
       unsubscribeFlyTo();
