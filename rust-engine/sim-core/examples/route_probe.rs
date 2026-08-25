@@ -1,3 +1,24 @@
+//! Diagnostic tool for routing/interchange issues (issue #27) — NOT a test
+//! or a gate. It prints to stdout, asserts nothing, and reads the
+//! already-committed `public/data/network.tmb` directly rather than
+//! synthetic fixtures, so it reflects real cache data. Run manually with
+//! `cargo run -p sim-core --example route_probe` (from the repo root — it
+//! looks for `public/data/network.tmb` relative to the cwd) whenever
+//! investigating a routing or interchange defect; it is not part of
+//! `cargo test` or CI.
+//!
+//! Three sections, in order:
+//! 1. Interchange dump — every currently-LINKED interchange pair with its
+//!    walking distance.
+//! 2. Gap detection — every pair of stations on DIFFERENT lines within
+//!    800 m that is NOT linked, the diagnostic that originally justified
+//!    this file's existence (finding real interchange gaps like the ones
+//!    later closed via `INTERCHANGE_OVERRIDES`).
+//! 3. Named-pair probes (`PROBES` below) — a small fixed set of real
+//!    origin/destination pairs run through the actual route planner
+//!    (`world.plan_route`), for a manual sanity check of specific
+//!    known-interesting routes (cross-city pairs, an APM-involving pair).
+
 use sim_core::{PlanRequest, SimWorld};
 
 const PROBES: &[(&str, &str)] = &[
@@ -90,6 +111,9 @@ fn main() {
         }
     }
 
+    // Section 3: named-pair probes — run each fixed origin/destination
+    // through the real planner and print the resulting plan (or why there
+    // isn't one) for manual inspection.
     for (from_name, to_name) in PROBES {
         println!("\n=== {from_name} -> {to_name} ===");
         let (Some(from), Some(to)) = (find(from_name), find(to_name)) else {

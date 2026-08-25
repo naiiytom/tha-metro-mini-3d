@@ -135,6 +135,12 @@ export interface PlanLegRide {
   /** `#RRGGBB`, already formatted for CSS (unlike RunDetail's numeric color_rgb). */
   colorRgb: string;
   headsign: string;
+  /** Pattern-relative arc direction for THIS leg — `route.rs`'s `build_plan`
+   *  sets it `0` if the leg's arc runs ascending (`alightArcM >= boardArcM`),
+   *  `1` if descending (`alightArcM < boardArcM`). This is NOT the GTFS
+   *  `direction_id` `RunDetail.direction`/`BoardEntry.direction` carry above
+   *  — same field name and type, unrelated meaning. Do not use one where the
+   *  other belongs. */
   direction: number;
   runIdx: number;
   boardStationIdx: number;
