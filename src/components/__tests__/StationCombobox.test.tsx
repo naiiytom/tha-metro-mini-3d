@@ -130,3 +130,41 @@ describe("StationCombobox keyboard highlight vs Enter selection (High #1)", () =
     expect(onPick).toHaveBeenLastCalledWith(expect.objectContaining({ name_en: "Charlie a" }));
   });
 });
+
+describe("StationCombobox truncated-search disclosure (Low #6)", () => {
+  afterEach(() => cleanup());
+
+  // 12 stations all matching "station" — filterStations (via stationOptions)
+  // caps the rendered list at 8, with no indication more exist. Empty query
+  // (browse-all) is deliberately never capped (issue #28) and must show no
+  // such note.
+  const MANY: StationInfo[] = Array.from({ length: 12 }, (_, i) =>
+    station({ route_idx: 0, station_idx: i, code: `S${i}`, name_en: `Station ${String(i).padStart(2, "0")}` }),
+  );
+  const ONE_ROUTE: LineGeometry[] = [makeLine({ key: "one" })];
+
+  it("discloses the true match count when search results are truncated", () => {
+    render(<StationCombobox label="Test" stations={MANY} routes={ONE_ROUTE} onPick={vi.fn()} autoFocus />);
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "station" } });
+
+    expect(within(screen.getByRole("listbox")).getAllByRole("option")).toHaveLength(8);
+    expect(screen.getByText(/Showing 8 of 12 matches/)).toBeInTheDocument();
+  });
+
+  it("shows no truncation note for the browsable empty-query list", () => {
+    render(<StationCombobox label="Test" stations={MANY} routes={ONE_ROUTE} onPick={vi.fn()} autoFocus />);
+    // autoFocus opens the list on mount with an empty query — the full 12,
+    // uncapped, per issue #28.
+    expect(within(screen.getByRole("listbox")).getAllByRole("option")).toHaveLength(12);
+    expect(screen.queryByText(/Showing/)).not.toBeInTheDocument();
+  });
+
+  it("shows no truncation note when a search matches 8 or fewer", () => {
+    render(<StationCombobox label="Test" stations={MANY} routes={ONE_ROUTE} onPick={vi.fn()} autoFocus />);
+    // Matches only "Station 10"/"Station 11" — 2 results, under the cap.
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "station 1" } });
+
+    expect(within(screen.getByRole("listbox")).getAllByRole("option")).toHaveLength(2);
+    expect(screen.queryByText(/Showing/)).not.toBeInTheDocument();
+  });
+});

@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useReducer, useRef, type KeyboardEvent } from "react";
-import { groupByRoute, stationOptions } from "../search/stationSearch";
+import { countMatches, groupByRoute, stationOptions } from "../search/stationSearch";
 import { INITIAL_COMBO, comboReducer, type ComboEvent, type ComboState } from "../search/comboboxState";
 import type { StationInfo } from "../sim/protocol";
 import type { LineGeometry } from "../types";
@@ -54,6 +54,16 @@ export function StationCombobox({
   // not `visible` — indexing `visible` with a grouped-order index silently
   // picks the wrong station whenever the two orders disagree.
   const flatOptions = useMemo(() => groups.flatMap((g) => g.stations), [groups]);
+
+  // Only the SEARCH (typed-query) path truncates (`filterStations`'s
+  // `limit`) — the empty-query browse-all path never does (issue #28), so
+  // there's nothing to disclose there. `totalMatches` lets the truncated
+  // case say so instead of silently looking complete.
+  const totalMatches = useMemo(
+    () => (state.query.trim() === "" ? visible.length : countMatches(stations, state.query)),
+    [stations, state.query, visible.length],
+  );
+  const truncated = totalMatches > visible.length;
 
   // Populated via each option button's ref callback below; keyed by the same
   // flat index the reducer's activeIndex uses, so arrow-key navigation can
@@ -194,6 +204,11 @@ export function StationCombobox({
             </li>
           ))}
         </ul>
+      )}
+      {state.open && truncated && (
+        <p className="mt-1 px-1 text-[10px] text-ink-subtle">
+          Showing {visible.length} of {totalMatches} matches — refine your search to see more.
+        </p>
       )}
     </div>
   );

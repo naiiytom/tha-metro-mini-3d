@@ -8,6 +8,10 @@ const MAX_RESULTS = 8;
  * substring search is sufficient (mini-tokyo-3d, this roadmap's parity
  * reference, does the same).
  */
+function matchesQuery(s: StationInfo, q: string): boolean {
+  return s.name_en.toLowerCase().includes(q) || s.name_th.toLowerCase().includes(q);
+}
+
 export function filterStations(
   stations: StationInfo[],
   query: string,
@@ -16,9 +20,26 @@ export function filterStations(
   const q = query.trim().toLowerCase();
   if (!q) return [];
   return stations
-    .filter((s) => s.name_en.toLowerCase().includes(q) || s.name_th.toLowerCase().includes(q))
+    .filter((s) => matchesQuery(s, q))
     .sort((a, b) => a.name_en.localeCompare(b.name_en))
     .slice(0, limit);
+}
+
+/**
+ * Total match count for a typed query, BEFORE `filterStations`'s own
+ * `limit` truncation — lets a caller show "N of M" when a search is capped,
+ * rather than a truncated list that looks complete. Empty query returns the
+ * full station count: `stationOptions`'s browse-all path never truncates,
+ * so there is nothing to disclose there (see its own comment).
+ */
+export function countMatches(stations: StationInfo[], query: string): number {
+  const q = query.trim().toLowerCase();
+  if (!q) return stations.length;
+  let n = 0;
+  for (const s of stations) {
+    if (matchesQuery(s, q)) n++;
+  }
+  return n;
 }
 
 export interface NearestStationResult {

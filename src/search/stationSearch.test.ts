@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { filterStations, groupByRoute, nearestStation, stationOptions } from "./stationSearch";
+import { countMatches, filterStations, groupByRoute, nearestStation, stationOptions } from "./stationSearch";
 import type { StationInfo } from "../sim/protocol";
 
 function makeStation(overrides: Partial<StationInfo>): StationInfo {
@@ -51,6 +51,32 @@ describe("filterStations", () => {
     expect(result).toHaveLength(8);
     expect(result[0].name_en).toBe("Station 00");
     expect(result[7].name_en).toBe("Station 07");
+  });
+});
+
+describe("countMatches", () => {
+  it("returns the TRUE match count, uncapped by MAX_RESULTS (Low #6)", () => {
+    const many = Array.from({ length: 12 }, (_, i) =>
+      makeStation({ station_idx: i, name_en: `Station ${String(i).padStart(2, "0")}` }),
+    );
+    // filterStations caps this same query at 8; countMatches must not.
+    expect(filterStations(many, "station")).toHaveLength(8);
+    expect(countMatches(many, "station")).toBe(12);
+  });
+
+  it("returns the full station count for an empty query", () => {
+    const stations = [makeStation({ name_en: "Siam" }), makeStation({ name_en: "Asok" })];
+    expect(countMatches(stations, "")).toBe(2);
+    expect(countMatches(stations, "   ")).toBe(2);
+  });
+
+  it("agrees with filterStations when under the cap", () => {
+    const stations = [
+      makeStation({ station_idx: 0, name_en: "Siam" }),
+      makeStation({ station_idx: 1, name_en: "Asok" }),
+      makeStation({ station_idx: 2, name_en: "Mo Chit" }),
+    ];
+    expect(countMatches(stations, "si")).toBe(filterStations(stations, "si").length);
   });
 });
 
