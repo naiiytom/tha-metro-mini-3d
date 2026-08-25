@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { useAppStore } from "../stores/useAppStore";
 import { ESTIMATED_RUN_TIMES_NOTE, type LineGeometry, SYNTHETIC_SCHEDULE_NOTE } from "../types";
-import { hasStoredPreference, loadCollapsed, saveCollapsed } from "./panelCollapse";
+import { browserStorage, hasStoredPreference, loadCollapsed, saveCollapsed } from "./panelCollapse";
 import { ViewControls } from "./ViewControls";
 
 /** One toggleable row — its own component so it can call the store's
@@ -29,7 +29,17 @@ function LineRow({ line, routeIdx }: { line: LineGeometry; routeIdx: number }) {
         />
         <span className="truncate">{line.name}</span>
         {line.preRevenue ? (
-          <span className="ml-auto shrink-0 rounded bg-amber-100 px-1 text-[9px] uppercase text-amber-700">
+          // Deliberately NOT the note-bg/note-ink token its two siblings
+          // below use: this badge is a caution ("not open, no trains ever")
+          // where the other two are purely informational ("open, but times
+          // are estimated") — different semantics, so a different fixed
+          // amber palette rather than the shared token is intentional, not
+          // an oversight. (Minor #8, a real dedicated danger/warning token,
+          // is parked/out of scope for this fix.)
+          <span
+            data-testid="pre-revenue-badge"
+            className="ml-auto shrink-0 rounded bg-amber-100 px-1 text-[9px] uppercase text-amber-700"
+          >
             pre-revenue
           </span>
         ) : line.syntheticSchedule !== null ? (
@@ -107,19 +117,32 @@ export function LineSelector() {
   const routePlannerOpen = useAppStore((s) => s.routePlannerOpen);
   const setRoutePlannerOpen = useAppStore((s) => s.setRoutePlannerOpen);
   const isMobile = useIsMobile();
-  const [expanded, setExpanded] = useState(() => !loadCollapsed(localStorage, isMobile));
+  // `browserStorage()` (not the bare `localStorage` global) at every call
+  // site — see its doc comment in panelCollapse.ts: merely referencing
+  // `localStorage` can throw in some real configurations, and this call runs
+  // inside a useState initializer during render, with no Error Boundary
+  // above it, so that throw would white-screen the whole app.
+  const [expanded, setExpanded] = useState(() => !loadCollapsed(browserStorage(), isMobile));
 
   // Follows the breakpoint ONLY until the user states a preference; after
   // that their choice wins at both widths, which is the point of #29.
   useEffect(() => {
-    if (!hasStoredPreference(localStorage)) setExpanded(!isMobile);
+    if (!hasStoredPreference(browserStorage())) setExpanded(!isMobile);
   }, [isMobile]);
 
   const toggleExpanded = () => {
-    setExpanded((e) => {
-      saveCollapsed(localStorage, e); // `e` is the state BEFORE the flip: collapsing stores true
-      return !e;
-    });
+    // Compute the new value and perform the persistence side effect OUTSIDE
+    // any setState updater: an updater function must stay pure, since Strict
+    // Mode / concurrent rendering may invoke it more than once per state
+    // change, which would otherwise call saveCollapsed that many times for
+    // one user toggle. This is a plain click handler with `expanded` already
+    // in scope, so there is no need for the functional-updater form at all.
+    const next = !expanded;
+    // `collapsed` is the inverse of `expanded` (loadCollapsed's own
+    // convention: `"true"` means collapsed) — persist the state the panel is
+    // moving TO, not the one it's leaving.
+    saveCollapsed(browserStorage(), !next);
+    setExpanded(next);
   };
 
   // The isMobile gate is gone: the panel collapses at every width now.

@@ -1,5 +1,11 @@
-import { describe, expect, it } from "vitest";
-import { PANEL_COLLAPSE_KEY, hasStoredPreference, loadCollapsed, saveCollapsed } from "./panelCollapse";
+import { afterEach, describe, expect, it } from "vitest";
+import {
+  PANEL_COLLAPSE_KEY,
+  browserStorage,
+  hasStoredPreference,
+  loadCollapsed,
+  saveCollapsed,
+} from "./panelCollapse";
 
 function fakeStorage(seed: Record<string, string> = {}) {
   const map = new Map(Object.entries(seed));
@@ -43,6 +49,54 @@ describe("saveCollapsed", () => {
     const s = fakeStorage();
     saveCollapsed(s, true);
     expect(loadCollapsed(s, false)).toBe(true);
+  });
+});
+
+describe("browserStorage", () => {
+  // Every LineSelector.tsx call site used to pass the bare `localStorage`
+  // global straight through — throwing here, not inside
+  // loadCollapsed/saveCollapsed/hasStoredPreference's own try/catch bodies,
+  // would white-screen the whole app (a useState initializer runs during
+  // render, with no Error Boundary above it in that tree). This is that
+  // exact failure mode: a throwing ACCESSOR, not a throwing method on an
+  // otherwise-fine object.
+  const original = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+
+  afterEach(() => {
+    if (original) {
+      Object.defineProperty(globalThis, "localStorage", original);
+    } else {
+      Reflect.deleteProperty(globalThis, "localStorage");
+    }
+  });
+
+  it("returns a working no-op stub, and does not throw, when merely referencing localStorage throws", () => {
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      get(): Storage {
+        throw new DOMException("The operation is insecure.", "SecurityError");
+      },
+    });
+
+    expect(() => browserStorage()).not.toThrow();
+    const storage = browserStorage();
+    expect(storage.getItem(PANEL_COLLAPSE_KEY)).toBeNull();
+    expect(() => storage.setItem(PANEL_COLLAPSE_KEY, "true")).not.toThrow();
+  });
+
+  it("returns the real localStorage when it is reachable", () => {
+    const map = new Map<string, string>();
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      value: {
+        getItem: (k: string) => map.get(k) ?? null,
+        setItem: (k: string, v: string) => void map.set(k, v),
+      },
+    });
+
+    const storage = browserStorage();
+    storage.setItem(PANEL_COLLAPSE_KEY, "true");
+    expect(storage.getItem(PANEL_COLLAPSE_KEY)).toBe("true");
   });
 });
 
