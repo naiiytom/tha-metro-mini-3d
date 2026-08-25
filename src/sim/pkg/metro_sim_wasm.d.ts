@@ -16,6 +16,7 @@ export class Engine {
      */
     last_truncated(): boolean;
     constructor(cache_bytes: Uint8Array);
+    plan_alternatives_json(from_route_idx: number, from_station_idx: number, to_route_idx: number, to_station_idx: number, date_yyyymmdd: number, sec_of_day: number, max_transfers: number, max_wait_s: number, transfer_buffer_s: number): string;
     /**
      * `RoutePlan` as JSON, or `"null"` for a structurally invalid request
      * (bad route/station index). A well-formed request that simply does not
@@ -62,6 +63,7 @@ export interface InitOutput {
     readonly engine_evaluate: (a: number, b: number, c: number, d: number, e: number, f: any) => number;
     readonly engine_last_truncated: (a: number) => number;
     readonly engine_new: (a: number, b: number) => [number, number, number];
+    readonly engine_plan_alternatives_json: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number];
     readonly engine_plan_route_json: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number];
     readonly engine_run_detail_json: (a: number, b: number, c: number, d: number) => [number, number];
     readonly engine_station_board_json: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];

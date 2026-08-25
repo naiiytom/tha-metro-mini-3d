@@ -271,6 +271,54 @@ describe("per-line stock geometry", () => {
   });
 });
 
+describe("window-glow overlay (train-vs-track night contrast)", () => {
+  it("builds one glow mesh per route, same capacity as the main mesh", () => {
+    const manager = new VehicleManager([routeOf("#1964B7", "heavy"), routeOf("#FFD100", "apm")]);
+    expect(manager.glowMeshes).toHaveLength(2);
+    for (const mesh of manager.glowMeshes) {
+      expect(mesh.count).toBe(0);
+      expect(mesh.instanceMatrix.count).toBe(MAX_VEHICLES);
+    }
+  });
+
+  it("starts fully transparent (invisible by day)", () => {
+    const manager = new VehicleManager([routeOf("#1964B7", "heavy")]);
+    const material = manager.glowMeshes[0].material as THREE.MeshBasicMaterial;
+    expect(material.transparent).toBe(true);
+    expect(material.opacity).toBe(0);
+  });
+
+  it("setNightGlow raises every route's glow opacity in lockstep", () => {
+    const manager = new VehicleManager([routeOf("#1964B7", "heavy"), routeOf("#FFD100", "apm")]);
+    manager.setNightGlow(0.5);
+    for (const mesh of manager.glowMeshes) {
+      expect((mesh.material as THREE.MeshBasicMaterial).opacity).toBe(0.5);
+    }
+  });
+
+  it("tracks the same instance count and matrix as the main mesh", () => {
+    const manager = new VehicleManager([routeOf("#1964B7", "heavy")]);
+    const vehicles = new Float32Array([...vehicleRow(0, 10), ...vehicleRow(0, 11)]);
+    manager.update(vehicles, 2);
+
+    expect(manager.glowMeshes[0].count).toBe(manager.meshes[0].count);
+    expect(manager.glowMeshes[0].count).toBe(2);
+
+    const mainMatrix = new THREE.Matrix4();
+    const glowMatrix = new THREE.Matrix4();
+    manager.meshes[0].getMatrixAt(0, mainMatrix);
+    manager.glowMeshes[0].getMatrixAt(0, glowMatrix);
+    expect(glowMatrix.equals(mainMatrix)).toBe(true);
+  });
+
+  it("setRouteVisible hides the glow overlay along with the main mesh", () => {
+    const manager = new VehicleManager([routeOf("#1964B7", "heavy")]);
+    manager.setRouteVisible(0, false);
+    expect(manager.meshes[0].visible).toBe(false);
+    expect(manager.glowMeshes[0].visible).toBe(false);
+  });
+});
+
 describe("setRouteGeometry", () => {
   it("replaces a route's geometry and disposes the old one", () => {
     const manager = new VehicleManager([routeOf("#7CB342", "heavy")]);

@@ -52,18 +52,18 @@ export function ViewControls() {
       aria-pressed={on}
       onClick={() => set(!on)}
       title={hint}
-      className={`flex w-full items-center justify-between rounded-md px-3 py-2.5 text-left text-sm transition-colors hover:bg-slate-200/60 md:px-1.5 md:py-1 md:text-xs ${
-        on ? "text-slate-800" : "text-slate-400"
+      className={`flex w-full items-center justify-between rounded-md px-3 py-2.5 text-left text-sm transition-colors hover:bg-surface-sunken md:px-1.5 md:py-1 md:text-xs ${
+        on ? "text-ink" : "text-ink-subtle"
       }`}
     >
       <span>{label}</span>
       <span
         className={`ml-2 h-5 w-9 shrink-0 rounded-full transition-colors md:h-3 md:w-6 ${
-          on ? "bg-emerald-500" : "bg-slate-300"
+          on ? "bg-accent" : "bg-edge"
         }`}
       >
         <span
-          className={`block h-5 w-5 rounded-full bg-white shadow transition-transform md:h-3 md:w-3 ${
+          className={`block h-5 w-5 rounded-full bg-surface shadow transition-transform md:h-3 md:w-3 ${
             on ? "translate-x-4 md:translate-x-3" : ""
           }`}
         />
@@ -72,7 +72,7 @@ export function ViewControls() {
   );
 
   return (
-    <div className="mt-2 border-t border-slate-200/70 pt-2">
+    <div className="mt-2 border-t border-edge pt-2">
       {row(
         "Underground view",
         "Fade the basemap and surface lines so tunnelled track is visible",
@@ -103,11 +103,11 @@ export function ViewControls() {
         () => toggleFullscreen(),
       )}
       <div className="mt-1 px-3 py-2 md:px-1.5 md:py-1">
-        <div className="mb-1 text-sm text-slate-500 md:text-xs">Theme</div>
+        <div className="mb-1 text-sm text-ink-muted md:text-xs">Theme</div>
         <div
           role="radiogroup"
           aria-label="Theme"
-          className="flex gap-1 rounded-md bg-slate-200/60 p-0.5"
+          className="flex gap-1 rounded-md bg-surface-sunken p-0.5"
         >
           {THEME_MODES.map((mode) => (
             <button
@@ -126,8 +126,8 @@ export function ViewControls() {
               }
               className={`flex-1 rounded px-2 py-1.5 text-sm capitalize transition-colors md:py-0.5 md:text-xs ${
                 themeMode === mode
-                  ? "bg-white text-slate-800 shadow-sm"
-                  : "text-slate-500 hover:text-slate-700"
+                  ? "bg-surface text-ink shadow-sm"
+                  : "text-ink-muted hover:text-ink"
               }`}
             >
               {mode}
@@ -136,8 +136,8 @@ export function ViewControls() {
         </div>
       </div>
       <div className="mt-1 px-3 py-2 md:px-1.5 md:py-1">
-        <div className="mb-1 text-sm text-slate-500 md:text-xs">Basemap</div>
-        <div role="radiogroup" aria-label="Basemap" className="flex gap-1 rounded-md bg-slate-200/60 p-0.5">
+        <div className="mb-1 text-sm text-ink-muted md:text-xs">Basemap</div>
+        <div role="radiogroup" aria-label="Basemap" className="flex gap-1 rounded-md bg-surface-sunken p-0.5">
           {BASEMAP_STYLES.map((s) => (
             <button
               key={s.key}
@@ -148,8 +148,8 @@ export function ViewControls() {
               onClick={() => setBasemapStyle(s.key)}
               className={`flex-1 rounded px-2 py-1.5 text-sm transition-colors md:py-0.5 md:text-xs ${
                 basemapStyle === s.key
-                  ? "bg-white text-slate-800 shadow-sm"
-                  : "text-slate-500 hover:text-slate-700"
+                  ? "bg-surface text-ink shadow-sm"
+                  : "text-ink-muted hover:text-ink"
               }`}
             >
               {s.label}

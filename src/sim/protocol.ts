@@ -135,6 +135,12 @@ export interface PlanLegRide {
   /** `#RRGGBB`, already formatted for CSS (unlike RunDetail's numeric color_rgb). */
   colorRgb: string;
   headsign: string;
+  /** Pattern-relative arc direction for THIS leg — `route.rs`'s `build_plan`
+   *  sets it `0` if the leg's arc runs ascending (`alightArcM >= boardArcM`),
+   *  `1` if descending (`alightArcM < boardArcM`). This is NOT the GTFS
+   *  `direction_id` `RunDetail.direction`/`BoardEntry.direction` carry above
+   *  — same field name and type, unrelated meaning. Do not use one where the
+   *  other belongs. */
   direction: number;
   runIdx: number;
   boardStationIdx: number;
@@ -207,6 +213,17 @@ export type SimQuery =
       maxWaitS?: number;
       transferBufferS?: number;
     }
+  | {
+      kind: "planAlternatives";
+      fromRouteIdx: number;
+      fromStationIdx: number;
+      toRouteIdx: number;
+      toStationIdx: number;
+      simEpochMs: number;
+      maxTransfers?: number;
+      maxWaitS?: number;
+      transferBufferS?: number;
+    }
   | { kind: "stations" };
 
 /** Query result payloads (worker -> main), keyed by request id. */
@@ -214,6 +231,7 @@ export type SimQueryResult =
   | { kind: "runDetail"; detail: RunDetail | null }
   | { kind: "stationBoard"; board: StationBoard | null }
   | { kind: "routePlan"; plan: RoutePlan | null }
+  | { kind: "planAlternatives"; plans: RoutePlan[] }
   | { kind: "stations"; stations: StationInfo[] };
 
 /** Raw snake_case shape emitted by the Rust side; the worker maps it. */

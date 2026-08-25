@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 // maplibre-gl v6 ships named exports only — there is no default export.
-import { Map as MapLibreMap, NavigationControl, setWorkerUrl } from "maplibre-gl";
+import { Map as MapLibreMap, NavigationControl, setWorkerUrl, type MapMouseEvent } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 // v6 locates its tile worker with `new URL(\`./${name}\`, import.meta.url)` —
 // a dynamic specifier no bundler can rewrite, so after bundling it points at a
@@ -19,10 +19,16 @@ import { skyPalette, sunDirection } from "../map/sun";
 import { bindStyle, type StyleBinding } from "../map/styleBinding";
 import { TrainTooltip } from "../map/trainTooltip";
 import { effectiveElevationDeg } from "../map/themeMode";
+import { effectiveTheme } from "../map/effectiveTheme";
 import { resolveStock, type StockSpec } from "../map/rollingStock";
 import { loadStockGeometry } from "../map/glbStock";
 import { VehicleManager } from "../map/VehicleManager";
-import { lngLatToLocal, localToLngLat, ORIGIN_LNG_LAT } from "../map/coordinates";
+import {
+  lngLatToLocal,
+  localToLngLat,
+  ORIGIN_LNG_LAT,
+  reconcileStationAltitude,
+} from "../map/coordinates";
 import { SimClient, activeSimClient } from "../sim/SimClient";
 import { DEFAULT_TICK_MS, ECO_TICK_MS, LANE_RUN_IDX, LANE_Z, VEHICLE_STRIDE } from "../sim/protocol";
 import { formatCountdown } from "../sim/time";
@@ -35,6 +41,40 @@ setWorkerUrl(maplibreWorkerUrl);
 export function MapContainer() {
   const containerRef = useRef<HTMLDivElement>(null);
   const setMapReady = useAppStore((s) => s.setMapReady);
+
+  // `data-theme` is also stamped by the sim-clock-driven paths further down
+  // (the `themeMode` store subscription and `updateSun`'s ~2 Hz tick) — but
+  // both are gated on the sim engine/Three layer being ready, so before the
+  // engine finishes loading (or if it errors) `<html>` never got a
+  // `data-theme` at all, and every panel rendered light regardless of the
+  // user's stored preference. `effectiveElevationDeg` already ignores the
+  // real solar elevation entirely for the two PINNED modes ("light"/"dark")
+  // — only "auto" needs the real clock — so this mount-time effect can
+  // stamp the correct appearance immediately, using a wall-clock estimate
+  // (`Date.now()`, not the sim clock, which doesn't exist yet) only for the
+  // "auto" case.
+  //
+  // Deliberately stands DOWN once the engine is ready (`activeSimClient.current`
+  // truthy) rather than keeping its own subscription racing the engine-gated
+  // writers below: both would write `data-theme` off a `themeMode` change once
+  // the engine is up, but off DIFFERENT elevation sources (this one's
+  // wall-clock guess vs. the sim clock), and whichever React notifies second
+  // would silently win — the exact "two independent writers of one DOM
+  // property" class of bug this codebase's own Task 10b history already hit
+  // once (see CLAUDE.md). This effect's only job is to cover the gap before
+  // the engine-gated writers exist at all.
+  useEffect(() => {
+    const stamp = () => {
+      if (activeSimClient.current) return; // the engine-gated writers own it now
+      const mode = useAppStore.getState().themeMode;
+      const dir = sunDirection(Date.now());
+      document.documentElement.dataset.theme = effectiveTheme(mode, dir.elevationDeg);
+    };
+    stamp();
+    return useAppStore.subscribe((state, prev) => {
+      if (state.themeMode !== prev.themeMode) stamp();
+    });
+  }, []);
 
   useEffect(() => {
     const map = new MapLibreMap({
@@ -76,8 +116,6 @@ export function MapContainer() {
       },
     });
     map.addControl(new NavigationControl({ visualizePitch: true }), "top-right");
-    const removeCameraControls = installCameraControls(map);
-
     let sim: SimClient | null = null;
     let unsubscribeTooltipSelection: (() => void) | null = null;
     let tooltipTimer: ReturnType<typeof setInterval> | null = null;
@@ -89,6 +127,13 @@ export function MapContainer() {
     // end of the style.load handler.
     let disposed = false;
     const follow = new FollowCamera();
+    const controls = installCameraControls(map, {
+      onOrbit: (bearingDelta) => {
+        if (!useAppStore.getState().following) return false;
+        follow.addYawOffset(bearingDelta);
+        return true;
+      },
+    });
     // On-map label tracking whichever train is selected — see its own doc
     // comment for why this exists as a class rather than a React component.
     const trainTooltip = new TrainTooltip(containerRef.current!);
@@ -221,6 +266,7 @@ export function MapContainer() {
           const eff = effectiveElevationDeg(state.themeMode, dir.elevationDeg);
           layer.setSun(dir, skyPalette(eff), eff);
           layer.setSkyElevation(eff);
+          document.documentElement.dataset.theme = effectiveTheme(state.themeMode, dir.elevationDeg);
         }
         // Force the next tick to recompute: `lastApplied` still holds the
         // previous mode's blended values, so without this the redundant-
@@ -316,10 +362,17 @@ export function MapContainer() {
           s.setValidation(validation);
           s.setEngineStatus("ready");
           // Static station list, fetched once — powers click hit-testing and
-          // the station board's indices (contract §7).
+          // the station board's indices (contract §7). `z` is reconciled to
+          // the ALTITUDE THE MARKER IS ACTUALLY DRAWN AT (network.json's
+          // static per-station altitude via `buildMarkerPair`), not the
+          // engine's more "correct" per-point track altitude — click/hover
+          // picking must agree with what's on screen. See
+          // `reconcileStationAltitude`'s own doc comment (src/map/coordinates.ts).
           void sim
             ?.getStations()
-            .then((stations) => useAppStore.getState().setStations(stations))
+            .then((stations) =>
+              useAppStore.getState().setStations(reconcileStationAltitude(stations, net.lines)),
+            )
             .catch(() => undefined);
         },
         onError: (message) => useAppStore.getState().setEngineStatus("error", message),
@@ -397,6 +450,7 @@ export function MapContainer() {
         layer?.setSun(dir, skyPalette(eff), eff);
         layer?.setSkyElevation(eff);
         binding?.applyThemeElevation(eff);
+        document.documentElement.dataset.theme = effectiveTheme(mode, dir.elevationDeg);
       };
 
       // MapLibre only repaints on demand — keep frames coming while the
@@ -454,7 +508,9 @@ export function MapContainer() {
     // buffer — the same poses that are on screen.
     const onMapClick = (e: { point: { x: number; y: number } }) => {
       const { stations, selectRun, selectStation, hiddenRoutes } = useAppStore.getState();
-      const hit = pickAt(map, lastVehicles, lastCount, stations, e.point, hiddenRoutes);
+      const view = layer?.viewProjection();
+      if (!view) return;
+      const hit = pickAt(view, lastVehicles, lastCount, stations, e.point, hiddenRoutes, map.getZoom());
       if (!hit) {
         // Clicking empty map clears the selection, like clicking away from
         // anything else.
@@ -470,9 +526,46 @@ export function MapContainer() {
     };
     map.on("click", onMapClick);
 
+    // Hover affordance: without it a user cannot tell a missed click from a
+    // click on nothing, which is most of why #25 read as "hard to click"
+    // rather than "offset by 23px".
+    let hoverQueued = false;
+    let hoverRafId = 0;
+    let lastHoverPoint: { x: number; y: number } | null = null;
+    const onMouseMove = (e: MapMouseEvent) => {
+      lastHoverPoint = { x: e.point.x, y: e.point.y };
+      if (hoverQueued) return;
+      hoverQueued = true;
+      hoverRafId = requestAnimationFrame(() => {
+        hoverQueued = false;
+        const point = lastHoverPoint;
+        const view = layer?.viewProjection();
+        if (!point || !view) return;
+        // Skip the write entirely mid-drag: an inline `style.cursor` set
+        // directly on the canvas wins over MapLibre's own class-driven
+        // grab/grabbing cursor on the CONTAINER, so writing "pointer" here
+        // while dragPan is active fights MapLibre's own cursor for the
+        // duration of the drag.
+        if (map.dragPan.isActive()) return;
+        const { stations, hiddenRoutes } = useAppStore.getState();
+        const hit = pickAt(view, lastVehicles, lastCount, stations, point, hiddenRoutes, map.getZoom());
+        map.getCanvas().style.cursor = hit ? "pointer" : "";
+      });
+    };
+    map.on("mousemove", onMouseMove);
+
     // Panning while following would fight the per-frame jumpTo, so the first
     // user drag hands control back (Mini Tokyo 3D does the same).
+    //
+    // `controls.isOrbiting()` is mouse-gesture-only (see cameraControls.ts's
+    // `isOrbitDrag` for the full explanation) — a touch device has no orbit
+    // gesture at all, so `isOrbiting()` is always false there and EVERY drag
+    // while following (there being no other kind, on touch) cancels follow.
+    // Disclosed limitation (Minor #11): issue #31's yaw-offset fix helps
+    // mouse orbit only; a touch user following a train still loses follow
+    // mode on the very next drag, same as before that fix.
     const onDragStart = () => {
+      if (controls.isOrbiting()) return;
       if (useAppStore.getState().following) useAppStore.getState().setFollowing(false);
     };
     map.on("dragstart", onDragStart);
@@ -538,7 +631,8 @@ export function MapContainer() {
     return () => {
       disposed = true;
       cancelAnimationFrame(rafId);
-      removeCameraControls();
+      cancelAnimationFrame(hoverRafId);
+      controls.dispose();
       unsubscribeFollow();
       unsubscribeFlyTo();
       unsubscribeVisibility();
@@ -546,11 +640,24 @@ export function MapContainer() {
       unsubscribeTooltipSelection?.();
       trainTooltip.dispose();
       map.off("click", onMapClick);
+      map.off("mousemove", onMouseMove);
+      map.getCanvas().style.cursor = "";
       map.off("dragstart", onDragStart);
       window.removeEventListener("keydown", onKeyDown);
       activeSimClient.current = null;
       sim?.dispose();
       map.remove();
+      // The sun/theme tick above (and the style.load handler) stamp
+      // `data-theme` on <html> as a GLOBAL DOM side effect — it outlives this
+      // component's own React tree. Remove it here rather than leaving the
+      // last-applied value stuck forever if MapContainer is ever unmounted
+      // while the document persists (a future route change, a test mounting
+      // multiple instances in one jsdom environment, React Strict Mode's
+      // mount-unmount-remount cycle). No explicit "no preference" value
+      // exists to restore instead: `:root` in index.css IS the light-mode
+      // default with no `data-theme` attribute present, so removing the
+      // attribute is the correct reset, not just an approximation of one.
+      delete document.documentElement.dataset.theme;
       const store = useAppStore.getState();
       store.setEngineStatus("off");
       store.setValidation(null);

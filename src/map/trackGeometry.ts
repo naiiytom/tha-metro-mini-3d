@@ -3,7 +3,7 @@ import { Line2 } from "three/addons/lines/Line2.js";
 import { LineGeometry as ThreeLineGeometry } from "three/addons/lines/LineGeometry.js";
 import { LineMaterial } from "three/addons/lines/LineMaterial.js";
 import type { LineGeometry, Structure, TrackPoint } from "../types";
-import { lngLatAltToLocal } from "./coordinates";
+import { lngLatAltToLocal, STATION_MARKER_HEIGHT_M } from "./coordinates";
 
 /**
  * Track & station geometry builders. Everything is generated in the local
@@ -397,7 +397,7 @@ function buildMarkerPair(items: MarkerStation[]): { discs: THREE.InstancedMesh; 
   const m = new THREE.Matrix4();
   for (let i = 0; i < items.length; i++) {
     const [x, y, z] = lngLatAltToLocal(items[i].position);
-    m.makeTranslation(x, y, z + 1.5);
+    m.makeTranslation(x, y, z + STATION_MARKER_HEIGHT_M);
     discs.setMatrixAt(i, m);
     discs.setColorAt(i, items[i].color);
     // unit-height pole scaled to reach from ground to the platform, whichever

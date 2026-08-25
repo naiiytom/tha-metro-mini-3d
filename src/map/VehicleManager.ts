@@ -9,8 +9,9 @@ import {
   MAX_VEHICLES,
   VEHICLE_STRIDE,
 } from "../sim/protocol";
-import { buildStockGeometry } from "./stockGeometry";
+import { buildStockGeometry, buildWindowGlowGeometry } from "./stockGeometry";
 import type { StockSpec } from "./rollingStock";
+import { WINDOW_GLOW_COLOR } from "./windowGlow";
 
 /**
  * Instanced train rendering (ENGINE_CONTRACT.md §6): one InstancedMesh per
@@ -107,6 +108,24 @@ export function patchInstancedEmissive(shader: { vertexShader: string; fragmentS
 export class VehicleManager {
   /** One InstancedMesh per route, index == route_idx. Add these to the scene. */
   readonly meshes: THREE.InstancedMesh[];
+  /**
+   * One additional, uncoloured InstancedMesh per route — a thin overlay
+   * tracking each train's window band, proud of the main body's own glazing
+   * surface (`stockGeometry.ts`'s `buildWindowGlowGeometry`). Invisible by
+   * day (`opacity: 0`); `setNightGlow()` raises its opacity toward night, a
+   * fixed warm colour independent of the route's own livery. See
+   * `windowGlow.ts`'s doc comment for why this exists as a second mesh
+   * rather than folding into the main material's night-lift emissive: that
+   * lift is solved per-material against a fixed floor with no cross-
+   * material differentiation, so a train's shell and the track deck under
+   * it converge toward the same luminance once both need real lift — this
+   * overlay sidesteps that by being additive and independent of any
+   * material's own albedo. Same instance packing/matrix as `meshes` (see
+   * `update()`), so it always tracks the exact train it belongs to; never
+   * shadowed, since a translucent glow casting/receiving shadows would look
+   * wrong and cost real shadow-map fill for no visual benefit.
+   */
+  readonly glowMeshes: THREE.InstancedMesh[];
 
   private matrix = new THREE.Matrix4();
   /** Selection at the last colour write, to skip redundant attribute uploads. */
@@ -144,12 +163,45 @@ export class VehicleManager {
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       return mesh;
     });
+    this.glowMeshes = routes.map((route, routeIdx) => {
+      // Unlit on purpose: this overlay represents a light SOURCE (a lit
+      // window), not a surface reflecting the scene's own sun/ambient — a
+      // MeshLambertMaterial here would dim it right back toward the same
+      // night floor this exists to sidestep. `depthWrite: false` avoids
+      // depth-fighting the main body mesh it sits proud of by only ~1 cm.
+      const material = new THREE.MeshBasicMaterial({
+        color: WINDOW_GLOW_COLOR,
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+      });
+      const geometry = buildWindowGlowGeometry(route.stock);
+      const mesh = new THREE.InstancedMesh(geometry, material, MAX_VEHICLES);
+      mesh.name = `vehicles-route-${routeIdx}-glow`;
+      mesh.count = 0;
+      mesh.castShadow = false;
+      mesh.receiveShadow = false;
+      mesh.frustumCulled = false;
+      mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      return mesh;
+    });
+  }
+
+  /** Opacity for every route's window-glow overlay, in lockstep (the glow
+   *  colour is fixed and not route-dependent — see `windowGlow.ts`). Called
+   *  at UI rate alongside `ThreeLayer.setSun()`, never per frame. */
+  setNightGlow(opacity: number): void {
+    for (const mesh of this.glowMeshes) {
+      (mesh.material as THREE.MeshBasicMaterial).opacity = opacity;
+    }
   }
 
   /** Hide one route's fleet without disturbing the others' instance packing. */
   setRouteVisible(routeIdx: number, visible: boolean): void {
     const mesh = this.meshes[routeIdx];
     if (mesh) mesh.visible = visible;
+    const glow = this.glowMeshes[routeIdx];
+    if (glow) glow.visible = visible;
   }
 
   /**
@@ -178,6 +230,13 @@ export class VehicleManager {
    * The MATERIAL is deliberately untouched — it carries the route's
    * liveryHex stamp and the compiled emissive patch, and rebuilding it would
    * drop the night lift `ThreeLayer.setSun()` has already applied.
+   *
+   * KNOWN GAP (code review 2026-08-25, unreachable today — `glbUrl` has zero
+   * registry users): this does not touch `glowMeshes[routeIdx]`. A `.glb`
+   * override would keep the OLD, procedurally-built window-glow band —
+   * sized and positioned from the previous `StockSpec`, unrelated to the new
+   * geometry's real window positions — rather than being hidden or rebuilt
+   * to match. Revisit this the day a real `glbUrl` lands.
    */
   setRouteGeometry(routeIdx: number, geometry: THREE.BufferGeometry): void {
     const mesh = this.meshes[routeIdx];
@@ -221,6 +280,7 @@ export class VehicleManager {
         .setPosition(vehicles[o + LANE_X], vehicles[o + LANE_Y], vehicles[o + LANE_Z]);
       const slot = counts[routeIdx]++;
       mesh.setMatrixAt(slot, this.matrix);
+      this.glowMeshes[routeIdx]?.setMatrixAt(slot, this.matrix);
       if (writeTints) {
         const selected = vehicles[o + LANE_RUN_IDX] === selectedRunIdx;
         mesh.setColorAt(slot, selected ? TINT_SELECTED : TINT_PLAIN);
@@ -243,6 +303,11 @@ export class VehicleManager {
       const mesh = this.meshes[r];
       mesh.count = counts[r];
       mesh.instanceMatrix.needsUpdate = true;
+      const glow = this.glowMeshes[r];
+      if (glow) {
+        glow.count = counts[r];
+        glow.instanceMatrix.needsUpdate = true;
+      }
       if (writeTints) {
         // Stale-tail clearing (found in code review 2026-08-15): slot
         // packing is per-frame order, not a stable per-vehicle identity —

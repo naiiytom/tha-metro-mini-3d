@@ -730,6 +730,18 @@ export const INTERCHANGE_OVERRIDES = [
   // stamps each of its registry stations' own `id` as its gtfs_stop_id. That
   // asymmetry is real, not a typo.
   { aLine: "arl", aStop: "326", bLine: "apm", bStop: "13373875189" },
+  // BTS Sukhumvit <-> MRT Blue, Ha Yaek Lat Phrao / Phahon Yothin. Connected
+  // via an elevated skywalk. Measured 364.8 m between snapped track positions.
+  { aLine: "sukhumvit", aStop: "13612", bLine: "blue", bStop: "339" },
+  // Airport Rail Link <-> MRT Yellow, Hua Mak. Connected via an elevated
+  // skywalk across Srinakarin Rd. Measured 497.8 m between snapped positions.
+  { aLine: "arl", aStop: "325", bLine: "yellow", bStop: "14128" },
+  // SRT Dark Red <-> MRT Blue, Krung Thep Aphiwat / Bang Sue. Connected via
+  // an underground walkway concourse. Measured 305.1 m between snapped positions.
+  { aLine: "red-dark", aStop: "13846", bLine: "blue", bStop: "334" },
+  // SRT Light Red <-> MRT Blue, Krung Thep Aphiwat / Bang Sue. Connected via
+  // an underground walkway concourse. Measured 344.9 m between snapped positions.
+  { aLine: "red-light", aStop: "13846", bLine: "blue", bStop: "334" },
 ];
 
 /**

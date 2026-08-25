@@ -118,6 +118,32 @@ impl Engine {
             None => "null".into(),
         }
     }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn plan_alternatives_json(
+        &self,
+        from_route_idx: u8,
+        from_station_idx: u16,
+        to_route_idx: u8,
+        to_station_idx: u16,
+        date_yyyymmdd: u32,
+        sec_of_day: f64,
+        max_transfers: u8,
+        max_wait_s: u32,
+        transfer_buffer_s: u32,
+    ) -> String {
+        let req = PlanRequest {
+            from: (from_route_idx, from_station_idx),
+            to: (to_route_idx, to_station_idx),
+            date_yyyymmdd,
+            sec_of_day,
+            max_transfers,
+            max_wait_s,
+            transfer_buffer_s,
+        };
+        let plans = self.world.plan_alternatives(&req);
+        serde_json::to_string(&plans).unwrap_or_else(|_| "[]".into())
+    }
 }
 
 /// Layout constants mirrored in src/sim/protocol.ts.

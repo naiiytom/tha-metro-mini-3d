@@ -77,7 +77,7 @@ export class TrainTooltip {
     // the outcome dependent on Tailwind's internal class ordering rather than
     // anything explicit. The route-color dot is a nested inline-block span.
     this.el.className =
-      "pointer-events-none absolute left-0 top-0 hidden max-w-[70vw] overflow-hidden text-ellipsis whitespace-nowrap rounded-lg border border-white/40 bg-white/85 px-2.5 py-1.5 text-xs font-medium text-slate-800 shadow-lg shadow-slate-900/10 backdrop-blur-md ring-1 ring-slate-900/5";
+      "panel-glass pointer-events-none absolute left-0 top-0 hidden max-w-[70vw] overflow-hidden text-ellipsis whitespace-nowrap rounded-lg border px-2.5 py-1.5 text-xs font-medium text-ink shadow-lg shadow-ink/10 backdrop-blur-md";
 
     this.dot = document.createElement("span");
     this.dot.className = "mr-1.5 inline-block h-2 w-2 shrink-0 rounded-full align-middle";

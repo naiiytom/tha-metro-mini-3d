@@ -1,5 +1,26 @@
+import type { Map as MapLibreMap } from "maplibre-gl";
 import { describe, expect, it } from "vitest";
-import { FollowCamera, lerpBearing, yawToBearing } from "./followCamera";
+import { FollowCamera, lerpBearing, normalizeBearing, yawToBearing } from "./followCamera";
+import { LANE_RUN_IDX, LANE_X, LANE_Y, LANE_YAW, VEHICLE_STRIDE } from "../sim/protocol";
+
+function frame(runIdx: number, yaw: number): Float32Array {
+  const b = new Float32Array(VEHICLE_STRIDE);
+  b[LANE_X] = 0;
+  b[LANE_Y] = 0;
+  b[LANE_YAW] = yaw;
+  b[LANE_RUN_IDX] = runIdx;
+  return b;
+}
+
+/**
+ * Records the last jumpTo, standing in for a real MapLibre map. `apply()`
+ * only ever calls jumpTo, so this is the whole surface it needs.
+ */
+function fakeMap() {
+  const calls: { center: unknown; bearing: number }[] = [];
+  const map = { jumpTo: (o: { center: unknown; bearing: number }) => void calls.push(o) };
+  return { map: map as unknown as MapLibreMap, calls };
+}
 
 /**
  * These two encode conventions that fail silently: a wrong sign or offset just
@@ -98,6 +119,60 @@ describe("FollowCamera.resetBearing", () => {
     cam.capture(vehicleAt(Math.PI / 2), 1, 7);
     cam.resetBearing();
     cam.apply(mapStub);
-    expect(lastBearing).toBeCloseTo(0, 1);
+    // bearing is now always wrapped into [0, 360) (normalizeBearing, added
+    // for the yaw offset below), so a target of exactly 0 can come back as
+    // a value just under 360 (float rounding in yawToBearing) rather than
+    // just over 0 — same angle, opposite side of the wrap seam. Compare the
+    // shortest angular distance to 0, not the raw value.
+    const wrapped = lastBearing > 180 ? lastBearing - 360 : lastBearing;
+    expect(wrapped).toBeCloseTo(0, 1);
+  });
+});
+
+describe("normalizeBearing", () => {
+  it("wraps into [0, 360)", () => {
+    expect(normalizeBearing(0)).toBe(0);
+    expect(normalizeBearing(370)).toBe(10);
+    expect(normalizeBearing(-10)).toBe(350);
+    expect(normalizeBearing(-370)).toBe(350);
+  });
+});
+
+describe("FollowCamera yaw offset", () => {
+  it("adds the user's offset on top of the train's heading", () => {
+    const cam = new FollowCamera();
+    const { map, calls } = fakeMap();
+    // yaw 0 (heading east) -> bearing 90 with no offset. The first apply()
+    // seeds the smoothed bearing directly, so there is no lerp to wait out.
+    cam.capture(frame(1, 0), 1, 1);
+    cam.apply(map);
+    expect(calls.at(-1)!.bearing).toBeCloseTo(90, 6);
+
+    cam.addYawOffset(45);
+    cam.apply(map);
+    expect(calls.at(-1)!.bearing).toBeCloseTo(135, 6);
+  });
+
+  it("accumulates successive orbit deltas", () => {
+    const cam = new FollowCamera();
+    cam.addYawOffset(30);
+    cam.addYawOffset(30);
+    expect(cam.yawOffset).toBeCloseTo(60, 6);
+  });
+
+  it("keeps the offset when only the bearing smoothing is reset", () => {
+    // Switching followed train A -> B must not throw away the angle the
+    // user chose to watch from.
+    const cam = new FollowCamera();
+    cam.addYawOffset(90);
+    cam.resetBearing();
+    expect(cam.yawOffset).toBeCloseTo(90, 6);
+  });
+
+  it("clears the offset on a full reset", () => {
+    const cam = new FollowCamera();
+    cam.addYawOffset(90);
+    cam.reset();
+    expect(cam.yawOffset).toBe(0);
   });
 });

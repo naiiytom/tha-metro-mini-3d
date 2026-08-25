@@ -13,6 +13,8 @@ import { buildSkyDome, type SkyDome } from "./skyDome";
 import { PRE_REVENUE_OPACITY, buildStationMarkers, buildTrackDeck, buildTrackLine } from "./trackGeometry";
 import { nightLift } from "./nightLift";
 import { materialAlbedo } from "./materialAlbedo";
+import { windowGlowOpacity } from "./windowGlow";
+import type { ViewProjection } from "./screenProject";
 import type { SkyPalette } from "./sun";
 import type { VehicleManager } from "./VehicleManager";
 
@@ -71,6 +73,7 @@ export class NetworkLayer implements CustomLayerInterface {
    */
   private litMaterialWorstOpacity = new WeakMap<THREE.MeshLambertMaterial, number>();
   private undergroundMode = false;
+  private shadowCatcher: THREE.Mesh<THREE.PlaneGeometry, THREE.ShadowMaterial> | null = null;
   private skyDome: SkyDome | null = null;
   /** Planned-route highlight, rebuilt wholesale on every plan change. Kept in
    *  its own group and its own material list so it never enters the
@@ -78,6 +81,15 @@ export class NetworkLayer implements CustomLayerInterface {
    *  network geometry. */
   private highlightGroup: THREE.Group | null = null;
   private highlightMaterials: LineMaterial[] = [];
+
+  /**
+   * The mercator->clip matrix from the most recent render, copied (not
+   * aliased — MapLibre may reuse its own array) so click hit-testing can
+   * project candidates exactly as they were drawn, altitude included.
+   * See src/map/screenProject.ts and issue #25.
+   */
+  private mainMatrix = new Float64Array(16);
+  private hasMainMatrix = false;
 
   /**
    * Per-frame hook, invoked at the start of every render() before drawing —
@@ -134,6 +146,37 @@ export class NetworkLayer implements CustomLayerInterface {
     this.ambientLight = ambient;
     this.sunLight = sun;
 
+    const shadowCatcher = new THREE.Mesh(
+      new THREE.PlaneGeometry(8000, 8000),
+      new THREE.ShadowMaterial({ opacity: 0.35 }),
+    );
+    shadowCatcher.position.set(0, 0, 0);
+    shadowCatcher.receiveShadow = true;
+    shadowCatcher.visible = false;
+    // ShadowMaterial sets `transparent = true` by default but leaves
+    // `depthWrite`/`depthTest` at Material's own default (true/true) —
+    // neither is a no-op here. The catcher sits at z=0, coplanar with
+    // at-grade track and nearer the camera than every underground run
+    // (rendered at -12 to -25 m). `applyUndergroundMode()`'s default (OFF)
+    // state deliberately renders sub-surface track translucent with
+    // depthWrite=false so it "reads as beneath" without real depth interop
+    // with MapLibre's tiles (see that method's own doc comment). If the
+    // catcher kept depthWrite=true, it would write depth at those pixels
+    // and the translucent tunnel track drawn afterward — itself not
+    // writing depth — would still depthTest against what the catcher wrote
+    // and get incorrectly hidden behind it, defeating the whole point of
+    // the see-through underground view. depthWrite: false is the standard
+    // fix for a transparent receiver that must not falsely occlude
+    // geometry drawn after it. depthTest stays at its default (true)
+    // on purpose, unlike skyDome.ts's sky mesh: the catcher's job is to be
+    // properly occluded BY opaque foreground Three geometry (e.g. an
+    // elevated viaduct deck passing between the camera and the ground
+    // plane), not to sit permanently behind everything the way the sky
+    // does — so only depthWrite is the bug here, not depthTest too.
+    shadowCatcher.material.depthWrite = false;
+    scene.add(shadowCatcher);
+    this.shadowCatcher = shadowCatcher;
+
     for (const line of this.data.lines) {
       const group = new THREE.Group();
       group.name = `line-${line.key}`;
@@ -145,7 +188,7 @@ export class NetworkLayer implements CustomLayerInterface {
       scene.add(group);
       this.lineGroups.push(group);
     }
-    if (this.vehicles) scene.add(...this.vehicles.meshes);
+    if (this.vehicles) scene.add(...this.vehicles.meshes, ...this.vehicles.glowMeshes);
     for (const mesh of this.vehicles?.meshes ?? []) {
       const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
       for (const m of mats) {
@@ -204,6 +247,10 @@ export class NetworkLayer implements CustomLayerInterface {
       m.emissive.setHex(lift.emissive);
       m.emissiveIntensity = lift.intensity;
     }
+    // Independent of the per-material lift loop above on purpose — see
+    // windowGlow.ts's doc comment for why a train's shell converging with
+    // the track under it needs a genuinely separate fix, not a bigger floor.
+    this.vehicles?.setNightGlow(windowGlowOpacity(elevationDeg));
   }
 
   /** Sky colours follow the same solar elevation the key light does. Called
@@ -293,6 +340,9 @@ export class NetworkLayer implements CustomLayerInterface {
       m.depthWrite = !on;
       m.needsUpdate = true;
     }
+    if (this.shadowCatcher) {
+      this.shadowCatcher.visible = on ? false : (this.renderer?.shadowMap.enabled ?? false);
+    }
   }
 
   setUndergroundMode(on: boolean): void {
@@ -301,9 +351,24 @@ export class NetworkLayer implements CustomLayerInterface {
     this.applyUndergroundMode();
   }
 
+  /** The current view for screen-space hit-testing, or null before the first
+   *  frame has rendered. */
+  viewProjection(): ViewProjection | null {
+    if (!this.hasMainMatrix || !this.renderer) return null;
+    const canvas = this.renderer.domElement;
+    return {
+      matrix: this.mainMatrix,
+      widthPx: canvas.clientWidth || canvas.width,
+      heightPx: canvas.clientHeight || canvas.height,
+    };
+  }
+
   setShadowsEnabled(on: boolean): void {
     if (!this.renderer) return;
     this.renderer.shadowMap.enabled = on;
+    if (this.shadowCatcher) {
+      this.shadowCatcher.visible = on && !this.undergroundMode;
+    }
     // Three caches compiled programs per material; flipping shadowMap.enabled
     // requires a recompile or existing materials keep their old defines.
     this.renderer.shadowMap.needsUpdate = true;
@@ -360,6 +425,8 @@ export class NetworkLayer implements CustomLayerInterface {
     // maplibre-gl v5+ passes an args object; `defaultProjectionData.mainMatrix`
     // is the mercator(0..1)->clip matrix that v4 handed over as `matrix`.
     const matrix = options.defaultProjectionData.mainMatrix;
+    this.mainMatrix.set(matrix as unknown as ArrayLike<number>);
+    this.hasMainMatrix = true;
     this.projection.fromArray(matrix as unknown as number[]).multiply(this.originMatrix);
     this.camera.projectionMatrix = this.projection;
     const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
@@ -380,6 +447,7 @@ export class NetworkLayer implements CustomLayerInterface {
     });
     this.skyDome?.dispose();
     this.skyDome = null;
+    this.shadowCatcher = null;
     this.scene = null;
     this.lineMaterials = [];
     this.lineGroups = [];
@@ -390,6 +458,7 @@ export class NetworkLayer implements CustomLayerInterface {
     // onAdd()'s applyUndergroundMode() from a clean flag instead of seeding
     // a freshly rebuilt scene from a stale prior value.
     this.undergroundMode = false;
+    this.hasMainMatrix = false;
     this.sunLight = null;
     this.ambientLight = null;
     // The GL context belongs to MapLibre — dispose Three's wrapper only.

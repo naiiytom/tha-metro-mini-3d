@@ -42,22 +42,22 @@ export function TimeControls() {
   if (engineStatus === "off") return null;
 
   return (
-    <div className="pointer-events-auto w-full rounded-xl border border-white/40 bg-white/70 px-4 py-3 shadow-xl shadow-slate-900/10 backdrop-blur-md ring-1 ring-slate-900/5 md:w-auto">
+    <div className="panel-glass pointer-events-auto w-full rounded-xl border px-4 py-3 shadow-xl shadow-ink/10 backdrop-blur-md md:w-auto">
       {engineStatus === "error" ? (
-        <p className="max-w-xs text-xs text-red-600">
+        <p className="max-w-xs text-xs text-danger-ink">
           Engine error: {engineError ?? "unknown"}
         </p>
       ) : (
         <div className="flex flex-col items-center gap-2">
           <div className="flex items-baseline gap-3">
-            <span className="font-mono text-lg font-semibold tabular-nums text-slate-900">
+            <span className="font-mono text-lg font-semibold tabular-nums text-ink">
               {engineStatus === "ready" ? clockText : "--:--:--"}
             </span>
-            <span className="text-xs text-slate-600">
+            <span className="text-xs text-ink-muted">
               Bangkok{engineStatus === "loading" ? " · starting engine…" : ""}
             </span>
             {engineStatus === "ready" && (
-              <span className="text-xs text-slate-700">
+              <span className="text-xs text-ink-muted">
                 {vehicleCount} train{vehicleCount === 1 ? "" : "s"}
               </span>
             )}
@@ -71,8 +71,8 @@ export function TimeControls() {
                 onClick={() => activeSimClient.current?.setWarp(w)}
                 className={`rounded-md px-3.5 py-2.5 text-sm font-medium transition-colors disabled:opacity-40 md:px-2 md:py-1 md:text-xs ${
                   w === warp
-                    ? "bg-slate-900 text-white"
-                    : "bg-slate-200/70 text-slate-700 hover:bg-slate-300"
+                    ? "bg-ink text-surface"
+                    : "bg-surface-sunken text-ink-muted hover:bg-edge hover:text-ink"
                 }`}
               >
                 {w}×
@@ -82,13 +82,13 @@ export function TimeControls() {
               type="button"
               disabled={engineStatus !== "ready"}
               onClick={() => activeSimClient.current?.resetToNow()}
-              className="ml-2 rounded-md bg-slate-200/70 px-3.5 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-300 disabled:opacity-40 md:px-2 md:py-1 md:text-xs"
+              className="ml-2 rounded-md bg-surface-sunken px-3.5 py-2.5 text-sm font-medium text-ink-muted transition-colors hover:bg-edge hover:text-ink disabled:opacity-40 md:px-2 md:py-1 md:text-xs"
             >
               Now
             </button>
           </div>
           {validation && (
-            <p className="text-[10px] text-slate-600">
+            <p className="text-[10px] text-ink-muted">
               feed {validation.feedVersion} · {validation.routes} routes ·{" "}
               {validation.stations} stations · {validation.patterns} patterns ·{" "}
               {validation.runs} runs · {validation.services} services

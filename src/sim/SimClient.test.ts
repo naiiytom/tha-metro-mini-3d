@@ -128,4 +128,27 @@ describe("SimClient.getRoutePlan", () => {
     await expect(boardPromise).resolves.toBeNull();
     await expect(planPromise).resolves.toEqual(PLAN);
   });
+
+  it("planAlternatives posts a request with default and explicit parameters and resolves returned plans", async () => {
+    const worker = FakeWorker.last!;
+    const promise = client.planAlternatives(0, 1, 2, 3, 1_800_000_000_000);
+    const posted = worker.lastQuery();
+    expect(posted.query).toEqual({
+      kind: "planAlternatives",
+      fromRouteIdx: 0,
+      fromStationIdx: 1,
+      toRouteIdx: 2,
+      toStationIdx: 3,
+      simEpochMs: 1_800_000_000_000,
+      maxTransfers: DEFAULT_MAX_TRANSFERS,
+      maxWaitS: DEFAULT_MAX_WAIT_S,
+      transferBufferS: DEFAULT_TRANSFER_BUFFER_S,
+    });
+    worker.reply({
+      kind: "queryResult",
+      id: posted.id,
+      result: { kind: "planAlternatives", plans: [PLAN] },
+    });
+    await expect(promise).resolves.toEqual([PLAN]);
+  });
 });

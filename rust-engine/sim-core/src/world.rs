@@ -263,6 +263,11 @@ impl SimWorld {
     pub fn plan_route(&self, req: &PlanRequest) -> Option<RoutePlan> {
         crate::route::plan(&self.doc, &self.route_index, req)
     }
+
+    /// Plan alternative itineraries between two stations at a Bangkok local date/time.
+    pub fn plan_alternatives(&self, req: &PlanRequest) -> Vec<RoutePlan> {
+        crate::route::plan_alternatives(&self.doc, &self.route_index, req)
+    }
 }
 
 /// Motion math (F2.1/F2.2): dwell/transit classification + eased arc.

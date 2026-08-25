@@ -234,6 +234,32 @@ export class SimClient {
     return r.kind === "routePlan" ? r.plan : null;
   }
 
+  /**
+   * Plan alternative itineraries between two stations at `simEpochMs`.
+   * Resolves empty array `[]` for a structurally invalid request.
+   */
+  async planAlternatives(
+    fromRouteIdx: number,
+    fromStationIdx: number,
+    toRouteIdx: number,
+    toStationIdx: number,
+    simEpochMs: number,
+    opts: { maxTransfers?: number; maxWaitS?: number; transferBufferS?: number } = {},
+  ): Promise<RoutePlan[]> {
+    const r = await this.query({
+      kind: "planAlternatives",
+      fromRouteIdx,
+      fromStationIdx,
+      toRouteIdx,
+      toStationIdx,
+      simEpochMs,
+      maxTransfers: opts.maxTransfers ?? DEFAULT_MAX_TRANSFERS,
+      maxWaitS: opts.maxWaitS ?? DEFAULT_MAX_WAIT_S,
+      transferBufferS: opts.transferBufferS ?? DEFAULT_TRANSFER_BUFFER_S,
+    });
+    return r.kind === "planAlternatives" ? r.plans : [];
+  }
+
   /** Every station with its ENU position — fetched once, then cached by callers. */
   async getStations(): Promise<StationInfo[]> {
     const r = await this.query({ kind: "stations" });

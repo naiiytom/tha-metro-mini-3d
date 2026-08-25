@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { useAppStore } from "../stores/useAppStore";
 import { ESTIMATED_RUN_TIMES_NOTE, type LineGeometry, SYNTHETIC_SCHEDULE_NOTE } from "../types";
+import { browserStorage, hasStoredPreference, loadCollapsed, saveCollapsed } from "./panelCollapse";
 import { ViewControls } from "./ViewControls";
 
 /** One toggleable row — its own component so it can call the store's
@@ -18,8 +19,8 @@ function LineRow({ line, routeIdx }: { line: LineGeometry; routeIdx: number }) {
         type="button"
         aria-pressed={visible}
         onClick={() => toggleRoute(routeIdx)}
-        className={`flex w-full items-center gap-2 rounded-md px-3 py-2.5 text-left text-sm transition-colors hover:bg-slate-200/60 md:px-1.5 md:py-1 md:text-xs ${
-          visible ? "text-slate-800" : "text-slate-400"
+        className={`flex w-full items-center gap-2 rounded-md px-3 py-2.5 text-left text-sm transition-colors hover:bg-surface-sunken md:px-1.5 md:py-1 md:text-xs ${
+          visible ? "text-ink" : "text-ink-subtle"
         }`}
       >
         <span
@@ -28,7 +29,17 @@ function LineRow({ line, routeIdx }: { line: LineGeometry; routeIdx: number }) {
         />
         <span className="truncate">{line.name}</span>
         {line.preRevenue ? (
-          <span className="ml-auto shrink-0 rounded bg-amber-100 px-1 text-[9px] uppercase text-amber-700">
+          // Deliberately NOT the note-bg/note-ink token its two siblings
+          // below use: this badge is a caution ("not open, no trains ever")
+          // where the other two are purely informational ("open, but times
+          // are estimated") — different semantics, so a different fixed
+          // amber palette rather than the shared token is intentional, not
+          // an oversight. (Minor #8, a real dedicated danger/warning token,
+          // is parked/out of scope for this fix.)
+          <span
+            data-testid="pre-revenue-badge"
+            className="ml-auto shrink-0 rounded bg-amber-100 px-1 text-[9px] uppercase text-amber-700"
+          >
             pre-revenue
           </span>
         ) : line.syntheticSchedule !== null ? (
@@ -36,7 +47,7 @@ function LineRow({ line, routeIdx }: { line: LineGeometry; routeIdx: number }) {
           // line also has gtfsRouteId === null, but it is emphatically NOT
           // track only — it runs trains, just on estimated times.
           <span
-            className="ml-auto shrink-0 rounded bg-sky-100 px-1 text-[9px] uppercase text-sky-700"
+            className="ml-auto shrink-0 rounded bg-note-bg px-1 text-[9px] uppercase text-note-ink"
             title={SYNTHETIC_SCHEDULE_NOTE}
             data-testid="synthetic-schedule-badge"
           >
@@ -48,10 +59,11 @@ function LineRow({ line, routeIdx }: { line: LineGeometry; routeIdx: number }) {
           // but keeping this ahead of it matches the syntheticSchedule
           // precedent and keeps every "runs trains on non-standard times"
           // case together, ahead of "doesn't run trains at all." Same
-          // classes as the syntheticSchedule badge just above (this card is
-          // light — bg-white/70 — so a badge needs a dark-on-light palette
-          // like every other one here, not the white-on-white this
-          // originally shipped with).
+          // classes as the syntheticSchedule badge just above (this card sits
+          // on the translucent panel-glass surface, which darkens in dark
+          // mode — so the badge stays a fixed, self-contained light chip with
+          // a dark-on-light palette regardless of theme, not the
+          // white-on-white this originally shipped with).
           //
           // `!= null`, not `!== null`: StationBoard/TrainInspector both use
           // `!= null` for this same field, and network.json is routinely
@@ -62,13 +74,13 @@ function LineRow({ line, routeIdx }: { line: LineGeometry; routeIdx: number }) {
           // correctly showed nothing. Found in code review.
           <span
             data-testid="estimated-run-times-badge"
-            className="ml-auto shrink-0 rounded bg-sky-100 px-1 text-[9px] uppercase text-sky-700"
+            className="ml-auto shrink-0 rounded bg-note-bg px-1 text-[9px] uppercase text-note-ink"
             title={ESTIMATED_RUN_TIMES_NOTE}
           >
             Est. times
           </span>
         ) : line.gtfsRouteId === null ? (
-          <span className="ml-auto shrink-0 text-[9px] uppercase text-slate-500">
+          <span className="ml-auto shrink-0 text-[9px] uppercase text-ink-muted">
             track only
           </span>
         ) : null}
@@ -85,11 +97,15 @@ function LineRow({ line, routeIdx }: { line: LineGeometry; routeIdx: number }) {
  * engine evaluating it: the sim is a pure function of time, and skipping runs
  * would make the vehicle count and the station boards disagree with the clock.
  *
- * Below `md:` this card is collapsible (default collapsed) so it doesn't
- * dominate a phone screen, and its header carries the "hide UI" toggle —
- * deliberately kept here rather than as a separate floating button, since
- * this corner is the only one on the map MapLibre's own `NavigationControl`
- * (top-right) doesn't already occupy.
+ * This card is collapsible at every width (issue #29) — not just below
+ * `md:` as it originally shipped, where a 14-line list plus the whole
+ * `ViewControls` block sat permanently over the map it controls on desktop.
+ * The collapsed/expanded choice persists (`panelCollapse.ts`) and, once the
+ * user has stated one, wins at both widths; until then it still defaults
+ * collapsed on mobile / expanded on desktop. Below `md:` the header also
+ * carries the "hide UI" toggle — deliberately kept here rather than as a
+ * separate floating button, since this corner is the only one on the map
+ * MapLibre's own `NavigationControl` (top-right) doesn't already occupy.
  */
 export function LineSelector() {
   const routes = useAppStore((s) => s.routes);
@@ -101,16 +117,36 @@ export function LineSelector() {
   const routePlannerOpen = useAppStore((s) => s.routePlannerOpen);
   const setRoutePlannerOpen = useAppStore((s) => s.setRoutePlannerOpen);
   const isMobile = useIsMobile();
-  const [expanded, setExpanded] = useState(!isMobile);
+  // `browserStorage()` (not the bare `localStorage` global) at every call
+  // site — see its doc comment in panelCollapse.ts: merely referencing
+  // `localStorage` can throw in some real configurations, and this call runs
+  // inside a useState initializer during render, with no Error Boundary
+  // above it, so that throw would white-screen the whole app.
+  const [expanded, setExpanded] = useState(() => !loadCollapsed(browserStorage(), isMobile));
 
-  // useState's initial value only runs once — without this, resizing
-  // desktop -> mobile mid-session leaves the card expanded on a phone
-  // (and vice versa), rather than picking up each side's own default.
+  // Follows the breakpoint ONLY until the user states a preference; after
+  // that their choice wins at both widths, which is the point of #29.
   useEffect(() => {
-    setExpanded(!isMobile);
+    if (!hasStoredPreference(browserStorage())) setExpanded(!isMobile);
   }, [isMobile]);
 
-  const bodyVisible = !isMobile || (expanded && !uiHidden);
+  const toggleExpanded = () => {
+    // Compute the new value and perform the persistence side effect OUTSIDE
+    // any setState updater: an updater function must stay pure, since Strict
+    // Mode / concurrent rendering may invoke it more than once per state
+    // change, which would otherwise call saveCollapsed that many times for
+    // one user toggle. This is a plain click handler with `expanded` already
+    // in scope, so there is no need for the functional-updater form at all.
+    const next = !expanded;
+    // `collapsed` is the inverse of `expanded` (loadCollapsed's own
+    // convention: `"true"` means collapsed) — persist the state the panel is
+    // moving TO, not the one it's leaving.
+    saveCollapsed(browserStorage(), !next);
+    setExpanded(next);
+  };
+
+  // The isMobile gate is gone: the panel collapses at every width now.
+  const bodyVisible = expanded && !uiHidden;
 
   return (
     <div
@@ -120,12 +156,12 @@ export function LineSelector() {
       // `viewport-fit=cover` (index.html) exposes a left inset a fixed
       // offset doesn't, and this card can end up rendered partly under the
       // cutout otherwise (finding 7).
-      className="pointer-events-auto absolute left-[max(1rem,env(safe-area-inset-left))] top-4 max-h-[calc(100dvh-16rem)] w-[min(15rem,calc(100vw-6rem))] overflow-y-auto rounded-xl border border-white/40 bg-white/70 px-4 py-3 shadow-xl shadow-slate-900/10 backdrop-blur-md ring-1 ring-slate-900/5 md:left-4 md:max-h-[calc(100dvh-2rem)] md:w-60"
+      className="panel-glass pointer-events-auto absolute left-[max(1rem,env(safe-area-inset-left))] top-4 max-h-[calc(100dvh-16rem)] w-[min(15rem,calc(100vw-6rem))] overflow-y-auto rounded-xl border px-4 py-3 shadow-xl shadow-ink/10 backdrop-blur-md md:left-4 md:max-h-[calc(100dvh-2rem)] md:w-60"
     >
       <div className="flex items-start gap-1">
         <div className="min-w-0 flex-1">
-          <h1 className="text-sm font-semibold text-slate-900">Greater Bangkok Metro Mini 3D</h1>
-          <p className="text-xs text-slate-600">
+          <h1 className="text-sm font-semibold text-ink">Greater Bangkok Metro Mini 3D</h1>
+          <p className="text-xs text-ink-muted">
             {mapReady ? "Click a train or station to inspect it." : "Loading map…"}
           </p>
         </div>
@@ -141,7 +177,7 @@ export function LineSelector() {
             aria-pressed={searchOpen}
             aria-label={searchOpen ? "Close station search" : "Search stations"}
             title={searchOpen ? "Close station search" : "Search stations"}
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-base leading-none text-slate-600 hover:bg-slate-200/60 md:h-8 md:w-8 md:text-sm"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-base leading-none text-ink-muted hover:bg-surface-sunken md:h-8 md:w-8 md:text-sm"
           >
             🔍
           </button>
@@ -156,7 +192,7 @@ export function LineSelector() {
             aria-pressed={routePlannerOpen}
             aria-label={routePlannerOpen ? "Close route planner" : "Plan a route"}
             title={routePlannerOpen ? "Close route planner" : "Plan a route"}
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-base leading-none text-slate-600 hover:bg-slate-200/60 md:h-8 md:w-8 md:text-sm"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-base leading-none text-ink-muted hover:bg-surface-sunken md:h-8 md:w-8 md:text-sm"
           >
             🧭
           </button>
@@ -167,7 +203,7 @@ export function LineSelector() {
           aria-pressed={uiHidden}
           aria-label={uiHidden ? "Show map controls" : "Hide map controls"}
           title={uiHidden ? "Show map controls" : "Hide map controls"}
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-base leading-none text-slate-600 hover:bg-slate-200/60 md:hidden"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-base leading-none text-ink-muted hover:bg-surface-sunken md:hidden"
         >
           {uiHidden ? "☰" : "✕"}
         </button>
@@ -179,10 +215,10 @@ export function LineSelector() {
         {!uiHidden && (
           <button
             type="button"
-            onClick={() => setExpanded((e) => !e)}
+            onClick={toggleExpanded}
             aria-expanded={bodyVisible}
             aria-label={expanded ? "Collapse line list" : "Expand line list"}
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-slate-500 hover:bg-slate-200/60 md:hidden"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-ink-muted hover:bg-surface-sunken"
           >
             {expanded ? "▲" : "▼"}
           </button>
