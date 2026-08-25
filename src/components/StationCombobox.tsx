@@ -113,19 +113,33 @@ export function StationCombobox({
           className="mt-1 max-h-60 overflow-y-auto rounded-md border border-edge bg-surface"
         >
           {visible.length === 0 && (
-            <li className="px-2 py-2 text-xs text-ink-subtle">No matching station.</li>
+            <li role="presentation" className="px-2 py-2 text-xs text-ink-subtle">
+              No matching station.
+            </li>
           )}
           {groups.map((group) => (
-            <li key={group.routeIdx}>
-              <div className="sticky top-0 bg-surface-sunken px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-ink-muted">
+            // `role="presentation"` on every plain <li>/<ul> in this subtree
+            // (here, the header div, and each option's <li> wrapper below)
+            // neutralizes their IMPLICIT listitem/list roles — per the
+            // WAI-ARIA listbox pattern, nothing between `role="listbox"` and
+            // each `role="option"` may introduce an unexpected role, or a
+            // screen reader can lose/misreport the listbox/option
+            // relationship. Only `listbox` (the outer <ul>), `group` (the
+            // per-route <ul> below) and `option` remain in the accessible
+            // tree.
+            <li key={group.routeIdx} role="presentation">
+              <div
+                role="presentation"
+                className="sticky top-0 bg-surface-sunken px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-ink-muted"
+              >
                 {routes[group.routeIdx]?.name ?? `Line ${group.routeIdx}`}
               </div>
-              <ul>
+              <ul role="group" aria-label={routes[group.routeIdx]?.name ?? `Line ${group.routeIdx}`}>
                 {group.stations.map((s) => {
                   flatIndex += 1;
                   const index = flatIndex;
                   return (
-                    <li key={`${s.route_idx}-${s.station_idx}`}>
+                    <li key={`${s.route_idx}-${s.station_idx}`} role="presentation">
                       <button
                         type="button"
                         ref={(el) => {
