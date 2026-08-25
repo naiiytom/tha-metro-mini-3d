@@ -42,6 +42,40 @@ export function MapContainer() {
   const containerRef = useRef<HTMLDivElement>(null);
   const setMapReady = useAppStore((s) => s.setMapReady);
 
+  // `data-theme` is also stamped by the sim-clock-driven paths further down
+  // (the `themeMode` store subscription and `updateSun`'s ~2 Hz tick) — but
+  // both are gated on the sim engine/Three layer being ready, so before the
+  // engine finishes loading (or if it errors) `<html>` never got a
+  // `data-theme` at all, and every panel rendered light regardless of the
+  // user's stored preference. `effectiveElevationDeg` already ignores the
+  // real solar elevation entirely for the two PINNED modes ("light"/"dark")
+  // — only "auto" needs the real clock — so this mount-time effect can
+  // stamp the correct appearance immediately, using a wall-clock estimate
+  // (`Date.now()`, not the sim clock, which doesn't exist yet) only for the
+  // "auto" case.
+  //
+  // Deliberately stands DOWN once the engine is ready (`activeSimClient.current`
+  // truthy) rather than keeping its own subscription racing the engine-gated
+  // writers below: both would write `data-theme` off a `themeMode` change once
+  // the engine is up, but off DIFFERENT elevation sources (this one's
+  // wall-clock guess vs. the sim clock), and whichever React notifies second
+  // would silently win — the exact "two independent writers of one DOM
+  // property" class of bug this codebase's own Task 10b history already hit
+  // once (see CLAUDE.md). This effect's only job is to cover the gap before
+  // the engine-gated writers exist at all.
+  useEffect(() => {
+    const stamp = () => {
+      if (activeSimClient.current) return; // the engine-gated writers own it now
+      const mode = useAppStore.getState().themeMode;
+      const dir = sunDirection(Date.now());
+      document.documentElement.dataset.theme = effectiveTheme(mode, dir.elevationDeg);
+    };
+    stamp();
+    return useAppStore.subscribe((state, prev) => {
+      if (state.themeMode !== prev.themeMode) stamp();
+    });
+  }, []);
+
   useEffect(() => {
     const map = new MapLibreMap({
       container: containerRef.current!,
