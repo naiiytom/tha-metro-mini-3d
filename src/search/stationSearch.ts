@@ -8,13 +8,17 @@ const MAX_RESULTS = 8;
  * substring search is sufficient (mini-tokyo-3d, this roadmap's parity
  * reference, does the same).
  */
-export function filterStations(stations: StationInfo[], query: string): StationInfo[] {
+export function filterStations(
+  stations: StationInfo[],
+  query: string,
+  limit = MAX_RESULTS,
+): StationInfo[] {
   const q = query.trim().toLowerCase();
   if (!q) return [];
   return stations
     .filter((s) => s.name_en.toLowerCase().includes(q) || s.name_th.toLowerCase().includes(q))
     .sort((a, b) => a.name_en.localeCompare(b.name_en))
-    .slice(0, MAX_RESULTS);
+    .slice(0, limit);
 }
 
 export interface NearestStationResult {
@@ -50,11 +54,22 @@ export function stationOptions(
   limit = MAX_RESULTS,
 ): StationInfo[] {
   if (query.trim() === "") {
+    // `limit` is INTENTIONALLY ignored here, by design, not an oversight:
+    // issue #28 wants a fully BROWSABLE (not just searchable) combobox, so
+    // the empty-query "browse all stations, grouped by line" path always
+    // returns the WHOLE list uncapped. `limit` only ever bounds SEARCH
+    // (typed-query) results, below. Do not make this branch respect `limit`
+    // — that would regress issue #28's browsable requirement.
     return [...stations].sort(
       (a, b) => a.route_idx - b.route_idx || a.arc_m - b.arc_m,
     );
   }
-  return filterStations(stations, query).slice(0, limit);
+  // Pass `limit` straight through rather than `filterStations(stations,
+  // query).slice(0, limit)`: `filterStations` used to always cap to its own
+  // internal MAX_RESULTS (8) regardless of what `limit` this caller wants,
+  // so a caller asking for more than 8 (e.g. `stationOptions(s, q, 20)`)
+  // silently never got more than 8 — the double-slice bug (Minor #12).
+  return filterStations(stations, query, limit);
 }
 
 export interface StationGroup {

@@ -109,6 +109,22 @@ describe("stationOptions", () => {
     const many = Array.from({ length: 50 }, (_, i) => s(0, i, `Station ${i}`, i));
     expect(stationOptions(many, "Station", 5)).toHaveLength(5);
   });
+
+  // Minor #12 regression: `stationOptions`'s non-empty-query branch used to
+  // do `filterStations(stations, query).slice(0, limit)` — but
+  // `filterStations` ALWAYS internally capped to its own MAX_RESULTS (8)
+  // first, so a `limit` greater than 8 was silently ignored (double-slice:
+  // the outer .slice(0, 20) on an array already capped at 8 can never
+  // return more than 8). No production caller passed a custom `limit` at
+  // the time this was found, so it was dormant, not user-visible — this
+  // proves it's fixed for the next caller that does. Must FAIL against the
+  // pre-fix code (result capped at 8) and PASS after (`filterStations`'s
+  // own `limit` param now threads through instead of a hardcoded internal
+  // cap).
+  it("respects a limit greater than filterStations' own internal default cap", () => {
+    const many = Array.from({ length: 50 }, (_, i) => s(0, i, `Station ${i}`, i));
+    expect(stationOptions(many, "Station", 15)).toHaveLength(15);
+  });
 });
 
 describe("groupByRoute", () => {
