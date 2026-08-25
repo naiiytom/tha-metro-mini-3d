@@ -13,6 +13,7 @@ import { buildSkyDome, type SkyDome } from "./skyDome";
 import { PRE_REVENUE_OPACITY, buildStationMarkers, buildTrackDeck, buildTrackLine } from "./trackGeometry";
 import { nightLift } from "./nightLift";
 import { materialAlbedo } from "./materialAlbedo";
+import { windowGlowOpacity } from "./windowGlow";
 import type { ViewProjection } from "./screenProject";
 import type { SkyPalette } from "./sun";
 import type { VehicleManager } from "./VehicleManager";
@@ -187,7 +188,7 @@ export class NetworkLayer implements CustomLayerInterface {
       scene.add(group);
       this.lineGroups.push(group);
     }
-    if (this.vehicles) scene.add(...this.vehicles.meshes);
+    if (this.vehicles) scene.add(...this.vehicles.meshes, ...this.vehicles.glowMeshes);
     for (const mesh of this.vehicles?.meshes ?? []) {
       const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
       for (const m of mats) {
@@ -246,6 +247,10 @@ export class NetworkLayer implements CustomLayerInterface {
       m.emissive.setHex(lift.emissive);
       m.emissiveIntensity = lift.intensity;
     }
+    // Independent of the per-material lift loop above on purpose — see
+    // windowGlow.ts's doc comment for why a train's shell converging with
+    // the track under it needs a genuinely separate fix, not a bigger floor.
+    this.vehicles?.setNightGlow(windowGlowOpacity(elevationDeg));
   }
 
   /** Sky colours follow the same solar elevation the key light does. Called

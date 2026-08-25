@@ -7,7 +7,7 @@ import {
   stockLengthM,
   type StockSpec,
 } from "./rollingStock";
-import { NOSE_SHAPES, buildStockGeometry, taperNose } from "./stockGeometry";
+import { NOSE_SHAPES, buildStockGeometry, buildWindowGlowGeometry, taperNose } from "./stockGeometry";
 
 const specFor = (vehicleType: Parameters<typeof resolveStock>[0]["vehicleType"]): StockSpec =>
   resolveStock({ color: "#7CB342", vehicleType, rollingStock: null });
@@ -168,5 +168,56 @@ describe("buildStockGeometry", () => {
     );
     expect(DEFAULT_STOCK.commuter.roof).toBe("pantograph");
     expect(DEFAULT_STOCK.heavy.roof).toBe("none");
+  });
+});
+
+describe("buildWindowGlowGeometry", () => {
+  it("builds one box per car, no colour attribute needed", () => {
+    const spec = { ...specFor("heavy"), cars: 3 };
+    const geo = buildWindowGlowGeometry(spec);
+    // A merged BoxGeometry per car: 24 vertices/car (Three duplicates
+    // corners per face on a BoxGeometry), scaling linearly with car count.
+    const two = buildWindowGlowGeometry({ ...spec, cars: 2 });
+    expect(geo.getAttribute("position").count).toBeGreaterThan(
+      two.getAttribute("position").count,
+    );
+    expect(geo.getAttribute("color")).toBeUndefined();
+  });
+
+  it("sits at the glazing band's own height, proud of the shell's width", () => {
+    const spec = specFor("heavy");
+    const geo = buildWindowGlowGeometry(spec);
+    const pos = geo.getAttribute("position");
+    let minZ = Infinity;
+    let maxZ = -Infinity;
+    let maxY = 0;
+    for (let i = 0; i < pos.count; i++) {
+      minZ = Math.min(minZ, pos.getZ(i));
+      maxZ = Math.max(maxZ, pos.getZ(i));
+      maxY = Math.max(maxY, Math.abs(pos.getY(i)));
+    }
+    expect(minZ).toBeCloseTo(spec.rideHeightM + spec.glazing.zM - spec.glazing.heightM / 2, 6);
+    expect(maxZ).toBeCloseTo(spec.rideHeightM + spec.glazing.zM + spec.glazing.heightM / 2, 6);
+    // Proud of the shell's own half-width (widthM / 2), not flush with it —
+    // the whole point is to sit just outside the body's baked-in glazing
+    // surface so the two never z-fight.
+    expect(maxY).toBeGreaterThan(spec.widthM / 2);
+  });
+
+  it("excludes the nose — no window band on the cab tip", () => {
+    const spec = specFor("heavy");
+    const glow = buildWindowGlowGeometry(spec);
+    const glowPos = glow.getAttribute("position");
+    let glowMaxX = -Infinity;
+    for (let i = 0; i < glowPos.count; i++) glowMaxX = Math.max(glowMaxX, glowPos.getX(i));
+
+    const full = buildStockGeometry(spec);
+    const fullPos = full.getAttribute("position");
+    let fullMaxX = -Infinity;
+    for (let i = 0; i < fullPos.count; i++) fullMaxX = Math.max(fullMaxX, fullPos.getX(i));
+
+    // The full body extends to the nose tip; the glow overlay stops at the
+    // lead car's body (before the cab), same as the glazing band it tracks.
+    expect(glowMaxX).toBeLessThan(fullMaxX);
   });
 });

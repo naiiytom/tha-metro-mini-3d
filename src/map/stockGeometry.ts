@@ -114,6 +114,63 @@ function bandPart(
   return paint(g, band.hex);
 }
 
+/**
+ * A small additional nudge OUTSIDE the glazing band's own `PROUD_M` offset
+ * from the shell, so the separate night-glow overlay (`buildWindowGlowGeometry`
+ * below) never z-fights the glazing surface `buildStockGeometry` already
+ * bakes into the main body — they would otherwise be two exactly-coincident
+ * box faces, an unstable render order at best.
+ */
+const GLOW_PROUD_M = PROUD_M + 0.01;
+
+/**
+ * One thin box per car, positioned and sized identically to that car's
+ * glazing band (see `buildStockGeometry`'s own `bandPart(spec.glazing, ...)`
+ * call) but nudged `GLOW_PROUD_M` proud of it and carrying NO vertex colour
+ * — this is meant for a separate, uncoloured `MeshBasicMaterial` overlay
+ * whose OWN opacity (`windowGlow.ts`) drives whether it reads as lit windows,
+ * not for anything nightLift.ts touches. See `windowGlow.ts`'s doc comment
+ * for why this exists as its own mesh rather than a tweak to the glazing
+ * band already in the main geometry.
+ *
+ * Deliberately excludes the nose — a raked/blunt/rounded cab tip has no flat
+ * window band to speak of, and forcing one into that geometry would just
+ * clip through the taper.
+ */
+export function buildWindowGlowGeometry(spec: StockSpec): THREE.BufferGeometry {
+  const total = stockLengthM(spec);
+  const parts: THREE.BufferGeometry[] = [];
+
+  for (let i = 0; i < spec.cars; i++) {
+    const carCenter = -total / 2 + spec.carLengthM / 2 + i * (spec.carLengthM + spec.gapM);
+    const isLead = i === spec.cars - 1;
+    const bodyLength = isLead ? spec.carLengthM - spec.cabLengthM : spec.carLengthM;
+    const bodyCenter = isLead ? carCenter - spec.cabLengthM / 2 : carCenter;
+
+    const g = new THREE.BoxGeometry(
+      bodyLength - PROUD_M * 2,
+      spec.widthM + GLOW_PROUD_M * 2,
+      spec.glazing.heightM,
+    );
+    g.translate(bodyCenter, 0, spec.rideHeightM + spec.glazing.zM);
+    parts.push(g);
+  }
+
+  const merged = mergeGeometries(parts);
+  parts.forEach((g) => g.dispose());
+  if (!merged) {
+    // Unreachable today (every part here is a plain BoxGeometry with no
+    // colour attribute, so every part's attribute set is identical) — see
+    // buildStockGeometry's own comment on this same guard for the failure
+    // mode it exists to name if that ever stops being true.
+    throw new Error(
+      "window-glow overlay parts could not be merged into one geometry — every " +
+        "part must carry the identical attribute set (position, normal)",
+    );
+  }
+  return merged;
+}
+
 export function buildStockGeometry(spec: StockSpec): THREE.BufferGeometry {
   const total = stockLengthM(spec);
   const zCenter = spec.rideHeightM + spec.heightM / 2;
