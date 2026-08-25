@@ -44,7 +44,7 @@ export function TimeControls() {
   return (
     <div className="panel-glass pointer-events-auto w-full rounded-xl border px-4 py-3 shadow-xl shadow-ink/10 backdrop-blur-md md:w-auto">
       {engineStatus === "error" ? (
-        <p className="max-w-xs text-xs text-red-600">
+        <p className="max-w-xs text-xs text-danger-ink">
           Engine error: {engineError ?? "unknown"}
         </p>
       ) : (

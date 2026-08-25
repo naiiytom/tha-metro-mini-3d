@@ -25,6 +25,8 @@
   --color-accent-ink: var(--accent-ink);
   --color-note-bg: var(--note-bg);
   --color-note-ink: var(--note-ink);
+  --color-danger-bg: var(--danger-bg);
+  --color-danger-ink: var(--danger-ink);
 }
 
 :root {
@@ -39,6 +41,10 @@
   --accent-ink: #ffffff;
   --note-bg: #f0f9ff;
   --note-ink: #075985;
+  /* Contrast checked (WCAG relative-luminance formula): 5.91:1 against
+     --danger-bg below, well clear of the 4.5:1 AA floor for normal text. */
+  --danger-bg: #fef2f2;
+  --danger-ink: #b91c1c;
 }
 
 [data-theme="dark"] {
@@ -53,12 +59,27 @@
   --accent-ink: #04241a;
   --note-bg: #0c2a3d;
   --note-ink: #bae6fd;
+  /* Contrast checked: 9.31:1 against --danger-bg below. */
+  --danger-bg: #2a1113;
+  --danger-ink: #fca5a5;
 }
 
 /* The glassmorphism panels blur whatever is behind them, so their own
    backdrop has to stay translucent in both themes rather than adopt an
    opaque surface token. */
 .panel-glass {
+  /* Fallback for browsers without color-mix() support (e.g. Safari <16.2,
+     Firefox <113 — this project's own stated minimum, Safari 15+, predates
+     color-mix()). CSS drops an unsupported function value as an INVALID
+     declaration rather than falling back, so without a plain value declared
+     first, every glass panel (LineSelector, StationSearch, RoutePlanner,
+     TimeControls, TrainInspector, StationBoard) would render with NO
+     background/border at all on such a browser — fully transparent, not
+     semi-opaque. The color-mix() declarations below win the cascade (same
+     specificity, later) wherever the browser understands them; where it
+     doesn't, they're invalid and dropped, leaving these standing. */
+  background-color: var(--surface);
+  border-color: var(--edge);
   background-color: color-mix(in srgb, var(--surface) 82%, transparent);
   border-color: color-mix(in srgb, var(--edge) 70%, transparent);
 }
