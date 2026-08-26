@@ -185,6 +185,12 @@ Rust toolchain scripts (see [CONTRIBUTING](./docs/CONTRIBUTING.md)):
 
 Contributions are welcome. Start with [CONTRIBUTING.md](./docs/CONTRIBUTING.md) — it covers setup, codebase structure, and architectural conventions checked in review. By participating you agree to the [Code of Conduct](./docs/CODE_OF_CONDUCT.md).
 
+## Supporting
+
+If you enjoy exploring Bangkok's transit network in 3D and want to support ongoing hosting and development, consider becoming a sponsor:
+
+- **GitHub Sponsors:** [github.com/sponsors/naiiytom](https://github.com/sponsors/naiiytom)
+
 ## License
 
 Source code is licensed under the [MIT License](./LICENSE).
@@ -194,3 +200,4 @@ Bundled data keeps its own terms: OpenStreetMap-derived track geometry is ODbL, 
 ---
 
 *This is a fan/hobby visualization project and is not affiliated with any transit operator.*
+
