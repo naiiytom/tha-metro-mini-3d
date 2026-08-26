@@ -22,7 +22,7 @@
     "check:bundle": "node tools/check-bundle.mjs"
   },
   "dependencies": {
-    "maplibre-gl": "^6.0.0",
+    "maplibre-gl": "^6.5.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "three": "^0.185.1",
