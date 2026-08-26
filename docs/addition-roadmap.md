@@ -8,6 +8,33 @@ Features to close parity with [nagix/mini-tokyo-3d](https://github.com/nagix/min
 
 > **Note (2026-08-09):** every browser acceptance harness referenced below — the MVP 4/5/6/7, camera, kinematics, closeup, perf, mobile, train-tooltip, legibility, station-search and spur/APM runs — **was deleted**, along with its `npm run verify:*` script. References are kept as the record of how each finding was established; they are not runnable instructions. `npm test`, `cargo test` and `npm run check:bundle` are the only automated checks left.
 
+## Feature List & Parity Index
+
+| # | Feature | Category | Parity Target | Status |
+|---|---|---|---|---|
+| 1 | [Full-Screen Toggle](#1-full-screen-toggle--delivered-in-mvp-7) | UI Controls | Mini Tokyo 3D parity | ✅ Delivered (MVP 7) |
+| 2 | [Eco Mode (1 Hz Throttling)](#2-eco-mode--delivered-in-mvp-7) | Performance | Mini Tokyo 3D parity | ✅ Delivered (MVP 7) |
+| 3 | [Station Search & Geolocation](#3-station-search--delivered) | Search & Navigation | Mini Tokyo 3D parity | ✅ Delivered |
+| 3.1 | [Suvarnabhumi Airport APM](#31-suvarnabhumi-airport-bkk---apm--delivered-2026-08-09) | Network Expansion | Bangkok Context | ✅ Delivered |
+| 4 | [Mobile / Responsive Layout](#4-mobile--responsive-layout--delivered-post-mvp-6-landed-alongside-the-on-map-train-tooltip) | UI / Mobile | Core Capability | ✅ Delivered |
+| 5 | [Underground Mode & Auto-Engage](#5-underground-mode--delivered-mvp-6--mvp-7) | 3D Rendering | Mini Tokyo 3D parity | ✅ Delivered (MVP 6/7) |
+| 6 | [Day/Night Lighting & Sky Dome](#6-daynight-lighting--delivered-mvp-6--mvp-7-sky-dome) | 3D Rendering | Mini Tokyo 3D parity | ✅ Delivered (MVP 6/7) |
+| 7 | [Multi-Language Support (i18n)](#7-multi-language-support-en--th) | Localization | Mini Tokyo 3D parity | ⏳ In Progress |
+| 8 | [Route Search & Leg Highlights (RAPTOR)](#8-route-search-a--b--delivered-2026-08-16) | Routing Engine | Mini Tokyo 3D parity | ✅ Delivered |
+| 9 | [Plugin Architecture](#9-plugin-architecture) | Extensibility | Mini Tokyo 3D parity | 📋 Planned |
+| 10 | [Custom Rolling Stock & Liveries](#10-custom-train--rolling-stock-models--delivered-2026-08-22) | 3D Assets | Bangkok Context | ✅ Delivered |
+| 11–14 | [Real-time Feeds (GTFS-RT / Weather)](#hard--external-dependencies) | Live Data | Live Extension | 🛑 Blocked (No Public Feeds) |
+| 15–18 | [Embeddable API & npm Package](#developer--ecosystem) | Developer SDK | Ecosystem | 📋 Planned |
+| 19 | [MRT Orange & Purple P2 Pre-Revenue](#19-mrt-orange--mrt-purple-phase-2-track-only-pre-revenue--delivered-2026-08-04) | Network Expansion | Bangkok Context | ✅ Delivered |
+| 20 | [Visual Regression & Contrast Gates](#20-automated-coverage-for-visualperceptual-regressions--delivered-in-mvp-7) | Quality Guardrails | WCAG 3:1 Standards | ✅ Delivered |
+| 21 | [Auto/Light/Dark Themes & Vector Styles](#21-dark--light-theme-toggle--basemap-style-cycle-satellite-terrain--delivered-in-mvp-7-vector-styles-only) | Theming | Modern UI | ✅ Delivered |
+| 23–24 | [Data Defect Fixes (Pink Spur, Dwells)](#reported-defects) | Data Integrity | Feed Normalization | ✅ Fixed |
+| 25 | [Support & Donation System](#25-support--donation-system-promptpay-scb-truemoney-auditable-qr) | Community Payments | Bangkok Context | 📋 Feature Parity Item |
+| 26 | [SEO, Structured Data & PWA Manifest](#26-seo-structured-data--web-app-manifest-suite) | SEO & Discoverability | Web Standards | 📋 Feature Parity Item |
+| 27 | [UI Suite: About, Share QR & Spotlight Tour](#27-ui-elements-about--privacy-panel-share-qr-and-guided-spotlight-tour) | UI Elements & Tour | Interactive Experience | 📋 Feature Parity Item |
+
+---
+
 ## Trivial / Easy
 
 ### 1. Full-Screen Toggle — ✅ delivered in MVP 7
@@ -68,14 +95,14 @@ Features to close parity with [nagix/mini-tokyo-3d](https://github.com/nagix/min
 - Language switcher in the UI
 - Station names should display in the selected language
 
-### 8. Route Search (A → B) — ✅ delivered 2026-08-16
+### 8. Route Search (A → B) — ✅ delivered 2026-08-16 (Alternative Itineraries added 2026-08-24)
 - ✅ Search panel with origin and destination station pickers (`RoutePlanner.tsx`), reusing `filterStations` and StationSearch's result-row UX; triggered from `LineSelector`'s header
 - ✅ **Full schedule-aware planning, not a static "typical travel time"**: RAPTOR over the real timetable (`sim-core/src/route.rs`), against the app's scrubbed clock, so a plan made at a scrubbed 23:50 is the plan for 23:50
-- ✅ Earliest arrival, tied-broken by fewest transfers — RAPTOR's native output, since the round index is the boarding count
+- ✅ **Alternative Itineraries (Multi-Criteria)**: `SimWorld::plan_alternatives` / `planAlternatives` surfaces up to 3 non-dominated candidate itineraries (e.g. earliest arrival vs. fewest transfers), allowing users to compare options directly
 - ✅ Leg-by-leg transfer instructions, board/alight times, total duration and transfer count; map highlight of each ride leg's arc span
-- ✅ Suvarnabhumi APM is plannable, via a new ARL↔APM interchange override (332 m, just outside the 300 m auto-link radius) — it was a disconnected component of the routing graph before
+- ✅ Suvarnabhumi APM is plannable, via an ARL↔APM interchange override (332 m, just outside the 300 m auto-link radius)
 - ✅ **Incidental fix**: `station_board` now shows post-midnight departures late at night. It shared the two-service-day-frame rule and structurally could not show a 00:10 departure at 23:00
-- ⚠️ **Honest limitations**: one route is returned, not a ranked set (no Pareto frontier — RAPTOR's round structure leaves McRAPTOR open later). **Transfer time is one FLAT allowance** at every interchange regardless of walking distance, disclosed in the panel via `TRANSFER_TIMES_ESTIMATED_NOTE`; distance-derived times were considered and declined, since there is no per-interchange data to calibrate against. Interchange complexes expand **one hop** — a three-line complex whose outer pair is not directly linked is not treated as one complex. Leg instructions are English only (item 7). Track-only lines (`orange`, `purple-ext`) are structurally absent from the graph: they have zero stations.
+- ⚠️ **Honest limitations**: **Transfer time is one FLAT allowance** at every interchange regardless of walking distance, disclosed in the panel via `TRANSFER_TIMES_ESTIMATED_NOTE`; distance-derived times were considered and declined, since there is no per-interchange data to calibrate against. Interchange complexes expand **one hop** — a three-line complex whose outer pair is not directly linked is not treated as one complex. Leg instructions are English only (item 7). Track-only lines (`orange`, `purple-ext`) are structurally absent from the graph: they have zero stations.
 
 ### 9. Plugin Architecture
 - Formal plugin interface (register/unregister, lifecycle hooks)
@@ -250,3 +277,64 @@ Concrete, already-scoped work that fell out of MVP 6. Constraints below were est
 - Publish as an installable npm package
 - ESM and UMD builds
 - TypeScript type definitions included
+
+---
+
+## UI, Community & SEO Feature Parity
+
+### 25. Support & Donation System (PromptPay, SCB, TrueMoney, Auditable QR)
+- **Non-intrusive, privacy-first community support:** Quiet integration within the About panel (`AboutPanel.tsx`) and the final card of the guided tour — strictly no arrival pop-ups, timed modals, or floating banners over the map canvas.
+- **PromptPay & TrueMoney QR integration:**
+  - Standard EMVCo merchant-presented QR payload format (Thai Bankers' Association PromptPay profile): Format Indicator (`000201`), Point of Initiation (`010211` static), Merchant Account Info Tag 29 (`0016A000000677010111` + Mobile Tag `01130066XXXXXXXXX`), Currency THB (`5303764`), Country TH (`5802TH`), and CRC-16/CCITT-FALSE checksum (`6304XXXX`).
+  - Implemented as a pure, dependency-free utility in `src/lib/promptpay.ts` with `crc16()` (polynomial `0x1021`, initial value `0xFFFF`), `normaliseMobile()`, `formatMobile()`, and `promptPayPayload()`.
+  - **Static only — no amount (tag 54) baked in:** Payers choose their own donation amount in their banking application.
+  - **Auditable build-time SVG artefact:** `public/promptpay-qr.svg` is rendered at build time via `tools/make-qr.mjs` (`npm run qr`) and committed to Git. Keeps `qrcode` as a devDependency without adding runtime bundle weight to the browser (NF2 compliance) and enables independent verification against printed digits.
+- **Direct SCB Bank Transfer:**
+  - Displays Siam Commercial Bank account details with passbook formatting (`000-000000-0`) and one-click copy button with clipboard feedback.
+  - **Deliberately omitted from the QR payload:** PromptPay resolves registered identifiers (mobile, national ID, e-wallet) to an account at the bank; encoding raw account numbers into the EMVCo bank tag is inconsistently supported across Thai mobile banking apps and risks scan failures.
+- **External Sponsorship Channels:** Configurable links in `src/config/support.ts` for GitHub Sponsors, Ko-fi, Buy Me a Coffee, and custom links with `hasSupportLinks()` conditional rendering.
+- **Automated Verification Gates:**
+  - `src/lib/promptpay.test.ts`: Verifies the CRC-16/CCITT-FALSE check vector (`123456789` → `29B1`), mobile number length/prefix validation, formatting, and static payload correctness.
+  - `tools/support.test.mjs`: Decodes `public/promptpay-qr.svg` to verify it matches `SUPPORT.promptPayId`, asserts static mode without baked-in amount, confirms bank account is not in the QR, and enforces HTTPS for external links.
+
+### 26. SEO, Structured Data & Web App Manifest Suite
+- **Progressive Web App Manifest (`public/site.webmanifest`):**
+  - Standalone display configuration (`display: "standalone"`, `orientation: "any"`, `background_color: "#0f172a"`, `theme_color: "#0f172a"`, categories: `travel`, `navigation`, `maps`, `utilities`).
+  - High-resolution SVG app icon (`public/icon.svg`) featuring Bangkok transit liveries (BTS Green, MRT Blue, MRT Pink).
+  - Maskable adaptive icon (`public/icon-maskable.svg`) with 80% inner safe-zone scaling to prevent letterboxing on circular Android launcher icons.
+- **Search Engine Optimization (SEO) & Social Meta (`index.html`):**
+  - Complete Open Graph protocol metadata (`og:title`, `og:description`, `og:image`, `og:url`, `og:type`, `og:site_name`, `og:locale`, `og:locale:alternate`).
+  - Twitter Card tags (`summary_large_image`) with high-resolution 1200×630 social preview card (`public/og-image.png`).
+  - Viewport configuration with `viewport-fit=cover` for notched devices and no unpinned maximum-scale restrictions (accessibility-compliant).
+  - Canonical URL (`https://metro.itstom.me/`), crawler directives, keywords, and author tags.
+- **Multilingual Sitemap & Hreflang Alternates (`public/sitemap.xml`):**
+  - Declares canonical URL with `xhtml:link` hreflang alternates for all supported language endpoints (`en`, `th`, `zh`, `ja`, `ko`, `fr`, `de`, `ru`, `es`) plus `x-default`, mirrored by matching `<link rel="alternate">` tags in `index.html`.
+- **Crawler Directives (`public/robots.txt`):**
+  - `User-agent: *`, `Allow: /`, `Disallow: /data/` (protects binary timetable cache `network.tmb` and report artifacts from wasting crawl budget), and `Sitemap: https://metro.itstom.me/sitemap.xml`.
+- **Schema.org Structured Data (JSON-LD):**
+  - `@graph` schema combining:
+    1. `WebApplication`: Category `TravelApplication`, WebGL 2.0 / WebAssembly requirements, free offer (`0 THB`), language tags, MIT license, and source repository link.
+    2. `Dataset`: Attribution to OpenStreetMap route relations and OTP / Namtang GTFS open data with spatial coverage coordinates for Greater Bangkok.
+    3. `FAQPage`: Answers clarifying timetable simulation vs. live vehicle feeds, line coverage details, and zero-cost/no-cookie privacy guarantees.
+- **Prerendered Crawlable DOM & Fallback:**
+  - Semantic HTML markup inside `<div id="root">` (`<h1>`, multilingual overview, line list, `<noscript>` instructions) so non-JS web crawlers and search spiders index genuine content prior to React hydration.
+- **Automated Verification Suite (`tools/seo.test.mjs`):**
+  - Vitest test suite asserting title/description length limits, canonical URLs, robots directives, Open Graph completeness, hreflang completeness, JSON-LD schema validity, and prerender text content.
+
+### 27. UI Elements: About & Privacy Panel, Share QR, and Guided Spotlight Tour
+- **Consolidated About & Privacy Modal Panel (`AboutPanel.tsx`):**
+  - Accessible via floating `AboutButton` (`?`) in top-right corner.
+  - Project summary explaining timetable interpolation along real OSM 3D track alignments.
+  - Data attribution with live feed metrics (feed version, routes, stations, daily runs from validation store).
+  - Privacy disclosure: explicitly states zero tracking, zero cookies, zero analytics, local-only preference storage, with a "Clear Settings" action.
+  - Support & donation card integration with copyable PromptPay and SCB account numbers.
+  - Share card (`public/share-qr.svg`) with direct URL for platform and mobile handoff.
+  - Open-source repository links and issue tracker reporting.
+- **Guided Spotlight Onboarding Tour (`Tour.tsx`):**
+  - 13-step interactive onboarding tour spotlighting UI elements and map controls.
+  - **Dynamic CSS Box-Shadow Spotlight Scrim:** A single absolutely-positioned box the size of the target element (`[data-tour="..."]`) carrying an oversized `box-shadow` spread that darkens the page while leaving the target control transparent and interactive without requiring SVG masks or multi-element clipping.
+  - **Live Train Showcase (`showcaseTrain()`):** Moves camera to an active train and selects it to demonstrate real kinematics and inspector panel.
+  - **Non-destructive execution:** Reverts any temporary demo modes (e.g. night lighting or tunnel transparency) upon completion or dismissal.
+  - Responsive recalculation of target bounding rects on window resize and device orientation changes.
+- **Design System & Semantic Tokens:**
+  - Full compatibility with Light and Dark theme modes using semantic CSS tokens (`panel-glass`, `text-ink`, `text-ink-muted`, `bg-surface`, `border-edge`) and responsive touch targets (`min-h-11` on coarse pointers).

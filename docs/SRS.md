@@ -4,8 +4,8 @@
 
 **Project Name:** Greater Bangkok Metro Mini 3D — 3D Transit Simulation Platform
 **Version:** 1.0.0
-**Status:** Draft / Technical Proposal
-**Last Updated:** 2026-08-02
+**Status:** Active Specification
+**Last Updated:** 2026-08-26
 **Repository:** [tha-metro-mini-3d](https://github.com/naiiytom/tha-metro-mini-3d)
 
 ---
@@ -22,34 +22,33 @@ The platform uses the open **Static GTFS** data standard published for Thailand'
 
 ## 2. System Scope & Transit Coverage
 
-The simulation covers the major urban rail networks in the Bangkok Metropolitan Region:
+The simulation covers the major urban rail networks in the Bangkok Metropolitan Region (14 lines in registry total: 12 simulated lines, 2 track-only pre-revenue lines, 198 stations, 9,609 daily expanded runs):
 
-| Line | Transit Type | Operator | Structure |
-|------|-------------|----------|-----------|
-| BTS Sukhumvit & Silom Lines | Heavy Rail | BTSC | Elevated |
-| MRT Blue Line | Heavy Rail | BEM | Underground / Elevated |
-| MRT Purple Line | Heavy Rail | BEM | Elevated |
-| SRT Red Lines (North & West) | Commuter Rail | SRTET (SRT) | At-Grade / Elevated (nominal — see note) |
-| Airport Rail Link (ARL) | Express / Commuter | Asia Era One (SRT) | Elevated |
-| MRT Pink Line | Monorail | NBM | Elevated |
-| MRT Yellow Line | Monorail | EBM | Elevated |
-| BTS Gold Line | Automated People Mover (Monorail-class) | BMA / KT (operated by BTSC) | Elevated |
-| MRT Orange Line *(track only — pre-revenue)* | Heavy Rail | — | Underground / Elevated |
+| Line | Transit Type | Operator | Structure | Status |
+|------|-------------|----------|-----------|--------|
+| BTS Sukhumvit Line | Heavy Rail | BTSC | Elevated | Full Simulation |
+| BTS Silom Line | Heavy Rail | BTSC | Elevated | Full Simulation |
+| MRT Blue Line | Heavy Rail | BEM | Underground / Elevated (per-segment) | Full Simulation |
+| MRT Purple Line | Heavy Rail | BEM | Elevated | Full Simulation |
+| SRT Dark Red Line | Commuter Rail | SRTET (SRT) | At-Grade / Elevated (per-segment) | Full Simulation |
+| SRT Light Red Line | Commuter Rail | SRTET (SRT) | At-Grade / Elevated (per-segment) | Full Simulation |
+| Airport Rail Link (ARL) | Express / Commuter | Asia Era One (SRT) | Elevated | Full Simulation |
+| MRT Pink Line (Trunk) | Monorail | NBM | Elevated | Full Simulation (Est. transit times) |
+| MRT Yellow Line | Monorail | EBM | Elevated | Full Simulation |
+| BTS Gold Line | Automated People Mover | BMA / KT (operated by BTSC) | Elevated | Full Simulation |
+| MRT Orange Line | Heavy Rail | MRTA | Underground / Elevated (per-segment) | Track-only (Pre-revenue) |
+| MRT Purple Line (Phase 2) | Heavy Rail | MRTA / BEM | Underground / Elevated (per-segment) | Track-only (Pre-revenue) |
+| MRT Pink Line (IMPACT Link) | Monorail | NBM | Elevated | Full Simulation (Est. transit times) |
+| Suvarnabhumi APM | Automated People Mover | AOT | Underground | Full Simulation (Synthetic 24h schedule) |
 
-**Coverage assumptions**
+**Coverage assumptions & data provenance**
 
-- All lines above are in scope for v1.0. The **Gold Line** is operational and receives full simulation (track + moving trains). The **Orange Line** is not yet in passenger service, so it is included as **rendered track geometry only** — no vehicles, no timetable — until an operational schedule exists (see §7 MVP 6 and §8).
-- Interchange relationships between lines are modelled for the UI inspector but do not affect vehicle motion (no passenger routing in v1.0).
-
-> **⚠ Operational-status caveat — re-verified 2026-07-31 (MVP 5, Task 11).** The classification above was originally drafted from an early-2025 snapshot and unconfirmed against a live source. Three open questions flagged in that draft have now been checked against current sources:
-> - **MRT Orange Line** — still pre-revenue, confirmed via [Wikipedia: Orange Line (Bangkok)](https://en.wikipedia.org/wiki/Orange_Line_(Bangkok)) and [Bangkok Post, "Orange Line due to fully open in 2030"](https://www.bangkokpost.com/thailand/general/2832487/orange-line-due-to-fully-open-in-2030) (accessed 2026-07-31). The Eastern Section (Thailand Cultural Centre–Yaek Rom Klao) is now projected to open **late 2027** (per an August 2025 announcement, moved up from a prior 2028 target); the Western Section (Bang Khun Non–Thailand Cultural Centre) is projected for **July 2030**, with only ~14% of civil works complete as of end-July 2025. **Remains track-only, MVP 6** — the classification in this table and in MVP 6's scope is unchanged and correctly conservative.
-> - **Pink Line spur to Muang Thong Thani** — confirmed **open and in full paid revenue service since 2025-06-17** (free trial ran from 2025-05-20), per [Nation Thailand, "Bangkok's Pink Metro Line Extension Opens Early with Free Rides"](https://www.nationthailand.com/news/general/40050080) (published 2025-05-16, accessed 2026-07-31). Two new stations: Impact Muang Thong Thani (MT01) and Lake Muang Thong Thani (MT02). **Added to the registry 2026-08-09** as its own entry `pink-spur` (GitHub issue #15 reported it missing). The open question this note left — whether the Namtang feed publishes a separate route id for the spur — resolved as **no**: its 4 trips sit under the SAME `route_id "2436"` as the main line, which is exactly why it could not simply be appended. Separating them needed a new per-trip route-claiming mechanism (`claimGtfsStopIds` / the preprocessor's `TripRouter`), since route identity had been a strict one-route-id-per-line map. OSM relation 19149752 is clean PTv2 and needed no new fetch code. See CLAUDE.md's implementation notes.
-> - **MRT Purple Line southern extension (Tao Poon–Rat Burana)** — confirmed **still under construction, not open**, per [Bangkok Post, "Purple Line extension '50% done'"](https://www.bangkokpost.com/thailand/general/2920320/purple-line-extension-50-done) and [Nation Thailand, "Southern extension of Purple Line 65% complete"](https://www.nationthailand.com/news/policy/40057649) (accessed 2026-07-31). A cross-river tunnel segment is due by May 2026, but the earliest partial opening (Tao Poon–National Library) is now projected for 2028, full completion 2030 — delayed further by a September 2025 road collapse at the worksite. The registry's `purple` entry in this task covers only the existing operational Purple Line (Khlong Bang Phai–Tao Poon); the southern extension is out of scope until it opens.
-> - Lines listed as operational (Green, Purple, ARL, Pink [main line], Yellow, Gold, Red North/West) were all confirmed against the real Namtang GTFS feed in this task (`tools/inspect-gtfs.mjs`, 2026-07-31) — each has a live `route_id` with real `frequencies.txt` rows, not just a bare `trips.txt` pattern. **MRT Blue Line remains unverified in this draft** (still scoped to MVP 6, not touched by Task 11) — re-check it when that task starts.
->
-> **Suvarnabhumi Airport APM — added 2026-08-09 with an ESTIMATED timetable (roadmap item 3.1).** The airport people mover (Main Terminal ↔ Midfield Satellite Concourse 1, ~1.0 km, all underground, in service since 2023-09-28) is now the registry's `apm` entry. It is the **one deliberate exception to §1's premise that every train is placed by interpolating a real published timetable**: AOT publishes no machine-readable schedule, and the Namtang feed does not carry the service at all (verified 2026-08-09 across all 2,077 routes). Rather than render it as dead track, its observed service pattern is declared in `tools/lines.config.mjs` (180 s headway, 120 s runtime, 40 s dwell, 24 h span) and the preprocessor synthesizes patterns and runs from it. The exception is contained and disclosed, not silent: parameters live in the registry, every synthesized id is prefixed `synthetic:`, and the UI labels the line's times as estimated wherever they appear. **No other line may acquire a synthetic schedule without the same disclosure** — if the labelling is ever removed, the line should revert to track-only.
->
-> **MVP 6 update (2026-08-02).** MRT Blue is now built, verified, and delivered — real `route_id "3"`, OSM relation 444659, 10th registry entry, genuinely mixed underground/elevated structure (§7 has the full delivered summary). **MRT Orange and the MRT Purple southern extension ("Purple Phase 2") were still NOT in the registry as of this date.** The MVP 6 plan's Task 6 would have added both as track-only, pre-revenue entries (reusing the mechanism this document's §F4.1/§7 MVP 6 describes); that task was **deferred by human ruling** within the MVP 6 cycle, then **delivered 2026-08-04** once picked back up (§7's MVP 6 summary has the full story, including a way-based fetch mechanism the original plan didn't anticipate needing). The construction-status facts above (Orange late-2027/2030, Purple southern extension 2028/2030) are unchanged throughout.
+- **Full Simulation (12 lines)**: Operating lines receive schedule interpolation, vehicle kinematics, and station arrival/departure boards.
+- **Track-Only Pre-Revenue (2 lines)**: MRT Orange and MRT Purple Phase 2 are rendered as track geometry with pre-revenue styling (dashed centerline, desaturated deck), 0 simulated vehicles, and 0 stations.
+- **Estimated / Synthesized Schedules**:
+  - *MRT Pink Line & IMPACT Link Spur*: The Namtang GTFS feed carries 0 s transit time rows; inter-station runtimes are estimated from track arc length using a speed calibrated from the MRT Yellow Line.
+  - *Suvarnabhumi APM*: Absent from GTFS; operational continuous service is synthesized from observed headway parameters (180 s headway, 120 s runtime, 40 s dwell) and badged in the UI.
+- **Interchange relationships**: Linked automatically within a 300 m radius, augmented by explicit manual overrides for long pedestrian connections (e.g. Nonthaburi Civic Center, Sala Daeng/Si Lom, Phetchaburi/Makkasan, Suvarnabhumi ARL/APM, Ha Yaek Lat Phrao/Phahon Yothin, Hua Mak ARL/Yellow, Bang Sue SRT/MRT). Used for the station board, inspector, and RAPTOR route search.
 
 ---
 
@@ -317,130 +316,28 @@ tha-metro-mini-3d/
 
 ---
 
-## 7. Delivery Roadmap — MVP Ladder
+## 7. System Architecture & Subsystems
 
-The project is delivered as a sequence of **vertical, shippable MVPs** rather than horizontal technical layers. Each MVP is independently demonstrable and de-risks the next. The original phase work (data pipeline, Wasm core, map integration, motion, UI polish — see §7A) is distributed across these MVPs rather than done all at once.
+The system is organized into modular subsystems operating with clear boundaries:
 
-Guiding principle: **prove the full render pipeline on one line before adding motion; prove motion on one line before adding breadth.**
+### 7.1 Data Pipeline & Offline Processing
+- **OpenStreetMap Overpass Extractor**: Fetches high-precision 3D railway track geometries and station nodes from pinned route relations and construction ways (`tools/fetch-network.mjs`). Applies automated grade-limit relaxation (`tools/trackProfile.mjs`, ruling gradient ≤4%) to prevent portal visual artifacts.
+- **GTFS Preprocessor CLI (`rust-engine/preprocessor`)**: Ingests static GTFS data and OSM track geometry, snaps station coordinates monotonically along each pattern's arc length, expands headways/frequencies into concrete daily runs, resolves multi-trip route claims, and serializes the complete network into a compact bincode binary timetable (`public/data/network.tmb`).
 
-### MVP 1 — Green Line track laid (geometry only, no trains)
+### 7.2 Simulation Core & WebAssembly Engine (`rust-engine/sim-core`, `rust-engine/wasm`)
+- **Kinematics & Interpolation**: Computes continuous train poses (position, elevation, yaw heading, transit state) as a pure function of simulated Bangkok time (UTC+7). Employs cubic smoothstep S-curves (`3p² − 2p³`) for realistic station acceleration and deceleration.
+- **RAPTOR Multi-Criteria Route Planner**: Executes round-based connection scans over the preprocessed timetable graph. Computes non-dominated itineraries (earliest arrival and fewest transfers), transfer instructions, and ride leg geometries.
+- **Web Worker Decoupling**: The simulation loop runs at a fixed 10 Hz in a Web Worker, publishing state via ping-pong transferable `Float32Array` buffers to decouple compute from the 60 FPS rendering loop.
 
-**Goal:** Render the BTS Green Line as accurate, elevated 3D track over the MapLibre base map. This is the thinnest possible slice that exercises the entire visual pipeline end-to-end.
+### 7.3 Visualization & Rendering Subsystem (`src/map/`)
+- **MapLibre ↔ Three.js Bridge**: Custom WebGL layer rendering inside MapLibre GL JS's context with a floating local ENU meter origin around Siam (`ORIGIN_LNG_LAT`).
+- **Vehicle Manager**: High-performance single-draw-call per route rendering via `THREE.InstancedMesh`. Supports parametric carriage geometry, authentic consist lengths, roof pantographs on 25 kV AC lines, and glowing cabin windows at night.
+- **Atmosphere & Theming**: Real-time solar position calculations (NOAA) driving dynamic sky palettes, horizon-clipped sky dome, and WCAG-compliant emissive contrast lifting for night readability.
+- **Underground Mode**: Altitude-aware sub-surface visualization with automatic tunnel entry/exit engagement and hysteresis.
 
-**Scope:** BTS Green Line = **Sukhumvit branch (light green) + Silom branch (dark green)**. *(Option to narrow to Sukhumvit-only for the very first slice; see §7B.)*
-
-**In scope**
-
-- Vite + TypeScript + React app shell; MapLibre GL JS base map centred on Bangkok.
-- Three.js custom WebGL layer wired into MapLibre (the F3 bridge), including the `MercatorCoordinate` projection and camera-relative/floating-origin coordinate setup (§3A.4–3A.5).
-- Green Line track geometry extracted to 3D GeoJSON with elevated Z-offsets (+12–22 m), spline-smoothed (F1.3).
-- Track rendered as a 3D ribbon/line at correct elevation; station node markers placed.
-- Free-camera orbit controls (subset of F3.2).
-
-**Explicitly NOT in this MVP:** no trains, no motion, no timetable, no Wasm engine yet, no UI panels beyond basic map controls.
-
-**Definition of done:** the Green Line's two branches appear as correctly-positioned elevated 3D track that stays glued to the map through pan/zoom/tilt, on the NF3 browser matrix, within the bundle budget so far.
-
-**Why first:** it forces the hardest integration problem (MapLibre↔Three coordinate/depth/precision) to be solved on day one, with static geometry as the only variable. Everything else builds on this foundation.
-
-### MVP 2 — Green Line data pipeline & static schedule
-
-**Goal:** Stand up the offline preprocessing path and load a real timetable for the Green Line.
-
-- Rust CLI preprocessor: GTFS ZIP → compact binary cache (§F1.1–F1.2), Green Line only.
-- Client loads the binary timetable; parse/validate against source.
-- Stops snapped onto the track shape; service-calendar resolution (`calendar.txt`).
-- No motion yet — this MVP proves the data is correct and loadable, feeding MVP 3.
-
-**Definition of done:** the Green Line timetable loads client-side under the <3 MB cache target and passes pipeline validation (trip/stop counts, calendars).
-
-### MVP 3 — Green Line trains moving (single-line simulation)
-
-**Goal:** Trains move along the Green Line on schedule. First "living" build.
-
-- Rust→Wasm interpolation engine (F2.1): status resolution + `3p²−2p³` S-curve, exposed via the flat `Float32Array` transform-buffer API (§3A.2).
-- Web Worker runs the sim tick; transforms delivered via transferable buffer (§3A.3); fixed-timestep sim with render-side interpolation (§3A.7).
-- `InstancedMesh` train models coloured to line identity (F3.1, §3A.5); continuous yaw from track tangent (F2.2).
-- Basic time-warp: 1×/5×/10×/60× and a real-time clock (F2.3).
-
-**Definition of done:** Green Line trains dwell and transit on schedule at 60 FPS desktop, correct headings, no overshoot past termini.
-
-### MVP 4 — Interaction & core UI (still Green Line)
-
-**Goal:** Make the single line explorable and inspectable.
-
-- Vehicle-follow (third-person) camera (F3.2).
-- Station & vehicle inspector card: route, next-station ETA, origin/destination (F4.2).
-- Time-scrubber / custom time picker (F2.3, `TimeScrubber.tsx`).
-- Live timetable drawer for the selected station (F4.3).
-- Zustand holds only UI-derived state, never per-frame kinematics (§3A.7).
-
-**Definition of done:** a user can select a train, follow it, scrub time, and read live schedule info — a complete single-line product.
-
-### MVP 5 — Multi-line breadth (elevated network)
-
-**Goal:** Generalize from one line to many by making everything line-agnostic and adding the remaining **elevated** lines: MRT Purple, ARL, the Pink & Yellow monorails, the **BTS Gold Line** (short elevated automated people-mover — full track + trains), plus SRT Red (at-grade/elevated).
-
-- Line selector to toggle visibility (F4.1).
-- Monorail / APM (short-consist) vehicle models; per-line colours and structure types.
-- Interchange metadata for the inspector.
-- Performance validated toward the 300-concurrent-vehicle / <3 ms tick target (NF1).
-
-**Definition of done:** all elevated + at-grade lines (including Gold) render and simulate together within performance budget.
-
-**Delivered (2026-07-31).** The registry (`tools/lines.config.mjs`) grew from 2 lines to 9: Sukhumvit, Silom, MRT Purple, Airport Rail Link, MRT Pink, MRT Yellow, BTS Gold, SRT Dark Red, SRT Light Red — 155 stations, 34 trip patterns, 4,481 expanded runs, all pinned to real OSM relation ids and verified against the live Namtang GTFS feed. **A mixed-structure line gets one nominal altitude in MVP 5:** SRT Red runs both at-grade and elevated in reality, but every one of the 9 registered lines — SRT Red included — currently sets `structure: "elevated"`, so it renders and simulates at a single nominal elevated altitude; the `atGrade` mechanism (`STRUCTURE_ALTITUDE_M`/`DECK_PROFILE`) exists and works but isn't exercised by any registered line yet. Real per-segment (at-grade vs. elevated) structure belongs with MVP 6's underground work. Line selector (F4.1), cross-route interchange metadata (auto-linked within 300 m plus a manual override list), and monorail/APM/commuter vehicle models (distinct consist lengths per vehicle type, verified against actual rendered geometry) are all in place and exercised by the MVP 5 acceptance harness (6/6). the MVP 4 acceptance harness still passes unchanged (14/14) — single-line interaction did not regress. **Performance is validated with real measured numbers, not just "toward" the target:** 4 of NF1's 5 sub-checks pass outright (tick-count sanity, sim tick, no truncation, frame rate); the 300-concurrent-vehicle scale target is not yet reached by this real network (measured peak 171–172 vehicles) — see §5's NF1 status note for the full picture and why that assertion is left failing on purpose rather than weakened.
-
-### MVP 6 — Underground + environmental polish (full v1.0)
-
-**Goal:** Complete the network and the "wow" layer.
-
-- MRT Blue Line, including underground segments at −12 to −25 m.
-- **MRT Orange Line — track geometry only** (no trains, no timetable), including its underground alignment. Reuses the MVP 1 track-rendering path; benefits from the same underground depth/transparency work. Rendered as a visually distinct "pre-revenue / not yet operational" line.
-- Underground transparency mode — terrain/building opacity toggle with depth-buffer handling (F3.2, §3A.4); the hardest rendering feature, deliberately last.
-- Dynamic day/night lighting and sun position (F3.3); shadow quality toggle (§3A.5).
-- Glassmorphism UI pass; LOD tuning; final bundle-budget and cross-browser hardening (NF2/NF3).
-
-**Definition of done:** full v1.0 scope (§2) shipped against all NF targets — every operational line simulated, Orange Line track laid and clearly marked pre-revenue.
-
-**Delivered (2026-08-02), with one plan item deferred.** MRT Blue joined the registry as the 10th line — real `route_id "3"`, OSM relation 444659, 38 GTFS stations, 24 patterns, 3,712 runs, and genuinely **mixed per-segment structure** (234 elevated / 260 underground track points) rather than one nominal altitude; getting there required fixing a real topology bug where Blue's alignment passes near itself at Tha Phra (a loop joined to a branch), which broke the original global-nearest stop snapping and made some scheduled legs interpolate as ~38 km sweeps — fixed with per-pattern monotonic stop snapping in the preprocessor (see `CLAUDE.md`'s MVP 6 implementation notes for the full mechanism). Network totals: 193 stations, 58 patterns, 8,193 runs, 3 services, structure totals 2,350 elevated / 262 underground / 48 at-grade across the whole network (SRT Dark/Light Red's at-grade segments render correctly for the first time, closing an MVP 5 gap). 16 interchanges (up from 14), two requiring new line-qualified overrides just outside the 300 m auto-link radius (Silom↔Blue at Sala Daeng/Si Lom, 319.3 m; ARL↔Blue at Makkasan/Phetchaburi, 304.8 m). Underground transparency mode (F3.2) is implemented and **is opacity-based, not depth-correct** — it fades the basemap into the 0.1–0.4 band (measured 0.25) and makes sub-surface track translucent with depth-write disabled, but there is no real depth-buffer interop with MapLibre's tiles; this is a disclosed, deliberate cost of skipping §3A.4's harder depth-interop path, not a defect. Day/night lighting (F3.3) drives the Three.js scene from a real solar-position calculation; a basemap day/night colour theme was added beyond F3.3's original scope (human ruling) so the MapLibre base style itself also darkens at night, not just the 3D layer. A shadow-quality toggle (§3A.5) defaults off and roughly doubles the renderer's own per-frame render-call cost when enabled (measured on software rendering, illustrative not a hardware benchmark — see `CLAUDE.md`). A glassmorphism UI pass unifies all five overlay panels. NF2: `npm run check:bundle` reports 0.96 MB gzip / 5.00 MB budget. NF3: Chrome/Firefox/Edge driven programmatically against real installed binaries (9/9 each); Safari untested (unavailable on this machine). **NF1 is still 4 of 5** — peak concurrency rose to 246 (weekday) with Blue added, still short of ≥300; this is real GTFS density for these 10 lines, and is **not** explained by the one deferred item below.
-
-**MRT Orange and MRT Purple's southern extension ("Purple Phase 2") were deferred by human ruling (Task 6 of the MVP 6 plan), then delivered 2026-08-04** as track-only, pre-revenue registry entries (`orange`, `purple-ext`; `gtfsRouteId: null`, `preRevenue: true`). The `preRevenue` rendering mechanism (dashed centerline, desaturated deck, registry validation, `LineSelector` badge), built and unit-tested since MVP 5/6, got its first real users. One deviation from the original plan: neither line has a route relation in OSM, so their track comes from a new way-name-based fetch path rather than the relation-based one every other line uses, and neither has station data (see CLAUDE.md's implementation notes for both). Both lines' construction-status facts (§2's caveat block) are unchanged. This closes the one v1.0 DoD line item MVP 6 itself did not fully reach — "Orange Line track laid and clearly marked pre-revenue" is now true, delivered as a follow-up to the MVP 6 cycle rather than inside it. **A later ad-hoc task (2026-08-04, requested mid-MVP-7, not in either the MVP 6 or MVP 7 plan files) merged MRT Orange's separately-fetched East and West sections into one combined `orange` registry entry** (259 track points, 183 underground/76 elevated after a 2026-08-09 re-fetch picked up upstream OSM vertex edits — was 275/192/83; ~35.3 km either way, 0 stations — the standalone `orange-west` entry this paragraph originally described no longer exists). The registry is still **12 lines** (10 simulated + `orange`/`purple-ext` track-only) — the merge changed how Orange is represented, not the line count.
-
-### MVP 7 — Guardrails & presentation (post-v1.0-DoD hardening)
-
-**Not part of the original SRS ladder** — scoped and executed as its own plan (`docs/superpowers/plans/2026-08-04-mvp7-guardrails-and-presentation.md`) after MVP 6's v1.0 DoD (§7 above) was already met. Two kinds of work: closing the automated-coverage gap MVP 6 exposed (§8's addition-roadmap item 20 — three real user-reported defects that shipped past every existing gate), and delivering the addition-roadmap's remaining "Trivial/Easy" and "Medium" UI items (1, 2, 4, 5's last piece, 21).
-
-**Delivered (2026-08-05).** Two new preprocessor sanity gates, both hard-fail (not silent warnings): a track-gradient gate (`check_track_gradient` in `rust-engine/preprocessor/src/main.rs`, rejects any consecutive track-vertex pair steeper than the 4% ruling gradient) closes the class of defect that shipped as MVP 6's "vertical wall at a portal" bug; a closed bypass in the existing snap-distance gate now also checks registry-hand-patched station positions for GTFS-simulated lines, not just GTFS's own raw coordinate (the exact gap that let Mo Chit's 187.4 m pre-fix defect through undetected — see CLAUDE.md's MVP 7 notes for the precise finding). A machine-checkable night-legibility harness (the night-legibility harness, §5 NF5 status above) closes the third gap, and — honestly — currently fails: 14 of 20 line/time contrast samples are under WCAG 3:1, a real and disclosed finding, not a harness bug. On the UI side: F3.2's underground mode now auto-engages/releases while following a train (closing addition-roadmap item 5's last piece); a 3-style basemap cycle and Auto/Light/Dark theme tri-state (F3.2/F3.3 above, addition-roadmap item 21); a horizon-clipped sky dome (F3.3, item 6); eco mode (F3.5, item 2) and fullscreen (F3.6, item 1). the MVP 7 acceptance harness (13/13, including a literal `LINES.length === 12` registry-drift check) is the new acceptance harness, modeled on `verify:mvp6.mjs`'s structure; the full existing suite (`verify:mvp4/5/6`, `verify:mobile`, `verify:train-tooltip`, `verify:kinematics`, `verify:camera`) stays green unchanged. NF2: `npm run check:bundle` reports 1.03 MB gzip / 5.00 MB budget. NF1 is unchanged at 4/5 (peak concurrency still 246 — MVP 7 added no simulated lines or vehicles). One documentation-only fix: `rust-engine/sim-core/src/model.rs`'s `CacheDoc.version` field had a stale `// 2` comment since MVP 6 bumped it to 3; corrected here since this task already touches the preprocessor.
-
-### MVP summary
-
-| MVP | Theme | Lines | Trains move? | Key requirements | Status |
-|-----|-------|-------|--------------|------------------|--------|
-| 1 | Track laid | Green only | No | F1.3, F3 bridge, §3A.4–3A.5 | Delivered |
-| 2 | Data pipeline | Green only | No | F1.1–F1.2, NF6 | Delivered |
-| 3 | Motion | Green only | **Yes** | F2, §3A.2–3A.3, 3A.7 | Delivered |
-| 4 | Interaction/UI | Green only | Yes | F3.2, F4.2–F4.3, F2.3 | Delivered |
-| 5 | Breadth | + Purple, ARL, Pink, Yellow, **Gold**, Red (9 lines total) | Yes | F4.1, NF1 (scale) | Delivered 2026-07-31 — NF1 4/5 (300-vehicle scale target not yet reached by the real network's 171–172 measured peak; see §5) |
-| 6 | Underground + polish | + MRT Blue (10 lines total) | Yes | F3.2 underground, F3.3, NF2 | Delivered 2026-08-02 — MRT Blue simulated with real per-segment structure; underground mode is opacity-based, not depth-correct (disclosed, not a defect); day/night lighting + basemap theming, shadow toggle, glassmorphism, NF2/NF3 all delivered; NF1 still 4/5 (peak concurrency 246, not yet 300). Two user-reported visual defects were found post-delivery and fixed same-day: gradient-limited track altitude (portal transitions rendered as vertical walls; see CLAUDE.md's MVP 6 implementation notes) and a raised night-lighting floor (the network read as near-invisible after dark). Both landed with unit tests but neither was caught by any automated gate at the time — that coverage gap is what MVP 7 (below) closes. |
-| 7 | Guardrails & presentation | Same 12 lines (10 simulated + `orange`/`purple-ext` track-only, `orange` now a single merged entry) | Yes, unchanged | preprocessor gates, F3.2/F3.3/F3.5/F3.6, NF5 | Delivered 2026-08-05 — 2 new hard-fail preprocessor gates (gradient, station-position snap bypass); the night-legibility harness closes the night-legibility coverage gap and **fails honestly** (14/20 line/time samples under WCAG 3:1, disclosed not gamed); auto-underground-while-following, basemap style cycle, theme tri-state, sky dome, eco mode, fullscreen all delivered and verified (the MVP 7 harness, 13/13). NF1 unchanged (4/5, peak 246). NF2 1.03 MB/5.00 MB. |
-
----
-
-## 7A. Original Phase Mapping (reference)
-
-The five technical phases from the initial proposal are preserved here and map onto the MVP ladder as follows:
-
-| Phase | Milestone | Realized in |
-|-------|-----------|-------------|
-| 1 | Data pipelines & geometry | MVP 1 (geometry) + MVP 2 (timetable) |
-| 2 | Wasm core engine | MVP 3 |
-| 3 | Map & 3D integration | MVP 1 |
-| 4 | Vehicle motion & interpolation | MVP 3 |
-| 5 | UI controls & polish | MVP 4 (core UI) + MVP 6 (polish) |
-
-## 7B. Optional narrower first slice
-
-If an even smaller MVP 1 is desired to validate tooling fastest, scope it to the **Sukhumvit branch only** (single continuous alignment, no branch junction). This removes the Sukhumvit/Silom interchange-and-branch handling from the first slice and can be expanded to the full Green Line before MVP 2.
+### 7.4 User Interface Subsystem (`src/components/`, `src/stores/`)
+- **Overlay Panels**: Glassmorphism controls for train inspection, live station departures board, bilingual station search with Geolocation, and RAPTOR route planning.
+- **State Management**: Reactive UI state managed via Zustand, keeping high-frequency per-frame transform data strictly off the React render path.
 
 ---
 
@@ -449,16 +346,15 @@ If an even smaller MVP 1 is desired to validate tooling fastest, scope it to the
 The following are explicitly excluded from v1.0 and recorded for future consideration:
 
 - **GTFS-Realtime / live vehicle positions** — v1.0 is schedule-driven only.
-- **Passenger routing / journey planning** — no trip-planning between stations.
+- ~~Passenger routing / journey planning~~ — **delivered 2026-08-16** via timetable-aware RAPTOR router in Rust/Wasm with multi-criteria alternative itineraries.
+- ~~Station search & Geolocation~~ — **delivered 2026-08-07** with bilingual Thai/English search and HTML5 Geolocation.
 - **Orange Line train simulation** — track geometry is in v1.0 (§7 MVP 6), but moving trains and a timetable are deferred until the line enters revenue service and a schedule is published.
 - **Future line extensions** — planned or under-construction extensions of the in-scope lines (e.g., additional phases of existing lines) and any other lines beyond §2 are future work. When each opens, an operational line reuses the MVP 5/6 path (add feed → simulate), and a pre-revenue line reuses the Orange Line pattern (track geometry only).
-- **GLTF/GLB train models + LOD** — deferred out of MVP 6; see F3.1's note above. Procedural geometry covers the requirement's visual-distinctness intent for v1.0.
+- ~~Custom rolling stock models & liveries~~ — **delivered 2026-08-22** via procedural parametric consist models and GLB override seam.
 - ~~MRT Orange + MRT Purple Phase 2 (track-only, pre-revenue)~~ — **delivered 2026-08-04**, no longer out of scope. See §7 MVP 6's own delivery note above (both are in the registry, `orange` since merged from separate East/West entries into one).
-- ~~Manual dark/light theme toggle + basemap style cycling~~ — **delivered in MVP 7** (F3.2/F3.3 above, §7 MVP 7). Satellite/terrain specifically stayed out of scope, deliberately (constraint 2 below still applies to them, unresolved): vector styles only (Liberty/Bright/Positron). The four constraints originally recorded here for whoever picked this up: (1) `map.setStyle()` destroys every custom layer including the Three.js scene, so a style cycle must re-run every `style.load` side-effect — the underground-opacity snapshot, the basemap-colour snapshot, vehicle-manager wiring, click handlers, and the sun sync (`src/map/styleBinding.ts`'s per-style/per-map split is how MVP 7 resolved this); (2) satellite/terrain are raster basemaps with no `fill`/`fill-extrusion`/`line` layers, so both underground dimming and night theming (both vector-layer-only mechanisms) would silently become no-ops on them unless given raster equivalents (`raster-opacity`/`raster-brightness-*`) or explicitly disabled with that disablement surfaced in the UI — still true, still why they're not in the cycle; (3) the no-API-key constraint that chose OpenFreeMap Liberty in the first place still applies — the three vector styles delivered stay key-free; (4) a manual light/dark toggle conflicts with clock-driven auto theming, resolved with a tri-state Auto/Light/Dark control (`src/map/themeMode.ts`), not a boolean, with "Auto" preserving F3.3's original clock-driven behaviour exactly.
+- ~~Manual dark/light theme toggle + basemap style cycling~~ — **delivered in MVP 7** (F3.2/F3.3 above, §7 MVP 7).
 - **Svelte UI variant** — React is the committed framework for v1.0.
 - **Backend services / user accounts** — the app is a static, client-side deployment.
-- **Visual/legibility regression coverage** — MVP 6 shipped two post-delivery defect fixes (`b4c1cb9` gradient-limited track altitude ramps + corrected Mo Chit's position; `0b9a921` raised the night-lighting floor), both found by a human looking at the running app, not by the MVP 6 acceptance harness, the kinematics harness, or the unit suite — all of which stayed green throughout, because none of them assert anything about visual smoothness or legibility, only data-shape/numeric invariants. A **machine-checkable night-legibility assertion** (e.g. an offscreen render + luminance/contrast readback of track and vehicle pixels against the basemap, at two clock times) would close the largest part of this gap and is the natural next backlog item; the other two defects at least have numeric proxies now (gradient percentage, snap distance) even if nothing gates on them yet.
-- **`onRamp` station-resampling heuristic boundary** (`tools/fetch-network.mjs`'s `fetchBranch`, added alongside the gradient limiter) — a station is only resampled onto the ramped track altitude if its single *nearest* track vertex was itself one of the points the gradient limiter moved. A station that is geometrically inside a ramp zone but whose nearest vertex happens to fall just outside that changed set would keep a stale nominal altitude. No such case exists in the current 10-line network (verified in the MVP 6 Task 13 report), and the narrow scoping is deliberate rather than an oversight — recorded here as a known, documented boundary for whoever extends the network next.
 - **`tools/trackProfile.mjs`'s gradient-limiting relaxation sweep is bounded at `maxIterations = points.length + 2`** — an O(n²) worst case never exercised by real track data (every line converges in 1–2 passes) and one that logs nothing if it were ever actually hit, so a future pathological input could silently slow the pipeline with no visible signal.
 
 ---
