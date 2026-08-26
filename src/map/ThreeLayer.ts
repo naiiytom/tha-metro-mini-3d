@@ -73,6 +73,7 @@ export class NetworkLayer implements CustomLayerInterface {
    */
   private litMaterialWorstOpacity = new WeakMap<THREE.MeshLambertMaterial, number>();
   private undergroundMode = false;
+  private map3D = true;
   private shadowCatcher: THREE.Mesh<THREE.PlaneGeometry, THREE.ShadowMaterial> | null = null;
   private skyDome: SkyDome | null = null;
   /** Planned-route highlight, rebuilt wholesale on every plan change. Kept in
@@ -367,7 +368,7 @@ export class NetworkLayer implements CustomLayerInterface {
     if (!this.renderer) return;
     this.renderer.shadowMap.enabled = on;
     if (this.shadowCatcher) {
-      this.shadowCatcher.visible = on && !this.undergroundMode;
+      this.shadowCatcher.visible = on && !this.undergroundMode && this.map3D;
     }
     // Three caches compiled programs per material; flipping shadowMap.enabled
     // requires a recompile or existing materials keep their old defines.
@@ -378,6 +379,19 @@ export class NetworkLayer implements CustomLayerInterface {
         mats.forEach((m) => (m.needsUpdate = true));
       }
     });
+  }
+
+  /** Flatten all 3D geometry (tracks, viaducts, trains, station markers) onto
+   *  the ground plane (z=0) in 2D mode, or restore 3D elevation scaling. */
+  setMap3D(is3D: boolean): void {
+    this.map3D = is3D;
+    const zScale = is3D ? MERC_PER_METER : 0;
+    this.originMatrix = new THREE.Matrix4()
+      .makeTranslation(ORIGIN_MERC.x, ORIGIN_MERC.y, 0)
+      .scale(new THREE.Vector3(MERC_PER_METER, -MERC_PER_METER, zScale));
+    if (this.shadowCatcher) {
+      this.shadowCatcher.visible = is3D && !this.undergroundMode && (this.renderer?.shadowMap.enabled ?? false);
+    }
   }
 
   /** Show/hide one line's track + stations. Vehicles are hidden separately by

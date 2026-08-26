@@ -129,4 +129,21 @@ describe("bindStyle", () => {
     expect(second._read("new-bg", "background-color")).toBe("#111111");
     expect(second.setPaintProperty.mock.calls.every(([id]) => id === "new-bg")).toBe(true);
   });
+
+  it("flattens building fill-extrusion-height to 0 when map3D is false and restores when true", () => {
+    const map = fakeMap([
+      { id: "building", type: "fill-extrusion", paint: { "fill-extrusion-height": 25 } },
+    ]);
+    const layer = { setUndergroundMode: vi.fn(), setMap3D: vi.fn() };
+    const b = bindStyle(map as never, layer as never);
+
+    b.applyMap3D(false);
+    expect(layer.setMap3D).toHaveBeenCalledWith(false);
+    expect(map._read("building", "fill-extrusion-height")).toBe(0);
+
+    b.applyMap3D(true);
+    expect(layer.setMap3D).toHaveBeenCalledWith(true);
+    expect(map._read("building", "fill-extrusion-height")).toBe(25);
+  });
 });
+

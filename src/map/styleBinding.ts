@@ -41,11 +41,14 @@ type ThemeRole = keyof BasemapTheme;
 
 interface UndergroundTarget {
   setUndergroundMode(on: boolean): void;
+  setMap3D?(is3D: boolean): void;
 }
 
 export interface StyleBinding {
   /** Underground view mode. Owns every `*-opacity` property, and only those. */
   applyUnderground(on: boolean): void;
+  /** 3D view mode: flattens building extrusions when false. */
+  applyMap3D(is3D: boolean): void;
   /** Day/night colour. Owns colour properties, and only those. */
   applyThemeElevation(effectiveElevationDeg: number): void;
   /** Force the next applyThemeElevation to write even if the bucket matches. */
@@ -55,6 +58,29 @@ export interface StyleBinding {
 }
 
 export function bindStyle(map: MapLibreMap, layer: UndergroundTarget): StyleBinding {
+  // ---- 3D buildings: flatten to 0 in 2D mode ------------------------------
+  const extrusions = map
+    .getStyle()
+    .layers.filter((l) => l.type === "fill-extrusion")
+    .map((l) => {
+      const rawHeight = map.getPaintProperty(l.id, "fill-extrusion-height");
+      return { id: l.id, originalHeight: rawHeight };
+    });
+
+  const applyMap3D = (is3D: boolean) => {
+    layer.setMap3D?.(is3D);
+    for (const e of extrusions) {
+      if (is3D) {
+        if (e.originalHeight !== undefined) {
+          map.setPaintProperty(e.id, "fill-extrusion-height", e.originalHeight);
+        }
+      } else {
+        map.setPaintProperty(e.id, "fill-extrusion-height", 0);
+      }
+    }
+    map.triggerRepaint();
+  };
+
   // ---- underground: opacity only -----------------------------------------
   // Layer ids are discovered from the loaded style, never hardcoded: this is
   // OpenFreeMap Liberty today and the style cycle swaps it at runtime.
@@ -163,6 +189,7 @@ export function bindStyle(map: MapLibreMap, layer: UndergroundTarget): StyleBind
 
   return {
     applyUnderground,
+    applyMap3D,
     applyThemeElevation,
     resetThemeCache: () => {
       lastNightBucket = -1;
