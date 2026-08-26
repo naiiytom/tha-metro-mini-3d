@@ -604,6 +604,28 @@ export function MapContainer() {
       }
     });
 
+    // 3D perspective vs 2D top-down map view mode toggle
+    let isEasingMap3D = false;
+    const unsubscribeMap3D = useAppStore.subscribe((state, prev) => {
+      if (state.map3D !== prev.map3D) {
+        isEasingMap3D = true;
+        map.easeTo({
+          pitch: state.map3D ? 55 : 0,
+          duration: 800,
+        });
+      }
+    });
+
+    const onMapPitchEnd = () => {
+      isEasingMap3D = false;
+      const currentPitch = map.getPitch();
+      const is3D = currentPitch >= 10;
+      if (useAppStore.getState().map3D !== is3D) {
+        useAppStore.getState().setMap3D(is3D);
+      }
+    };
+    map.on("pitchend", onMapPitchEnd);
+
     // Dev builds always expose these; a production build exposes them too, but
     // only when opted in via `?debug=1`, so ordinary production visitors never
     // get debug globals on `window`. The `?debug=1` path was added for the NF1
@@ -635,10 +657,12 @@ export function MapContainer() {
       controls.dispose();
       unsubscribeFollow();
       unsubscribeFlyTo();
+      unsubscribeMap3D();
       unsubscribeVisibility();
       if (tooltipTimer !== null) clearInterval(tooltipTimer);
       unsubscribeTooltipSelection?.();
       trainTooltip.dispose();
+      map.off("pitchend", onMapPitchEnd);
       map.off("click", onMapClick);
       map.off("mousemove", onMouseMove);
       map.getCanvas().style.cursor = "";

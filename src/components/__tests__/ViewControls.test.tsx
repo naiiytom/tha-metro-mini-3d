@@ -55,4 +55,14 @@ describe("ViewControls fullscreen", () => {
     fireEvent(document, new Event("fullscreenchange"));
     expect(button).toHaveAttribute("aria-pressed", "false");
   });
+
+  it("toggles 3D perspective view mode", () => {
+    render(<ViewControls />);
+    const button = screen.getByRole("button", { name: /3d perspective/i });
+    expect(button).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.click(button);
+    expect(button).toHaveAttribute("aria-pressed", "false");
+  });
 });
+

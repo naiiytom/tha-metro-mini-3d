@@ -15,6 +15,7 @@ import type { LineGeometry } from "../types";
 
 export type EngineStatus = "off" | "loading" | "ready" | "error";
 export type Warp = 1 | 5 | 10 | 60;
+export type NavigationTab = "lines" | "stations" | "route" | "about";
 
 interface AppState {
   mapReady: boolean;
@@ -37,7 +38,19 @@ interface AppState {
   vehicleCount: number;
   setVehicleCount: (count: number) => void;
 
-  // ---- MVP 4 selection (UI-derived; the pose itself stays out of here) ----
+  // ---- Navigation Tabs ----
+
+  /** Active navigation tab. Default is "lines", or null when collapsed. */
+  activeTab: NavigationTab | null;
+  setActiveTab: (tab: NavigationTab | null) => void;
+  toggleTab: (tab: NavigationTab) => void;
+
+  /** 3D perspective (pitch 55°) vs 2D top-down (pitch 0°) view mode. Default true. */
+  map3D: boolean;
+  setMap3D: (on: boolean) => void;
+  toggleMap3D: () => void;
+
+  // ---- Selection (UI-derived; the pose itself stays out of here) ----
 
   /** Selected train, identified by its run index (vehicle lane 5). */
   selectedRunIdx: number | null;
@@ -46,9 +59,6 @@ interface AppState {
   /** Third-person camera locked to the selected train (F3.2). */
   following: boolean;
 
-  /** Selecting a train clears any station selection, and vice versa; either
-   *  also closes an open search panel — see `setSearchOpen`'s own comment
-   *  for why these three are kept mutually exclusive. */
   selectRun: (runIdx: number | null) => void;
   selectStation: (station: { routeIdx: number; stationIdx: number } | null) => void;
   setFollowing: (following: boolean) => void;
@@ -57,20 +67,18 @@ interface AppState {
   stations: StationInfo[];
   setStations: (stations: StationInfo[]) => void;
 
-  // ---- MVP 5 line visibility (F4.1) ----
+  // ---- Line visibility (F4.1) ----
 
   /** Line table from network.json, index == route_idx. */
   routes: LineGeometry[];
   setRoutes: (routes: LineGeometry[]) => void;
 
-  /** Route indices the user has switched off (F4.1). Array, not Set —
-   *  Zustand equality checks are reference-based and a Set mutated in place
-   *  would not re-render. */
+  /** Route indices the user has switched off (F4.1). */
   hiddenRoutes: number[];
   toggleRoute: (routeIdx: number) => void;
   isRouteVisible: (routeIdx: number) => boolean;
 
-  // ---- MVP 6 view modes (F3.2 / §3A.5) ----
+  // ---- View modes (F3.2 / §3A.5) ----
 
   /** Underground transparency: dim the basemap and the surface network so
    *  sub-surface track is the subject (SRS §F3.2). */
@@ -81,24 +89,15 @@ interface AppState {
   shadowsEnabled: boolean;
   setShadowsEnabled: (on: boolean) => void;
 
-  /** Tri-state day/night appearance (roadmap item 21). `auto` is the
-   *  clock-driven SRS F3.3 behaviour and the default; `light`/`dark` pin it.
-   *  Replaces MVP 6's `nightThemeEnabled` boolean — that flag's "off" was
-   *  always really "light", and a user who wanted a permanently dark map had
-   *  no way to ask for one short of scrubbing the clock to midnight. */
+  /** Tri-state day/night appearance (roadmap item 21). */
   themeMode: ThemeMode;
   setThemeMode: (mode: ThemeMode) => void;
 
-  /** Mobile-only "hide UI" toggle: collapses every overlay panel to leave an
-   *  unobstructed map. No effect at the `md:` desktop layout, which has no
-   *  panel-overlap problem to escape. */
+  /** Mobile-only "hide UI" toggle: collapses every overlay panel. */
   uiHidden: boolean;
   setUiHidden: (hidden: boolean) => void;
 
-  /** Which key-free vector basemap is loaded (roadmap item 21). Changing it
-   *  calls map.setStyle(), which destroys and rebuilds the Three custom
-   *  layer — see src/map/styleBinding.ts for what is re-created and what is
-   *  deliberately not. */
+  /** Which key-free vector basemap is loaded (roadmap item 21). */
   basemapStyle: BasemapStyleKey;
   setBasemapStyle: (key: BasemapStyleKey) => void;
 
@@ -107,38 +106,19 @@ interface AppState {
   ecoMode: boolean;
   setEcoMode: (on: boolean) => void;
 
-  /** Station search panel (roadmap item 3). Kept mutually exclusive with a
-   *  train/station selection, the same way `selectRun`/`selectStation`
-   *  already exclude each other: opening search clears any existing
-   *  selection (and drops `following`), and selecting a train or station
-   *  closes an open search panel. Without this, `StationSearch` could stack
-   *  on top of an already-open `TrainInspector`/`StationBoard` and overflow
-   *  the mobile bottom-sheet stack. */
+  /** Station search panel open status. */
   searchOpen: boolean;
   setSearchOpen: (open: boolean) => void;
 
-  /** Route planner panel (roadmap item 8). Kept mutually exclusive with
-   *  `searchOpen` and with a train/station selection, exactly as those three
-   *  already exclude each other — otherwise the planner stacks on an open
-   *  inspector and overflows the mobile bottom-sheet stack.
-   *
-   *  Closing it also drops `routePlan`, which is what clears the map
-   *  highlight: the overlay is derived from the plan, so the plan is the
-   *  single place its lifetime is expressed. */
+  /** Route planner panel open status. */
   routePlannerOpen: boolean;
   setRoutePlannerOpen: (open: boolean) => void;
 
-  /** The plan currently being shown, or null. UI-rate one-shot state — the
-   *  map highlight is rebuilt from it on a store subscription, never per
-   *  frame (§3A.7). */
+  /** The plan currently being shown, or null. */
   routePlan: RoutePlan | null;
   setRoutePlan: (plan: RoutePlan | null) => void;
 
-  /** One-shot camera-jump request from station search / nearest-station
-   *  selection. `window.__map` is dev/debug-only, so this store field is how
-   *  a UI action reaches MapContainer.tsx's real MapLibre instance. Cleared
-   *  immediately after MapContainer's subscribe handler consumes it — this
-   *  is a UI-rate one-shot event, not per-frame state (§3A.7 doesn't apply). */
+  /** One-shot camera-jump request from station search / nearest-station selection. */
   flyToRequest: { lng: number; lat: number } | null;
   requestFlyTo: (target: { lng: number; lat: number }) => void;
   clearFlyToRequest: () => void;
@@ -163,6 +143,25 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   vehicleCount: 0,
   setVehicleCount: (count) => set({ vehicleCount: count }),
+
+  activeTab: "lines",
+  setActiveTab: (tab) =>
+    set((s) => ({
+      activeTab: tab,
+      searchOpen: tab === "stations",
+      routePlannerOpen: tab === "route",
+      ...(tab !== null ? { selectedRunIdx: null, selectedStation: null, following: false } : {}),
+      ...(tab !== "route" && s.routePlan ? { routePlan: null } : {}),
+    })),
+  toggleTab: (tab) => {
+    const current = get().activeTab;
+    const next = current === tab ? null : tab;
+    get().setActiveTab(next);
+  },
+
+  map3D: true,
+  setMap3D: (on) => set({ map3D: on }),
+  toggleMap3D: () => set((s) => ({ map3D: !s.map3D })),
 
   selectedRunIdx: null,
   selectedStation: null,
@@ -230,32 +229,34 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   searchOpen: false,
   setSearchOpen: (open) =>
-    set(
-      open
+    set((s) => ({
+      searchOpen: open,
+      activeTab: open ? "stations" : s.activeTab === "stations" ? null : s.activeTab,
+      ...(open
         ? {
-            searchOpen: true,
             selectedStation: null,
             selectedRunIdx: null,
             following: false,
             routePlannerOpen: false,
             routePlan: null,
           }
-        : { searchOpen: false },
-    ),
+        : {}),
+    })),
 
   routePlannerOpen: false,
   setRoutePlannerOpen: (open) =>
-    set(
-      open
+    set((s) => ({
+      routePlannerOpen: open,
+      activeTab: open ? "route" : s.activeTab === "route" ? null : s.activeTab,
+      ...(open
         ? {
-            routePlannerOpen: true,
             searchOpen: false,
             selectedStation: null,
             selectedRunIdx: null,
             following: false,
           }
-        : { routePlannerOpen: false, routePlan: null },
-    ),
+        : { routePlan: null }),
+    })),
 
   routePlan: null,
   setRoutePlan: (plan) => set({ routePlan: plan }),
