@@ -1,0 +1,30 @@
+version: 2
+updates:
+  # Maintain dependencies for npm frontend
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    groups:
+      dev-dependencies:
+        patterns:
+          - "@types/*"
+          - "eslint*"
+          - "prettier*"
+          - "typescript"
+          - "vitest*"
+          - "vite*"
+
+  # Maintain dependencies for Cargo Rust simulation engine
+  - package-ecosystem: "cargo"
+    directory: "/rust-engine"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+
+  # Maintain GitHub Actions dependencies
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
