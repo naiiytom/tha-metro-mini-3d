@@ -30,7 +30,15 @@ export function NavigationPanel() {
   const isMobile = useIsMobile();
 
   const [expanded, setExpanded] = useState(() => !loadCollapsed(browserStorage(), isMobile));
+  const lastActiveTab = useRef<NavigationTab>("lines");
   const tabRefs = useRef<{ [key in NavigationTab]?: HTMLButtonElement | null }>({});
+
+  useEffect(() => {
+    if (activeTab !== null) {
+      lastActiveTab.current = activeTab;
+      setExpanded(true);
+    }
+  }, [activeTab]);
 
   useEffect(() => {
     if (!hasStoredPreference(browserStorage())) setExpanded(!isMobile);
@@ -40,6 +48,11 @@ export function NavigationPanel() {
     const next = !expanded;
     saveCollapsed(browserStorage(), !next);
     setExpanded(next);
+    if (next) {
+      setActiveTab(lastActiveTab.current || "lines");
+    } else {
+      setActiveTab(null);
+    }
   };
 
   const handleTabClick = (tabId: NavigationTab) => {
@@ -51,14 +64,16 @@ export function NavigationPanel() {
     }
     if (activeTab === tabId) {
       // Toggle collapsed state when clicking the already-active tab
-      toggleExpanded();
+      saveCollapsed(browserStorage(), true);
+      setExpanded(false);
+      setActiveTab(null);
     } else {
       setActiveTab(tabId);
     }
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    const currentIdx = TABS.findIndex((t) => t.id === (activeTab || "lines"));
+    const currentIdx = TABS.findIndex((t) => t.id === (activeTab || lastActiveTab.current || "lines"));
     if (currentIdx === -1) return;
 
     let targetIdx = -1;
@@ -75,17 +90,15 @@ export function NavigationPanel() {
     if (targetIdx !== -1) {
       e.preventDefault();
       const targetTab = TABS[targetIdx].id;
+      setExpanded(true);
+      saveCollapsed(browserStorage(), false);
       setActiveTab(targetTab);
-      if (!expanded) {
-        setExpanded(true);
-        saveCollapsed(browserStorage(), false);
-      }
       tabRefs.current[targetTab]?.focus();
     }
   };
 
-  const bodyVisible = expanded && !uiHidden;
-  const currentTab = activeTab || "lines";
+  const bodyVisible = expanded && activeTab !== null && !uiHidden;
+  const currentTab = activeTab || lastActiveTab.current || "lines";
 
   return (
     <nav
@@ -94,7 +107,7 @@ export function NavigationPanel() {
       className="panel-glass pointer-events-auto absolute left-[max(1rem,env(safe-area-inset-left))] top-4 max-h-[calc(100dvh-16rem)] w-[min(20rem,calc(100vw-2rem))] overflow-hidden rounded-xl border shadow-xl shadow-ink/10 backdrop-blur-md md:left-4 md:max-h-[calc(100dvh-2rem)] md:w-80"
     >
       {/* Header */}
-      <div className="flex items-start justify-between gap-2 border-b border-edge px-3.5 py-2.5">
+      <div className="flex items-center justify-between gap-2 border-b border-edge px-3.5 py-2">
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-sm font-semibold text-ink">Greater Bangkok Metro Mini 3D</h1>
           <p className="truncate text-xs text-ink-muted">
@@ -108,7 +121,7 @@ export function NavigationPanel() {
           onClick={() => setUiHidden(!uiHidden)}
           aria-label={uiHidden ? "Show overlay UI" : "Hide overlay UI"}
           title={uiHidden ? "Show overlay UI" : "Hide overlay UI"}
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-sm text-ink-muted hover:bg-surface-sunken md:hidden"
+          className="flex h-11 w-11 min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-md text-sm text-ink-muted hover:bg-surface-sunken md:h-8 md:w-8 md:min-h-0 md:min-w-0"
         >
           {uiHidden ? "👁️" : "✕"}
         </button>
@@ -120,7 +133,7 @@ export function NavigationPanel() {
           aria-expanded={expanded}
           aria-label={expanded ? "Collapse navigation panel" : "Expand navigation panel"}
           title={expanded ? "Collapse panel" : "Expand panel"}
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-xs font-semibold text-ink-muted hover:bg-surface-sunken"
+          className="flex h-11 w-11 min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-md text-xs font-semibold text-ink-muted hover:bg-surface-sunken md:h-8 md:w-8 md:min-h-0 md:min-w-0"
         >
           {expanded ? "▲" : "▼"}
         </button>
@@ -144,17 +157,17 @@ export function NavigationPanel() {
               role="tab"
               id={`tab-${tab.id}`}
               aria-selected={isSelected}
-              aria-controls={`panel-${tab.id}`}
+              aria-controls={`tabpanel-${tab.id}`}
               tabIndex={isSelected || (!expanded && tab.id === "lines") ? 0 : -1}
               onClick={() => handleTabClick(tab.id)}
               title={tab.description}
-              className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs font-medium transition-all ${
+              className={`flex flex-1 min-h-[44px] items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-medium transition-all md:min-h-0 md:py-1.5 ${
                 isSelected
                   ? "bg-surface text-ink shadow-sm ring-1 ring-edge"
                   : "text-ink-muted hover:bg-surface/50 hover:text-ink"
               }`}
             >
-              <span className="text-sm leading-none">{tab.icon}</span>
+              <span className="text-base leading-none md:text-sm">{tab.icon}</span>
               <span className="hidden sm:inline">{tab.label}</span>
             </button>
           );
@@ -165,7 +178,7 @@ export function NavigationPanel() {
       {bodyVisible && (
         <div
           role="tabpanel"
-          id={`panel-${currentTab}`}
+          id={`tabpanel-${currentTab}`}
           aria-labelledby={`tab-${currentTab}`}
           className="max-h-[calc(100dvh-22rem)] overflow-y-auto p-2 md:max-h-[calc(100dvh-8rem)]"
         >
@@ -178,3 +191,4 @@ export function NavigationPanel() {
     </nav>
   );
 }
+

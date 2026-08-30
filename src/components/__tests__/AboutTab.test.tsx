@@ -66,9 +66,11 @@ describe("AboutTab", () => {
     expect(screen.getByText(/Privacy & Security Guarantee/i)).toBeTruthy();
   });
 
-  it("renders GitHub Sponsors link", () => {
+  it("renders GitHub Sponsors link and PromptPay support info", () => {
     render(<AboutTab />);
     const sponsorLink = screen.getByRole("link", { name: /sponsor on github/i });
     expect(sponsorLink).toHaveAttribute("href", "https://github.com/sponsors/naiiytom");
+    expect(screen.getByText(/PromptPay \/ Thai QR Payment/i)).toBeTruthy();
   });
 });
+

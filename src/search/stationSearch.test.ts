@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { countMatches, filterStations, groupByRoute, nearestStation, stationOptions } from "./stationSearch";
+import {
+  countMatches,
+  filterStations,
+  formatDistance,
+  geoErrorMessage,
+  groupByRoute,
+  nearestStation,
+  stationOptions,
+} from "./stationSearch";
 import type { StationInfo } from "../sim/protocol";
 
 function makeStation(overrides: Partial<StationInfo>): StationInfo {
@@ -169,4 +177,21 @@ describe("groupByRoute", () => {
     expect(groupByRoute([])).toEqual([]);
   });
 });
+
+describe("geoErrorMessage and formatDistance", () => {
+  it("formats geolocation error codes accurately", () => {
+    expect(geoErrorMessage({ code: 1 })).toBe("Location permission denied.");
+    expect(geoErrorMessage({ code: 2 })).toBe("Location unavailable.");
+    expect(geoErrorMessage({ code: 3 })).toBe("Location request timed out.");
+    expect(geoErrorMessage({ code: 99 })).toBe("Could not determine your location.");
+  });
+
+  it("formats distances in meters or kilometers", () => {
+    expect(formatDistance(350)).toBe("350 m");
+    expect(formatDistance(999.4)).toBe("999 m");
+    expect(formatDistance(1000)).toBe("1.0 km");
+    expect(formatDistance(2450)).toBe("2.5 km");
+  });
+});
+
 

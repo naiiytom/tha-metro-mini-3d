@@ -113,3 +113,26 @@ export function groupByRoute(stations: StationInfo[]): StationGroup[] {
   return groups;
 }
 
+/**
+ * Format browser geolocation error codes into human-readable user messages.
+ */
+export function geoErrorMessage(err: GeolocationPositionError | { code: number }): string {
+  switch (err.code) {
+    case 1:
+      return "Location permission denied.";
+    case 2:
+      return "Location unavailable.";
+    case 3:
+      return "Location request timed out.";
+    default:
+      return "Could not determine your location.";
+  }
+}
+
+/**
+ * Format distance in meters into human-readable km or m.
+ */
+export function formatDistance(distanceM: number): string {
+  return distanceM >= 1000 ? `${(distanceM / 1000).toFixed(1)} km` : `${Math.round(distanceM)} m`;
+}
+

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { lngLatToLocal } from "../../map/coordinates";
-import { nearestStation } from "../../search/stationSearch";
+import { formatDistance, geoErrorMessage, nearestStation } from "../../search/stationSearch";
 import { useAppStore } from "../../stores/useAppStore";
 import { StationCombobox } from "../StationCombobox";
 import type { StationInfo } from "../../sim/protocol";
@@ -10,23 +10,6 @@ type GeoState =
   | { status: "loading" }
   | { status: "ready"; userLocal: [number, number] }
   | { status: "error"; message: string };
-
-function geoErrorMessage(err: GeolocationPositionError | { code: number }): string {
-  switch (err.code) {
-    case 1:
-      return "Location permission denied.";
-    case 2:
-      return "Location unavailable.";
-    case 3:
-      return "Location request timed out.";
-    default:
-      return "Could not determine your location.";
-  }
-}
-
-function formatDistance(distanceM: number): string {
-  return distanceM >= 1000 ? `${(distanceM / 1000).toFixed(1)} km` : `${Math.round(distanceM)} m`;
-}
 
 export function StationsTab() {
   const stations = useAppStore((s) => s.stations);

@@ -87,15 +87,24 @@ export function AboutTab() {
           Greater Bangkok Metro Mini 3D is a community open-source project. If you find this project
           helpful, consider supporting ongoing development and hosting:
         </p>
-        <a
-          href="https://github.com/sponsors/naiiytom"
-          target="_blank"
-          rel="noreferrer"
-          className="mt-2.5 flex items-center justify-center gap-1.5 rounded-md bg-accent px-3 py-2 text-xs font-semibold text-accent-ink transition-opacity hover:opacity-90"
-        >
-          <span>💖</span> Sponsor on GitHub
-        </a>
+        <div className="mt-2.5 flex flex-col gap-2 sm:flex-row">
+          <a
+            href="https://github.com/sponsors/naiiytom"
+            target="_blank"
+            rel="noreferrer"
+            className="flex flex-1 items-center justify-center gap-1.5 rounded-md bg-accent px-3 py-2 text-xs font-semibold text-accent-ink transition-opacity hover:opacity-90"
+          >
+            <span>💖</span> Sponsor on GitHub
+          </a>
+        </div>
+        <div className="mt-2 rounded-md bg-surface-sunken/80 p-2 text-[11px] leading-relaxed">
+          <p className="font-medium text-ink">PromptPay / Thai QR Payment</p>
+          <p className="mt-0.5 text-ink-muted">
+            Direct community support via PromptPay is welcomed for domestic contributors. Check the GitHub repository for sponsor QR details.
+          </p>
+        </div>
       </div>
+
 
       <div className="pt-1 text-center text-[10px] text-ink-subtle">
         <p>Version 1.0.0 · MIT License</p>

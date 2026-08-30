@@ -56,18 +56,25 @@ describe("NavigationPanel tab switching", () => {
     });
   });
 
-  it("renders tablist and all 4 tabs", () => {
+  it("renders tablist and all 4 tabs with proper ARIA tabpanel attributes", () => {
     render(<NavigationPanel />);
     expect(screen.getByRole("tablist", { name: /navigation sections/i })).toBeTruthy();
-    expect(screen.getByRole("tab", { name: /lines/i })).toBeTruthy();
-    expect(screen.getByRole("tab", { name: /stations/i })).toBeTruthy();
-    expect(screen.getByRole("tab", { name: /route/i })).toBeTruthy();
-    expect(screen.getByRole("tab", { name: /about/i })).toBeTruthy();
+    const linesTab = screen.getByRole("tab", { name: /lines/i });
+    expect(linesTab).toBeTruthy();
+    expect(linesTab).toHaveAttribute("aria-controls", "tabpanel-lines");
+    expect(screen.getByRole("tab", { name: /stations/i })).toHaveAttribute("aria-controls", "tabpanel-stations");
+    expect(screen.getByRole("tab", { name: /route/i })).toHaveAttribute("aria-controls", "tabpanel-route");
+    expect(screen.getByRole("tab", { name: /about/i })).toHaveAttribute("aria-controls", "tabpanel-about");
+
+    const panel = screen.getByRole("tabpanel");
+    expect(panel).toHaveAttribute("id", "tabpanel-lines");
+    expect(panel).toHaveAttribute("aria-labelledby", "tab-lines");
   });
 
   it("displays Lines tab by default and switches to Stations on tab click", () => {
     render(<NavigationPanel />);
     expect(screen.getByTestId("lines-tab")).toBeTruthy();
+    expect(screen.getByTestId("network-stats")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("tab", { name: /stations/i }));
     expect(useAppStore.getState().activeTab).toBe("stations");
@@ -107,17 +114,20 @@ describe("NavigationPanel tab switching", () => {
     expect(useAppStore.getState().activeTab).toBe("about");
   });
 
-  it("collapses panel on toggle click", () => {
+  it("collapses panel on toggle click and synchronizes activeTab with store", () => {
     render(<NavigationPanel />);
     expect(screen.getByTestId("lines-tab")).toBeTruthy();
+    expect(useAppStore.getState().activeTab).toBe("lines");
 
     const collapseButton = screen.getByRole("button", { name: /collapse navigation panel/i });
     fireEvent.click(collapseButton);
     expect(screen.queryByTestId("lines-tab")).toBeNull();
+    expect(useAppStore.getState().activeTab).toBeNull();
 
     const expandButton = screen.getByRole("button", { name: /expand navigation panel/i });
     fireEvent.click(expandButton);
     expect(screen.getByTestId("lines-tab")).toBeTruthy();
+    expect(useAppStore.getState().activeTab).toBe("lines");
   });
 
   it("shows pre-revenue badge on pre-revenue lines in Lines tab", () => {
@@ -126,3 +136,4 @@ describe("NavigationPanel tab switching", () => {
     expect(screen.getByText("Orange Line")).toBeTruthy();
   });
 });
+
