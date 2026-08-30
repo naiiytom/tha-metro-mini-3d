@@ -29,7 +29,7 @@ Features to close parity with [nagix/mini-tokyo-3d](https://github.com/nagix/min
 | 20 | [Visual Regression & Contrast Gates](#20-automated-coverage-for-visualperceptual-regressions--delivered-in-mvp-7) | Quality Guardrails | WCAG 3:1 Standards | ✅ Delivered |
 | 21 | [Auto/Light/Dark Themes & Vector Styles](#21-dark--light-theme-toggle--basemap-style-cycle-satellite-terrain--delivered-in-mvp-7-vector-styles-only) | Theming | Modern UI | ✅ Delivered |
 | 23–24 | [Data Defect Fixes (Pink Spur, Dwells)](#reported-defects) | Data Integrity | Feed Normalization | ✅ Fixed |
-| 25 | [Support & Donation System](#25-support--donation-system-promptpay-scb-truemoney-auditable-qr) | Community Payments | Bangkok Context | 📋 Feature Parity Item |
+| 25 | [Support & Donation System](#25-support--donation-system--💖-github-sponsors-active-promptpay-deferred) | Community Payments | GitHub Sponsors Active | ✅ Active (GitHub Sponsors) |
 | 26 | [SEO, Structured Data & PWA Manifest](#26-seo-structured-data--web-app-manifest-suite) | SEO & Discoverability | Web Standards | 📋 Feature Parity Item |
 | 27 | [UI Suite: About, Share QR & Spotlight Tour](#27-ui-elements-about--privacy-panel-share-qr-and-guided-spotlight-tour) | UI Elements & Tour | Interactive Experience | 📋 Feature Parity Item |
 
@@ -282,17 +282,10 @@ Concrete, already-scoped work that fell out of MVP 6. Constraints below were est
 
 ## UI, Community & SEO Feature Parity
 
-### 25. Support & Donation System (PromptPay, SCB, TrueMoney, Auditable QR)
-- **Non-intrusive, privacy-first community support:** Quiet integration within the About panel (`AboutPanel.tsx`) and the final card of the guided tour — strictly no arrival pop-ups, timed modals, or floating banners over the map canvas.
-- **PromptPay & TrueMoney QR integration:**
-  - Standard EMVCo merchant-presented QR payload format (Thai Bankers' Association PromptPay profile): Format Indicator (`000201`), Point of Initiation (`010211` static), Merchant Account Info Tag 29 (`0016A000000677010111` + Mobile Tag `01130066XXXXXXXXX`), Currency THB (`5303764`), Country TH (`5802TH`), and CRC-16/CCITT-FALSE checksum (`6304XXXX`).
-  - Implemented as a pure, dependency-free utility in `src/lib/promptpay.ts` with `crc16()` (polynomial `0x1021`, initial value `0xFFFF`), `normaliseMobile()`, `formatMobile()`, and `promptPayPayload()`.
-  - **Static only — no amount (tag 54) baked in:** Payers choose their own donation amount in their banking application.
-  - **Auditable build-time SVG artefact:** `public/promptpay-qr.svg` is rendered at build time via `tools/make-qr.mjs` (`npm run qr`) and committed to Git. Keeps `qrcode` as a devDependency without adding runtime bundle weight to the browser (NF2 compliance) and enables independent verification against printed digits.
-- **Direct SCB Bank Transfer:**
-  - Displays Siam Commercial Bank account details with passbook formatting (`000-000000-0`) and one-click copy button with clipboard feedback.
-  - **Deliberately omitted from the QR payload:** PromptPay resolves registered identifiers (mobile, national ID, e-wallet) to an account at the bank; encoding raw account numbers into the EMVCo bank tag is inconsistently supported across Thai mobile banking apps and risks scan failures.
-- **External Sponsorship Channels:** Configurable links in `src/config/support.ts` for GitHub Sponsors, Ko-fi, Buy Me a Coffee, and custom links with `hasSupportLinks()` conditional rendering.
+### 25. Support & Donation System — 💖 GitHub Sponsors Active (PromptPay Deferred)
+- **Active Channel:** [GitHub Sponsors](https://github.com/sponsors/naiiytom) is configured in `.github/FUNDING.yml`, `README.md`, and the `AboutTab` UI.
+- **PromptPay / Direct Bank Transfer:** Deferred for future consideration; no domestic PromptPay QR or banking credentials active in the client.
+- **External Sponsorship Channels:** Configurable in `.github/FUNDING.yml` and `AboutTab` with `hasSupportLinks()` conditional rendering.
 - **Automated Verification Gates:**
   - `src/lib/promptpay.test.ts`: Verifies the CRC-16/CCITT-FALSE check vector (`123456789` → `29B1`), mobile number length/prefix validation, formatting, and static payload correctness.
   - `tools/support.test.mjs`: Decodes `public/promptpay-qr.svg` to verify it matches `SUPPORT.promptPayId`, asserts static mode without baked-in amount, confirms bank account is not in the QR, and enforces HTTPS for external links.

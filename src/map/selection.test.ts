@@ -105,6 +105,14 @@ describe("pickAt with altitude", () => {
       type: "vehicle", runIdx: 9,
     });
   });
+
+  it("hits a train at ground level when map3D is false (2D flat mode)", () => {
+    const vehicles = vehicleBuffer(0, 0, 30, 7, 0);
+    expect(pickAt(view, vehicles, 1, [], { x: 500, y: 500 }, [], 15, false)).toEqual({
+      type: "vehicle",
+      runIdx: 7,
+    });
+  });
 });
 
 describe("pickRadiusPx", () => {

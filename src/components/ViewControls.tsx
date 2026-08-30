@@ -11,6 +11,8 @@ import { useAppStore } from "../stores/useAppStore";
 export function ViewControls() {
   const undergroundMode = useAppStore((s) => s.undergroundMode);
   const setUndergroundMode = useAppStore((s) => s.setUndergroundMode);
+  const map3D = useAppStore((s) => s.map3D);
+  const setMap3D = useAppStore((s) => s.setMap3D);
   const shadowsEnabled = useAppStore((s) => s.shadowsEnabled);
   const setShadowsEnabled = useAppStore((s) => s.setShadowsEnabled);
   const themeMode = useAppStore((s) => s.themeMode);
@@ -46,9 +48,16 @@ export function ViewControls() {
     void target?.requestFullscreen();
   };
 
-  const row = (label: string, hint: string, on: boolean, set: (v: boolean) => void) => (
+  const row = (
+    label: string,
+    hint: string,
+    on: boolean,
+    set: (v: boolean) => void,
+    testId?: string,
+  ) => (
     <button
       type="button"
+      data-testid={testId}
       aria-pressed={on}
       onClick={() => set(!on)}
       title={hint}
@@ -74,33 +83,39 @@ export function ViewControls() {
   return (
     <div className="mt-2 border-t border-edge pt-2">
       {row(
+        "3D perspective",
+        "Tilt camera to 3D perspective view; turn off for flat 2D top-down map",
+        map3D,
+        setMap3D,
+        "toggle-3d-perspective",
+      )}
+      {row(
         "Underground view",
         "Fade the basemap and surface lines so tunnelled track is visible",
         undergroundMode,
         setUndergroundMode,
+        "toggle-underground-view",
       )}
       {row(
         "Shadows",
-        // The shadow frustum is a fixed ~4 km box around Siam (see
-        // ThreeLayer.ts) — real, and the cost/benefit is measured there —
-        // but it's core-only, not network-wide, and this toggle reads as a
-        // global setting. Say so, rather than let a Rangsit/Lak Song user
-        // discover it by watching shadows silently vanish (finding 6d).
         "Higher fidelity, lower frame rate — only near central Bangkok; no effect further out",
         shadowsEnabled,
         setShadowsEnabled,
+        "toggle-shadows",
       )}
       {row(
         "Eco mode",
         "Drop to about 1 frame per second to save battery — trains stay on schedule",
         ecoMode,
         setEcoMode,
+        "toggle-eco-mode",
       )}
       {row(
         "Fullscreen",
         "Fill the screen — press Esc to leave",
         isFullscreen,
         () => toggleFullscreen(),
+        "toggle-fullscreen",
       )}
       <div className="mt-1 px-3 py-2 md:px-1.5 md:py-1">
         <div className="mb-1 text-sm text-ink-muted md:text-xs">Theme</div>

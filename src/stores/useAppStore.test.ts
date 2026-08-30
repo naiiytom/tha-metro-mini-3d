@@ -199,3 +199,60 @@ describe("route planner store slice", () => {
     expect(useAppStore.getState().routePlan).toBe(other);
   });
 });
+
+describe("navigation tabs", () => {
+  beforeEach(() => useAppStore.setState({ activeTab: "lines" }));
+
+  it("defaults activeTab to lines", () => {
+    expect(useAppStore.getState().activeTab).toBe("lines");
+  });
+
+  it("switches activeTab and synchronizes backward-compatible flags", () => {
+    useAppStore.getState().setActiveTab("stations");
+    expect(useAppStore.getState().activeTab).toBe("stations");
+    expect(useAppStore.getState().searchOpen).toBe(true);
+    expect(useAppStore.getState().routePlannerOpen).toBe(false);
+
+    useAppStore.getState().setActiveTab("route");
+    expect(useAppStore.getState().activeTab).toBe("route");
+    expect(useAppStore.getState().routePlannerOpen).toBe(true);
+    expect(useAppStore.getState().searchOpen).toBe(false);
+
+    useAppStore.getState().setActiveTab("about");
+    expect(useAppStore.getState().activeTab).toBe("about");
+    expect(useAppStore.getState().searchOpen).toBe(false);
+    expect(useAppStore.getState().routePlannerOpen).toBe(false);
+
+    useAppStore.getState().setActiveTab(null);
+    expect(useAppStore.getState().activeTab).toBeNull();
+  });
+
+  it("toggleTab collapses if already active or switches if different", () => {
+    useAppStore.getState().setActiveTab("lines");
+    useAppStore.getState().toggleTab("lines");
+    expect(useAppStore.getState().activeTab).toBeNull();
+
+    useAppStore.getState().toggleTab("stations");
+    expect(useAppStore.getState().activeTab).toBe("stations");
+
+    useAppStore.getState().toggleTab("route");
+    expect(useAppStore.getState().activeTab).toBe("route");
+  });
+});
+
+describe("3D map toggle", () => {
+  beforeEach(() => useAppStore.setState({ map3D: true }));
+
+  it("defaults map3D to true", () => {
+    expect(useAppStore.getState().map3D).toBe(true);
+  });
+
+  it("toggles and sets map3D state", () => {
+    useAppStore.getState().setMap3D(false);
+    expect(useAppStore.getState().map3D).toBe(false);
+
+    useAppStore.getState().toggleMap3D();
+    expect(useAppStore.getState().map3D).toBe(true);
+  });
+});
+

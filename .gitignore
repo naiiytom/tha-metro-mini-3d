@@ -5,6 +5,7 @@ rust-engine/target/
 *.local
 .DS_Store
 .superpowers/
+docs/superpowers/
 .worktrees/
 
 # Scratch output from tools/capture-*.mjs (frame PNGs, multi-MB GIF copies) —

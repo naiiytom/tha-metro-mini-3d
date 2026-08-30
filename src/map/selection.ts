@@ -87,6 +87,7 @@ export function pickAt(
   at: Point,
   hiddenRoutes: number[] = [],
   zoom = 15,
+  map3D = true,
 ): Picked | null {
   const vehicleRadius = pickRadiusPx(VEHICLE_PICK_PX, zoom);
   const stationRadius = pickRadiusPx(STATION_PICK_PX, zoom);
@@ -95,8 +96,13 @@ export function pickAt(
   for (let i = 0; i < count; i++) {
     const o = i * VEHICLE_STRIDE;
     if (hiddenRoutes.includes(vehicles[o + LANE_ROUTE_IDX] | 0)) continue;
+    const vz = map3D ? vehicles[o + LANE_Z] : 0;
     const d2 = screenDistanceSq(
-      view, vehicles[o + LANE_X], vehicles[o + LANE_Y], vehicles[o + LANE_Z], at,
+      view,
+      vehicles[o + LANE_X],
+      vehicles[o + LANE_Y],
+      vz,
+      at,
     );
     if (d2 <= vehicleRadius * vehicleRadius && (!bestVehicle || d2 < bestVehicle.d2)) {
       bestVehicle = { runIdx: vehicles[o + LANE_RUN_IDX], d2 };
@@ -107,7 +113,8 @@ export function pickAt(
   let bestStation: { station: StationInfo; d2: number } | null = null;
   for (const s of stations) {
     if (hiddenRoutes.includes(s.route_idx)) continue;
-    const d2 = screenDistanceSq(view, s.x, s.y, s.z, at);
+    const sz = map3D ? s.z : 0;
+    const d2 = screenDistanceSq(view, s.x, s.y, sz, at);
     if (d2 <= stationRadius * stationRadius && (!bestStation || d2 < bestStation.d2)) {
       bestStation = { station: s, d2 };
     }

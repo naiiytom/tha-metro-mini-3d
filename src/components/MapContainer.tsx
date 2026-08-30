@@ -303,6 +303,11 @@ export function MapContainer() {
         layer?.setRouteHighlight(highlightSpans(state.routePlan, state.hiddenRoutes));
         map.triggerRepaint();
       }
+      if (state.map3D !== prev.map3D) {
+        binding?.applyMap3D(state.map3D);
+        layer?.setMap3D(state.map3D);
+        map.triggerRepaint();
+      }
     });
 
     map.on("style.load", () => {
@@ -321,6 +326,8 @@ export function MapContainer() {
       store.setRoutes(net.lines);
       binding = bindStyle(map, layer);
       binding.applyUnderground(useAppStore.getState().undergroundMode);
+      binding.applyMap3D(useAppStore.getState().map3D);
+      layer.setMap3D(useAppStore.getState().map3D);
       layer.setShadowsEnabled(useAppStore.getState().shadowsEnabled);
       // Seed line visibility from any hiddenRoutes already in the store at
       // mount — the subscription above only reacts to CHANGES, so without
@@ -507,10 +514,19 @@ export function MapContainer() {
     // Click to select a train or station. Uses the most recent interpolated
     // buffer — the same poses that are on screen.
     const onMapClick = (e: { point: { x: number; y: number } }) => {
-      const { stations, selectRun, selectStation, hiddenRoutes } = useAppStore.getState();
+      const { stations, selectRun, selectStation, hiddenRoutes, map3D } = useAppStore.getState();
       const view = layer?.viewProjection();
       if (!view) return;
-      const hit = pickAt(view, lastVehicles, lastCount, stations, e.point, hiddenRoutes, map.getZoom());
+      const hit = pickAt(
+        view,
+        lastVehicles,
+        lastCount,
+        stations,
+        e.point,
+        hiddenRoutes,
+        map.getZoom(),
+        map3D,
+      );
       if (!hit) {
         // Clicking empty map clears the selection, like clicking away from
         // anything else.
@@ -547,8 +563,17 @@ export function MapContainer() {
         // while dragPan is active fights MapLibre's own cursor for the
         // duration of the drag.
         if (map.dragPan.isActive()) return;
-        const { stations, hiddenRoutes } = useAppStore.getState();
-        const hit = pickAt(view, lastVehicles, lastCount, stations, point, hiddenRoutes, map.getZoom());
+        const { stations, hiddenRoutes, map3D } = useAppStore.getState();
+        const hit = pickAt(
+          view,
+          lastVehicles,
+          lastCount,
+          stations,
+          point,
+          hiddenRoutes,
+          map.getZoom(),
+          map3D,
+        );
         map.getCanvas().style.cursor = hit ? "pointer" : "";
       });
     };
@@ -604,6 +629,31 @@ export function MapContainer() {
       }
     });
 
+    // 3D perspective vs 2D top-down map view mode toggle
+    let isEasingMap3D = false;
+    const unsubscribeMap3D = useAppStore.subscribe((state, prev) => {
+      if (state.map3D !== prev.map3D) {
+        isEasingMap3D = true;
+        map.easeTo({
+          pitch: state.map3D ? 55 : 0,
+          duration: 800,
+        });
+      }
+    });
+
+    const onMapPitchEnd = () => {
+      if (isEasingMap3D) {
+        isEasingMap3D = false;
+        return;
+      }
+      const currentPitch = map.getPitch();
+      const is3D = currentPitch >= 10;
+      if (useAppStore.getState().map3D !== is3D) {
+        useAppStore.getState().setMap3D(is3D);
+      }
+    };
+    map.on("pitchend", onMapPitchEnd);
+
     // Dev builds always expose these; a production build exposes them too, but
     // only when opted in via `?debug=1`, so ordinary production visitors never
     // get debug globals on `window`. The `?debug=1` path was added for the NF1
@@ -635,10 +685,12 @@ export function MapContainer() {
       controls.dispose();
       unsubscribeFollow();
       unsubscribeFlyTo();
+      unsubscribeMap3D();
       unsubscribeVisibility();
       if (tooltipTimer !== null) clearInterval(tooltipTimer);
       unsubscribeTooltipSelection?.();
       trainTooltip.dispose();
+      map.off("pitchend", onMapPitchEnd);
       map.off("click", onMapClick);
       map.off("mousemove", onMouseMove);
       map.getCanvas().style.cursor = "";
