@@ -88,8 +88,9 @@ export function pickAt(
   hiddenRoutes: number[] = [],
   zoom = 15,
   map3D = true,
+  trainScale = 1,
 ): Picked | null {
-  const vehicleRadius = pickRadiusPx(VEHICLE_PICK_PX, zoom);
+  const vehicleRadius = pickRadiusPx(VEHICLE_PICK_PX * trainScale, zoom);
   const stationRadius = pickRadiusPx(STATION_PICK_PX, zoom);
 
   let bestVehicle: { runIdx: number; d2: number } | null = null;

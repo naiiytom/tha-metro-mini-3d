@@ -167,6 +167,7 @@ Features to close parity with [nagix/mini-tokyo-3d](https://github.com/nagix/min
   Safari-untested as a disclosed, not-silently-solved gap.
 - Draw calls unchanged — still one `InstancedMesh` per route. Bundle
   1.06 MB gzip / 5.00 MB.
+- **Train scale & visibility toggle (GitHub issue #5):** Added `1x` (realistic 1:1), `1.5x` (+50%), and `2x` (+100%) train model scaling in `ViewControls`, allowing users to adjust visibility for overview zooms and mobile screens while preserving track deck alignment, procedural liveries, and pick hitbox bounds.
 
 ---
 

@@ -53,6 +53,17 @@ describe("theme mode", () => {
   });
 });
 
+describe("train scale", () => {
+  it("defaults trainScale to 1 and updates scale", () => {
+    useAppStore.getState().setTrainScale(1);
+    expect(useAppStore.getState().trainScale).toBe(1);
+    useAppStore.getState().setTrainScale(1.5);
+    expect(useAppStore.getState().trainScale).toBe(1.5);
+    useAppStore.getState().setTrainScale(2);
+    expect(useAppStore.getState().trainScale).toBe(2);
+  });
+});
+
 describe("station search", () => {
   beforeEach(() => useAppStore.setState({ searchOpen: false, flyToRequest: null }));
 

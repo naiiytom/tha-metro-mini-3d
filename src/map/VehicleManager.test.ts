@@ -350,3 +350,47 @@ describe("setRouteGeometry", () => {
     expect(() => manager.setRouteGeometry(7, next)).not.toThrow();
   });
 });
+
+describe("VehicleManager trainScale", () => {
+  it("defaults to scale 1", () => {
+    const manager = new VehicleManager([routeOf("#1964B7", "heavy")]);
+    expect(manager.getTrainScale()).toBe(1);
+  });
+
+  it("updates trainScale via setTrainScale", () => {
+    const manager = new VehicleManager([routeOf("#1964B7", "heavy")]);
+    manager.setTrainScale(1.5);
+    expect(manager.getTrainScale()).toBe(1.5);
+  });
+
+  it("applies scale factor to instance matrices of both mesh and glowMesh", () => {
+    const manager = new VehicleManager([routeOf("#1964B7", "heavy")]);
+    manager.setTrainScale(2);
+
+    const vehicles = new Float32Array([...vehicleRow(0, 10)]);
+    vehicles[LANE_X] = 100;
+    vehicles[LANE_Y] = 200;
+    vehicles[LANE_Z] = 15;
+    manager.update(vehicles, 1);
+
+    const matrix = new THREE.Matrix4();
+    manager.meshes[0].getMatrixAt(0, matrix);
+
+    const glowMatrix = new THREE.Matrix4();
+    manager.glowMeshes[0].getMatrixAt(0, glowMatrix);
+
+    expect(glowMatrix.equals(matrix)).toBe(true);
+
+    const pos = new THREE.Vector3();
+    const rot = new THREE.Quaternion();
+    const scale = new THREE.Vector3();
+    matrix.decompose(pos, rot, scale);
+
+    expect(pos.x).toBeCloseTo(100);
+    expect(pos.y).toBeCloseTo(200);
+    expect(pos.z).toBeCloseTo(15);
+    expect(scale.x).toBeCloseTo(2);
+    expect(scale.y).toBeCloseTo(2);
+    expect(scale.z).toBeCloseTo(2);
+  });
+});
