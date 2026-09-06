@@ -308,6 +308,10 @@ export function MapContainer() {
         layer?.setMap3D(state.map3D);
         map.triggerRepaint();
       }
+      if (state.trainScale !== prev.trainScale) {
+        vehicleManager?.setTrainScale(state.trainScale);
+        map.triggerRepaint();
+      }
     });
 
     map.on("style.load", () => {
@@ -316,6 +320,7 @@ export function MapContainer() {
       vehicleManager = new VehicleManager(
         net.lines.map((l, i) => ({ color: l.color, stock: stocks[i] })),
       );
+      vehicleManager.setTrainScale(store.trainScale);
       // Re-run on every style.load, not just the first: a swap rebuilds the
       // VehicleManager from scratch, so an override resolved for the previous
       // one is gone with it.
@@ -514,7 +519,8 @@ export function MapContainer() {
     // Click to select a train or station. Uses the most recent interpolated
     // buffer — the same poses that are on screen.
     const onMapClick = (e: { point: { x: number; y: number } }) => {
-      const { stations, selectRun, selectStation, hiddenRoutes, map3D } = useAppStore.getState();
+      const { stations, selectRun, selectStation, hiddenRoutes, map3D, trainScale } =
+        useAppStore.getState();
       const view = layer?.viewProjection();
       if (!view) return;
       const hit = pickAt(
@@ -526,6 +532,7 @@ export function MapContainer() {
         hiddenRoutes,
         map.getZoom(),
         map3D,
+        trainScale,
       );
       if (!hit) {
         // Clicking empty map clears the selection, like clicking away from
@@ -563,7 +570,7 @@ export function MapContainer() {
         // while dragPan is active fights MapLibre's own cursor for the
         // duration of the drag.
         if (map.dragPan.isActive()) return;
-        const { stations, hiddenRoutes, map3D } = useAppStore.getState();
+        const { stations, hiddenRoutes, map3D, trainScale } = useAppStore.getState();
         const hit = pickAt(
           view,
           lastVehicles,
@@ -573,6 +580,7 @@ export function MapContainer() {
           hiddenRoutes,
           map.getZoom(),
           map3D,
+          trainScale,
         );
         map.getCanvas().style.cursor = hit ? "pointer" : "";
       });

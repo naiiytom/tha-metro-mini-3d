@@ -113,6 +113,16 @@ describe("pickAt with altitude", () => {
       runIdx: 7,
     });
   });
+
+  it("expands pick radius proportionally when trainScale is enlarged", () => {
+    const vehicles = vehicleBuffer(0, 0, 0, 8, 0);
+    const click = { x: 500 + 28, y: 500 };
+    expect(pickAt(view, vehicles, 1, [], click, [], 15, true, 1)).toBeNull();
+    expect(pickAt(view, vehicles, 1, [], click, [], 15, true, 1.5)).toEqual({
+      type: "vehicle",
+      runIdx: 8,
+    });
+  });
 });
 
 describe("pickRadiusPx", () => {
