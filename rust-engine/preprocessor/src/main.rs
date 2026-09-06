@@ -342,7 +342,7 @@ impl TripRouter {
             })
             .collect();
         if matched.len() > 1 {
-            matched.sort_by(|a, b| a.line_idx.cmp(&b.line_idx));
+            matched.sort_by_key(|a| a.line_idx);
             return Err(format!(
                 "trip {trip_id} (route {route_id}) is claimed by more than one line: {} — \
                  their claimGtfsStopIds must not both match one trip",

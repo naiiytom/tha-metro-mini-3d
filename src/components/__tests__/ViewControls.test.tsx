@@ -64,5 +64,28 @@ describe("ViewControls fullscreen", () => {
     fireEvent.click(button);
     expect(button).toHaveAttribute("aria-pressed", "false");
   });
+
+  it("renders train scale options and changes train scale in the store", () => {
+    render(<ViewControls />);
+    const btn1x = screen.getByTestId("train-scale-1");
+    const btn15x = screen.getByTestId("train-scale-1.5");
+    const btn3x = screen.getByTestId("train-scale-3");
+    const btn5x = screen.getByTestId("train-scale-5");
+
+    expect(btn1x).toHaveAttribute("aria-checked", "true");
+    expect(btn15x).toHaveAttribute("aria-checked", "false");
+    expect(btn3x).toHaveAttribute("aria-checked", "false");
+    expect(btn5x).toHaveAttribute("aria-checked", "false");
+
+    fireEvent.click(btn15x);
+    expect(btn15x).toHaveAttribute("aria-checked", "true");
+    expect(btn1x).toHaveAttribute("aria-checked", "false");
+
+    fireEvent.click(btn3x);
+    expect(btn3x).toHaveAttribute("aria-checked", "true");
+
+    fireEvent.click(btn5x);
+    expect(btn5x).toHaveAttribute("aria-checked", "true");
+  });
 });
 

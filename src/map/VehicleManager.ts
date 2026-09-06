@@ -128,6 +128,8 @@ export class VehicleManager {
   readonly glowMeshes: THREE.InstancedMesh[];
 
   private matrix = new THREE.Matrix4();
+  private trainScale = 1;
+  private readonly scaleVector = new THREE.Vector3(1, 1, 1);
   /** Selection at the last colour write, to skip redundant attribute uploads. */
   private tintedFor: number | null = null;
   /** Reused per frame — sized to the route count, never reallocated. */
@@ -204,6 +206,23 @@ export class VehicleManager {
     if (glow) glow.visible = visible;
   }
 
+  /** Current train model scale factor. */
+  getTrainScale(): number {
+    return this.trainScale;
+  }
+
+  /**
+   * Set train model scale factor (GitHub issue #5).
+   * Scales the instance matrices in-place at render time, preserving
+   * deck alignment and position on track.
+   */
+  setTrainScale(scale: number): void {
+    if (this.trainScale !== scale) {
+      this.trainScale = scale;
+      this.scaleVector.setScalar(scale);
+    }
+  }
+
   /**
    * Allocated eagerly, unlike `instanceColor` (a Three built-in the renderer
    * allocates lazily on the first `setColorAt`): this is a plain custom
@@ -278,6 +297,9 @@ export class VehicleManager {
       this.matrix
         .makeRotationZ(vehicles[o + LANE_YAW])
         .setPosition(vehicles[o + LANE_X], vehicles[o + LANE_Y], vehicles[o + LANE_Z]);
+      if (this.trainScale !== 1) {
+        this.matrix.scale(this.scaleVector);
+      }
       const slot = counts[routeIdx]++;
       mesh.setMatrixAt(slot, this.matrix);
       this.glowMeshes[routeIdx]?.setMatrixAt(slot, this.matrix);

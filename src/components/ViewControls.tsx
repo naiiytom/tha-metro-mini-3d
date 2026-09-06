@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { BASEMAP_STYLES } from "../map/basemapStyles";
 import { THEME_MODES } from "../map/themeMode";
+import { TRAIN_SCALES } from "../map/trainScale";
 import { useAppStore } from "../stores/useAppStore";
 
 /**
@@ -21,6 +22,8 @@ export function ViewControls() {
   const setBasemapStyle = useAppStore((s) => s.setBasemapStyle);
   const ecoMode = useAppStore((s) => s.ecoMode);
   const setEcoMode = useAppStore((s) => s.setEcoMode);
+  const trainScale = useAppStore((s) => s.trainScale);
+  const setTrainScale = useAppStore((s) => s.setTrainScale);
 
   const [isFullscreen, setIsFullscreen] = useState(false);
 
@@ -163,6 +166,30 @@ export function ViewControls() {
               onClick={() => setBasemapStyle(s.key)}
               className={`flex-1 rounded px-2 py-1.5 text-sm transition-colors md:py-0.5 md:text-xs ${
                 basemapStyle === s.key
+                  ? "bg-surface text-ink shadow-sm"
+                  : "text-ink-muted hover:text-ink"
+              }`}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="mt-1 px-3 py-2 md:px-1.5 md:py-1">
+        <div className="mb-1 text-sm text-ink-muted md:text-xs">Train size</div>
+        <div role="radiogroup" aria-label="Train size" className="flex gap-1 rounded-md bg-surface-sunken p-0.5">
+          {TRAIN_SCALES.map((s) => (
+            <button
+              key={s.scale}
+              type="button"
+              role="radio"
+              aria-checked={trainScale === s.scale}
+              data-train-scale={s.scale}
+              data-testid={`train-scale-${s.scale}`}
+              onClick={() => setTrainScale(s.scale)}
+              title={s.hint}
+              className={`flex-1 rounded px-2 py-1.5 text-sm transition-colors md:py-0.5 md:text-xs ${
+                trainScale === s.scale
                   ? "bg-surface text-ink shadow-sm"
                   : "text-ink-muted hover:text-ink"
               }`}

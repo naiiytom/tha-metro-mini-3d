@@ -4,6 +4,7 @@ import type { ThemeMode } from "../map/themeMode";
 import type { RoutePlan, StationInfo, ValidationSummary } from "../sim/protocol";
 import type { ClockParams } from "../sim/SimClient";
 import type { LineGeometry } from "../types";
+import { type TrainScale, loadTrainScale, saveTrainScale } from "../map/trainScale";
 
 /**
  * UI-facing state only (SRS §3A.7): per-frame render/kinematic state must
@@ -105,6 +106,10 @@ interface AppState {
    *  power (roadmap item 2). Off by default. */
   ecoMode: boolean;
   setEcoMode: (on: boolean) => void;
+
+  /** Train model scale (GitHub issue #5). Default 1 (1x realistic scale). */
+  trainScale: TrainScale;
+  setTrainScale: (scale: TrainScale) => void;
 
   /** Station search panel open status. */
   searchOpen: boolean;
@@ -226,6 +231,12 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   ecoMode: false,
   setEcoMode: (on) => set({ ecoMode: on }),
+
+  trainScale: loadTrainScale(),
+  setTrainScale: (scale) => {
+    saveTrainScale(scale);
+    set({ trainScale: scale });
+  },
 
   searchOpen: false,
   setSearchOpen: (open) =>
