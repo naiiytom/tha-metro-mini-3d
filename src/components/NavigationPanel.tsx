@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useIsMobile } from "../hooks/useIsMobile";
+import { useBottomSheet } from "../hooks/useBottomSheet";
 import { useAppStore, type NavigationTab } from "../stores/useAppStore";
 import { browserStorage, hasStoredPreference, loadCollapsed, saveCollapsed } from "./panelCollapse";
 import { LinesTab } from "./tabs/LinesTab";
@@ -27,7 +28,16 @@ export function NavigationPanel() {
   const setUiHidden = useAppStore((s) => s.setUiHidden);
   const activeTab = useAppStore((s) => s.activeTab);
   const setActiveTab = useAppStore((s) => s.setActiveTab);
+  const primaryLang = useAppStore((s) => s.primaryLang);
+  const togglePrimaryLang = useAppStore((s) => s.togglePrimaryLang);
   const isMobile = useIsMobile();
+  const sheetDetent = useAppStore((s) => s.sheetDetent);
+  const setSheetDetent = useAppStore((s) => s.setSheetDetent);
+
+  const { sheetRef, handleRef, contentRef, translateY } = useBottomSheet({
+    initialDetent: sheetDetent,
+    onDetentChange: setSheetDetent,
+  });
 
   const [expanded, setExpanded] = useState(() => !loadCollapsed(browserStorage(), isMobile));
   const lastActiveTab = useRef<NavigationTab>("lines");
@@ -102,18 +112,44 @@ export function NavigationPanel() {
 
   return (
     <nav
+      ref={isMobile ? sheetRef : undefined}
       aria-label="Transit Navigation"
       data-testid="navigation-panel"
-      className="panel-glass pointer-events-auto absolute left-[max(1rem,env(safe-area-inset-left))] top-4 max-h-[calc(100dvh-16rem)] w-[min(20rem,calc(100vw-2rem))] overflow-hidden rounded-xl border shadow-xl shadow-ink/10 backdrop-blur-md md:left-4 md:max-h-[calc(100dvh-2rem)] md:w-80"
+      style={isMobile && translateY ? { transform: `translateY(${translateY}px)` } : undefined}
+      className="panel-glass pointer-events-auto absolute left-[max(1rem,env(safe-area-inset-left))] top-4 max-h-[calc(100dvh-16rem)] w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border shadow-xl shadow-ink/10 backdrop-blur-xl md:left-4 md:max-h-[calc(100dvh-2rem)] md:w-88"
     >
+      {/* Mobile Drag Handle */}
+      <div
+        ref={isMobile ? handleRef : undefined}
+        data-testid="bottom-sheet-handle"
+        className="flex justify-center pt-2 pb-1 cursor-grab touch-none md:hidden"
+      >
+        <div className="h-1 w-10 rounded-full bg-ink-subtle/40" />
+      </div>
+
       {/* Header */}
       <div className="flex items-center justify-between gap-2 border-b border-edge px-3.5 py-2">
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-sm font-semibold text-ink">Greater Bangkok Metro Mini 3D</h1>
           <p className="truncate text-xs text-ink-muted">
-            {mapReady ? "Bangkok Urban Rail Simulation" : "Loading map…"}
+            {mapReady
+              ? primaryLang === "th"
+                ? "ระบบจำลองรถไฟฟ้ากรุงเทพมหานครและปริมณฑล"
+                : "Bangkok Urban Rail Simulation"
+              : "Loading map…"}
           </p>
         </div>
+
+        {/* 1-tap Language Switcher */}
+        <button
+          type="button"
+          onClick={togglePrimaryLang}
+          aria-label={`Switch language (current: ${primaryLang.toUpperCase()})`}
+          title={`Switch language (current: ${primaryLang.toUpperCase()})`}
+          className="flex h-11 min-h-[44px] shrink-0 items-center justify-center rounded-full border border-edge bg-surface-sunken/80 px-2 text-[11px] font-bold text-ink hover:bg-surface md:h-8 md:min-h-0"
+        >
+          {primaryLang === "en" ? "EN / TH" : "TH / EN"}
+        </button>
 
         {/* Mobile Hide UI Toggle */}
         <button
@@ -121,7 +157,7 @@ export function NavigationPanel() {
           onClick={() => setUiHidden(!uiHidden)}
           aria-label={uiHidden ? "Show overlay UI" : "Hide overlay UI"}
           title={uiHidden ? "Show overlay UI" : "Hide overlay UI"}
-          className="flex h-11 w-11 min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-md text-sm text-ink-muted hover:bg-surface-sunken md:h-8 md:w-8 md:min-h-0 md:min-w-0"
+          className="flex h-11 w-11 min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-lg text-sm text-ink-muted hover:bg-surface-sunken md:h-8 md:w-8 md:min-h-0 md:min-w-0"
         >
           {uiHidden ? "👁️" : "✕"}
         </button>
@@ -133,7 +169,7 @@ export function NavigationPanel() {
           aria-expanded={expanded}
           aria-label={expanded ? "Collapse navigation panel" : "Expand navigation panel"}
           title={expanded ? "Collapse panel" : "Expand panel"}
-          className="flex h-11 w-11 min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-md text-xs font-semibold text-ink-muted hover:bg-surface-sunken md:h-8 md:w-8 md:min-h-0 md:min-w-0"
+          className="flex h-11 w-11 min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-lg text-xs font-semibold text-ink-muted hover:bg-surface-sunken md:h-8 md:w-8 md:min-h-0 md:min-w-0"
         >
           {expanded ? "▲" : "▼"}
         </button>
@@ -177,6 +213,7 @@ export function NavigationPanel() {
       {/* Active Tab Panel Body */}
       {bodyVisible && (
         <div
+          ref={isMobile ? contentRef : undefined}
           role="tabpanel"
           id={`tabpanel-${currentTab}`}
           aria-labelledby={`tab-${currentTab}`}

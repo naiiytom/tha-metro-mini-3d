@@ -16,8 +16,16 @@ import type { LineGeometry } from "../types";
 export type EngineStatus = "off" | "loading" | "ready" | "error";
 export type Warp = 1 | 5 | 10 | 60;
 export type NavigationTab = "lines" | "stations" | "route" | "about";
+export type PrimaryLanguage = "en" | "th";
+export type SheetDetent = "peek" | "half" | "full";
 
 interface AppState {
+  primaryLang: PrimaryLanguage;
+  setPrimaryLang: (lang: PrimaryLanguage) => void;
+  togglePrimaryLang: () => void;
+
+  sheetDetent: SheetDetent;
+  setSheetDetent: (detent: SheetDetent) => void;
   mapReady: boolean;
   setMapReady: (ready: boolean) => void;
 
@@ -61,6 +69,7 @@ interface AppState {
 
   selectRun: (runIdx: number | null) => void;
   selectStation: (station: { routeIdx: number; stationIdx: number } | null) => void;
+  clearSelection: () => void;
   setFollowing: (following: boolean) => void;
 
   /** Static station list from the engine, fetched once at ready. */
@@ -125,6 +134,14 @@ interface AppState {
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
+  primaryLang:
+    typeof navigator !== "undefined" && navigator.language?.startsWith("th") ? "th" : "en",
+  setPrimaryLang: (lang) => set({ primaryLang: lang }),
+  togglePrimaryLang: () => set((s) => ({ primaryLang: s.primaryLang === "en" ? "th" : "en" })),
+
+  sheetDetent: "peek",
+  setSheetDetent: (detent) => set({ sheetDetent: detent }),
+
   mapReady: false,
   setMapReady: (ready) => set({ mapReady: ready }),
 
@@ -192,6 +209,12 @@ export const useAppStore = create<AppState>((set, get) => ({
             routePlan: null,
           },
     ),
+  clearSelection: () =>
+    set({
+      selectedRunIdx: null,
+      selectedStation: null,
+      following: false,
+    }),
   setFollowing: (following) => set({ following }),
 
   stations: [],

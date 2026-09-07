@@ -18,11 +18,14 @@ import { highlightSpans } from "../map/routeHighlight";
 import { skyPalette, sunDirection } from "../map/sun";
 import { bindStyle, type StyleBinding } from "../map/styleBinding";
 import { TrainTooltip } from "../map/trainTooltip";
+import { MOBILE_BREAKPOINT_QUERY } from "../hooks/useIsMobile";
 import { effectiveElevationDeg } from "../map/themeMode";
 import { effectiveTheme } from "../map/effectiveTheme";
 import { resolveStock, type StockSpec } from "../map/rollingStock";
 import { loadStockGeometry } from "../map/glbStock";
 import { VehicleManager } from "../map/VehicleManager";
+import { offsetCenterForSheet } from "../map/viewportOffset";
+import { StationBillboardManager } from "../map/StationBillboardManager";
 import {
   lngLatToLocal,
   localToLngLat,
@@ -137,6 +140,7 @@ export function MapContainer() {
     // On-map label tracking whichever train is selected — see its own doc
     // comment for why this exists as a class rather than a React component.
     const trainTooltip = new TrainTooltip(containerRef.current!);
+    const stationBillboards = new StationBillboardManager(containerRef.current!);
     // Latest interpolated poses, kept for click hit-testing. Owned by the
     // render path — never copied into React state (§3A.7).
     let lastVehicles: Float32Array<ArrayBufferLike> = new Float32Array(0);
@@ -490,6 +494,20 @@ export function MapContainer() {
               if (d.setUndergroundTo !== null) s.setUndergroundMode(d.setUndergroundTo);
             }
             trainTooltip.apply(map, s.uiHidden);
+            const view = layer?.viewProjection();
+            if (view) {
+              stationBillboards.apply(
+                view,
+                map.getZoom(),
+                s.undergroundMode,
+                s.hiddenRoutes,
+                s.selectedStation,
+                s.uiHidden,
+                s.stations,
+                s.routes,
+                s.primaryLang,
+              );
+            }
             map.triggerRepaint();
           }
         }
@@ -538,6 +556,22 @@ export function MapContainer() {
         selectRun(hit.runIdx);
       } else {
         selectStation({ routeIdx: hit.routeIdx, stationIdx: hit.stationIdx });
+        const s = stations.find(
+          (st) => st.route_idx === hit.routeIdx && st.station_idx === hit.stationIdx,
+        );
+        if (s) {
+          const pos = localToLngLat(s.x, s.y);
+          const isMobile = window.matchMedia(MOBILE_BREAKPOINT_QUERY).matches;
+          const center: [number, number] = isMobile
+            ? offsetCenterForSheet([pos.lng, pos.lat], map, 0.4)
+            : [pos.lng, pos.lat];
+          map.easeTo({
+            center,
+            zoom: 16,
+            pitch: map3D ? 55 : 0,
+            duration: 800,
+          });
+        }
       }
     };
     map.on("click", onMapClick);
@@ -617,6 +651,11 @@ export function MapContainer() {
       }
     });
 
+    const onRecenterCamera = () => {
+      follow.resetBearing();
+    };
+    window.addEventListener("recenter-follow-camera", onRecenterCamera);
+
     // Station search / nearest-station selection requests a one-shot camera
     // jump (see useAppStore's flyToRequest doc comment). Not per-frame —
     // §3A.7 doesn't apply — a UI action fired at most once per selection,
@@ -624,8 +663,22 @@ export function MapContainer() {
     const unsubscribeFlyTo = useAppStore.subscribe((state, prev) => {
       if (state.flyToRequest && state.flyToRequest !== prev.flyToRequest) {
         const { lng, lat } = state.flyToRequest;
-        map.easeTo({ center: [lng, lat], zoom: 16, duration: 800 });
+        const isMobile = window.matchMedia(MOBILE_BREAKPOINT_QUERY).matches;
+        const center: [number, number] = isMobile
+          ? offsetCenterForSheet([lng, lat], map, 0.4)
+          : [lng, lat];
+        map.easeTo({ center, zoom: 16, pitch: state.map3D ? 55 : 0, duration: 800 });
         useAppStore.getState().clearFlyToRequest();
+      }
+    });
+
+    const unsubscribeSheetDetentSync = useAppStore.subscribe((state, prev) => {
+      if (state.following && !prev.following) {
+        state.setSheetDetent("peek");
+      } else if (!prev.selectedStation && state.selectedStation) {
+        state.setSheetDetent("half");
+      } else if (prev.selectedRunIdx === null && state.selectedRunIdx !== null && !state.following) {
+        state.setSheetDetent("half");
       }
     });
 
@@ -685,17 +738,20 @@ export function MapContainer() {
       controls.dispose();
       unsubscribeFollow();
       unsubscribeFlyTo();
+      unsubscribeSheetDetentSync();
       unsubscribeMap3D();
       unsubscribeVisibility();
       if (tooltipTimer !== null) clearInterval(tooltipTimer);
       unsubscribeTooltipSelection?.();
       trainTooltip.dispose();
+      stationBillboards.dispose();
       map.off("pitchend", onMapPitchEnd);
       map.off("click", onMapClick);
       map.off("mousemove", onMouseMove);
       map.getCanvas().style.cursor = "";
       map.off("dragstart", onDragStart);
       window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("recenter-follow-camera", onRecenterCamera);
       activeSimClient.current = null;
       sim?.dispose();
       map.remove();

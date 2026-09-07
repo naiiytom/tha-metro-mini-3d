@@ -1,3 +1,4 @@
+import { FollowHudChip } from "./components/FollowHudChip";
 import { MapContainer } from "./components/MapContainer";
 import { NavigationPanel } from "./components/NavigationPanel";
 import { StationBoard } from "./components/StationBoard";
@@ -15,6 +16,7 @@ export default function App() {
       className="relative h-dvh w-dvw overflow-hidden bg-slate-900"
     >
       <MapContainer />
+      <FollowHudChip />
       <NavigationPanel />
       {/* Below `md:`, TrainInspector/StationBoard join the bottom stack as
        * full-width sheets. `md:contents` makes this wrapper vanish from the

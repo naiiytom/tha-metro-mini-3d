@@ -256,3 +256,50 @@ describe("3D map toggle", () => {
   });
 });
 
+describe("primary language", () => {
+  beforeEach(() => useAppStore.setState({ primaryLang: "en" }));
+
+  it("defaults to en or th and round-trips setPrimaryLang", () => {
+    expect(["en", "th"]).toContain(useAppStore.getState().primaryLang);
+    useAppStore.getState().setPrimaryLang("th");
+    expect(useAppStore.getState().primaryLang).toBe("th");
+    useAppStore.getState().setPrimaryLang("en");
+    expect(useAppStore.getState().primaryLang).toBe("en");
+  });
+
+  it("toggles between en and th", () => {
+    useAppStore.getState().setPrimaryLang("en");
+    useAppStore.getState().togglePrimaryLang();
+    expect(useAppStore.getState().primaryLang).toBe("th");
+    useAppStore.getState().togglePrimaryLang();
+    expect(useAppStore.getState().primaryLang).toBe("en");
+  });
+});
+
+describe("sheet detent", () => {
+  beforeEach(() => useAppStore.setState({ sheetDetent: "peek" }));
+
+  it("defaults sheetDetent to peek and sets detents", () => {
+    expect(useAppStore.getState().sheetDetent).toBe("peek");
+    useAppStore.getState().setSheetDetent("half");
+    expect(useAppStore.getState().sheetDetent).toBe("half");
+    useAppStore.getState().setSheetDetent("full");
+    expect(useAppStore.getState().sheetDetent).toBe("full");
+  });
+});
+
+describe("clearSelection", () => {
+  it("clears selectedRunIdx, selectedStation, and following in one action", () => {
+    useAppStore.setState({
+      selectedRunIdx: 12,
+      selectedStation: { routeIdx: 0, stationIdx: 5 },
+      following: true,
+    });
+    useAppStore.getState().clearSelection();
+    expect(useAppStore.getState().selectedRunIdx).toBeNull();
+    expect(useAppStore.getState().selectedStation).toBeNull();
+    expect(useAppStore.getState().following).toBe(false);
+  });
+});
+
+

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { lngLatToLocal, localToLngLat } from "../map/coordinates";
 import { formatDistance, geoErrorMessage, nearestStation } from "../search/stationSearch";
 import { useAppStore } from "../stores/useAppStore";
+import { formatBilingualStation } from "../utils/stationTypography";
 import { StationCombobox } from "./StationCombobox";
 
 type GeoState =
@@ -29,6 +30,7 @@ export function StationSearch() {
   const hiddenRoutes = useAppStore((s) => s.hiddenRoutes);
   const selectStation = useAppStore((s) => s.selectStation);
   const requestFlyTo = useAppStore((s) => s.requestFlyTo);
+  const primaryLang = useAppStore((s) => s.primaryLang);
 
   const [geo, setGeo] = useState<GeoState>({ status: "idle" });
   const requestedRef = useRef(false);
@@ -64,6 +66,11 @@ export function StationSearch() {
   const nearest = useMemo(
     () => (geo.status === "ready" ? nearestStation(geo.userLocal, visibleStations) : null),
     [geo, visibleStations],
+  );
+
+  const nearestBilingual = useMemo(
+    () => (nearest ? formatBilingualStation(nearest.station, primaryLang) : null),
+    [nearest, primaryLang],
   );
 
   if (!searchOpen) return null;
@@ -139,8 +146,8 @@ export function StationSearch() {
               style={{ background: routes[nearest.station.route_idx]?.color ?? "#64748b" }}
             />
             <span className="min-w-0 flex-1 truncate">
-              <span className="font-medium text-ink">{nearest.station.name_en}</span>
-              <span className="ml-1 text-ink-muted">{nearest.station.name_th}</span>
+              <span className="font-semibold text-ink">{nearestBilingual?.primaryName}</span>
+              <span className="ml-1 text-ink-subtle">{nearestBilingual?.secondaryName}</span>
             </span>
             <span className="shrink-0 text-ink-muted">{formatDistance(nearest.distanceM)}</span>
           </button>
