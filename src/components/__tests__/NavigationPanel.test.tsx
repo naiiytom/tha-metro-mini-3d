@@ -148,5 +148,109 @@ describe("NavigationPanel tab switching", () => {
     fireEvent.click(langBtn);
     expect(useAppStore.getState().primaryLang).toBe("en");
   });
+
+  it("renders clean slim vertical icon rail when collapsed on desktop", () => {
+    render(<NavigationPanel />);
+    const collapseButton = screen.getByRole("button", { name: /collapse navigation panel/i });
+    fireEvent.click(collapseButton);
+
+    // Header title and language button should be hidden in collapsed mode
+    expect(screen.queryByText("Greater Bangkok Metro Mini 3D")).toBeNull();
+    expect(screen.queryByRole("button", { name: /switch language/i })).toBeNull();
+
+    // Expand button (▼) should be visible
+    expect(screen.getByRole("button", { name: /expand navigation panel/i })).toBeTruthy();
+
+    // Clicking a tab while collapsed expands the panel and selects the tab
+    const stationsTab = screen.getByRole("tab", { name: /stations/i });
+    fireEvent.click(stationsTab);
+    expect(useAppStore.getState().activeTab).toBe("stations");
+    expect(screen.getByText("Greater Bangkok Metro Mini 3D")).toBeTruthy();
+    expect(screen.getByTestId("stations-tab")).toBeTruthy();
+  });
 });
+
+describe("NavigationPanel mobile bottom sheet", () => {
+  afterEach(() => cleanup());
+
+  beforeEach(() => {
+    Object.defineProperty(window, "matchMedia", {
+      writable: true,
+      value: vi.fn().mockImplementation((query) => ({
+        matches: true, // Mobile mode
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    });
+
+    useAppStore.setState({
+      activeTab: "lines",
+      sheetDetent: "peek",
+      selectedStation: null,
+      selectedRunIdx: null,
+      routes: [
+        makeLine({ key: "sukhumvit", name: "Sukhumvit Line", color: "#7CB342" }),
+      ],
+      stations: [],
+      mapReady: true,
+      uiHidden: false,
+      engineStatus: "ready",
+    });
+  });
+
+  it("renders drag handle and fixed bottom-sheet styling on mobile", () => {
+    render(<NavigationPanel />);
+    const nav = screen.getByTestId("navigation-panel");
+    expect(nav.className).toContain("fixed inset-x-0 bottom-0");
+    expect(screen.getByTestId("bottom-sheet-handle")).toBeTruthy();
+  });
+
+  it("snaps sheetDetent from peek to half when tapping a tab on mobile", () => {
+    render(<NavigationPanel />);
+    expect(useAppStore.getState().sheetDetent).toBe("peek");
+
+    const stationsTab = screen.getByRole("tab", { name: /stations/i });
+    fireEvent.click(stationsTab);
+
+    expect(useAppStore.getState().activeTab).toBe("stations");
+    expect(useAppStore.getState().sheetDetent).toBe("half");
+  });
+
+  it("yields the mobile bottom surface during station or run inspection", () => {
+    const { rerender } = render(<NavigationPanel />);
+    expect(screen.getByTestId("navigation-panel")).toBeTruthy();
+
+    // Select station -> yields
+    useAppStore.setState({ selectedStation: { routeIdx: 0, stationIdx: 1 } });
+    rerender(<NavigationPanel />);
+    expect(screen.queryByTestId("navigation-panel")).toBeNull();
+
+    // Clear station -> restores
+    useAppStore.setState({ selectedStation: null });
+    rerender(<NavigationPanel />);
+    expect(screen.getByTestId("navigation-panel")).toBeTruthy();
+
+    // Select train -> yields
+    useAppStore.setState({ selectedRunIdx: 4 });
+    rerender(<NavigationPanel />);
+    expect(screen.queryByTestId("navigation-panel")).toBeNull();
+
+    // Clear train -> restores
+    useAppStore.setState({ selectedRunIdx: null });
+    rerender(<NavigationPanel />);
+    expect(screen.getByTestId("navigation-panel")).toBeTruthy();
+  });
+
+  it("renders mobile TimeScrubber and TimeControls inside LinesTab on mobile", () => {
+    render(<NavigationPanel />);
+    expect(screen.getByTestId("time-scrubber")).toBeTruthy();
+    expect(screen.getByTestId("time-controls")).toBeTruthy();
+  });
+});
+
 

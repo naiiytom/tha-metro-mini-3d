@@ -2,6 +2,8 @@ import { useAppStore } from "../../stores/useAppStore";
 import { groupLinesByOperator } from "../../data/operators";
 import { LineRow } from "../LineRow";
 import { ViewControls } from "../ViewControls";
+import { TimeControls } from "../TimeControls";
+import { TimeScrubber } from "../TimeScrubber";
 
 export function LinesTab() {
   const routes = useAppStore((s) => s.routes);
@@ -79,6 +81,12 @@ export function LinesTab() {
           ))}
         </ul>
       )}
+
+      {/* Mobile Time Scrubber & Controls */}
+      <div className="mt-3 space-y-2 md:hidden">
+        <TimeScrubber />
+        <TimeControls />
+      </div>
 
       <ViewControls />
     </div>

@@ -27,12 +27,12 @@ export default function App() {
         className={
           uiHidden
             ? "hidden md:contents md:p-0"
-            : "pointer-events-none absolute inset-x-0 bottom-0 flex flex-col items-center gap-2 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] md:contents md:p-0"
+            : "pointer-events-none fixed inset-x-0 bottom-0 z-30 flex flex-col items-center pl-[max(0rem,env(safe-area-inset-left))] pr-[max(0rem,env(safe-area-inset-right))] md:contents md:p-0"
         }
       >
         <TrainInspector />
         <StationBoard />
-        <div className="contents md:pointer-events-none md:absolute md:inset-x-0 md:bottom-4 md:flex md:flex-col md:items-center md:gap-2">
+        <div className="hidden md:pointer-events-none md:absolute md:inset-x-0 md:bottom-4 md:flex md:flex-col md:items-center md:gap-2">
           <TimeScrubber />
           <TimeControls />
         </div>

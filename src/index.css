@@ -1,4 +1,4 @@
-﻿@import "tailwindcss";
+@import "tailwindcss";
 
 /*
  * Semantic colour tokens (issue #26).
@@ -47,14 +47,14 @@
   --danger-ink: #b91c1c;
 
   /* Solar-adaptive glass opacity (fraction 0-100). Updated by updateSun() in
-     MapContainer at ~2 Hz from the sim clock elevation. Default 76 = full day. */
-  --glass-opacity-pct: 76;
+     MapContainer at ~2 Hz from the sim clock elevation. Default 93 = full day. */
+  --glass-opacity-pct: 93;
 
-  /* Frosted Daylight Glass (Safari 15 static fallback) */
-  --glass-bg: rgba(255, 255, 255, 0.82);
-  --glass-border: rgba(203, 213, 225, 0.6);
-  --glass-blur: 24px;
-  --glass-shadow: 0 12px 32px -4px rgba(15, 23, 42, 0.12);
+  /* Frosted Daylight Glass */
+  --glass-bg: rgba(255, 255, 255, 0.95);
+  --glass-border: rgba(203, 213, 225, 0.85);
+  --glass-blur: 28px;
+  --glass-shadow: 0 12px 36px -4px rgba(15, 23, 42, 0.18), 0 2px 8px -2px rgba(15, 23, 42, 0.08);
 }
 
 [data-theme="dark"] {
@@ -73,33 +73,33 @@
   --danger-bg: #2a1113;
   --danger-ink: #fca5a5;
 
-  /* Smoked Night Glass (Safari 15 static fallback) */
-  --glass-bg: rgba(15, 23, 42, 0.85);
-  --glass-border: rgba(51, 65, 85, 0.6);
-  --glass-blur: 24px;
-  --glass-shadow: 0 16px 40px -8px rgba(0, 0, 0, 0.60);
+  /* Smoked Night Glass */
+  --glass-bg: rgba(15, 23, 42, 0.96);
+  --glass-border: rgba(51, 65, 85, 0.85);
+  --glass-blur: 28px;
+  --glass-shadow: 0 16px 40px -8px rgba(0, 0, 0, 0.75), 0 4px 12px -2px rgba(0, 0, 0, 0.50);
 }
 
 /* Upgrade to color-mix in modern browsers */
 @supports (background-color: color-mix(in srgb, red, blue)) {
   :root {
-    --glass-bg: color-mix(in srgb, var(--surface) var(--glass-opacity-pct, 76)%, transparent);
-    --glass-border: color-mix(in srgb, #ffffff 50%, var(--edge));
+    --glass-bg: color-mix(in srgb, var(--surface) 95%, transparent);
+    --glass-border: color-mix(in srgb, #ffffff 60%, var(--edge));
   }
   [data-theme="dark"] {
-    --glass-bg: color-mix(in srgb, var(--surface) 78%, transparent);
-    --glass-border: color-mix(in srgb, #ffffff 12%, var(--edge));
+    --glass-bg: color-mix(in srgb, var(--surface) 96%, transparent);
+    --glass-border: color-mix(in srgb, #ffffff 18%, var(--edge));
   }
 }
 
-/* The glassmorphism panels blur whatever is behind them, so their own
-   backdrop has to stay translucent in both themes rather than adopt an
-   opaque surface token. */
+/* The glassmorphism panels blur whatever is behind them with high opacity
+   and saturation so the map does not bleed into UI text. */
 .panel-glass {
+  background-color: var(--surface);
   background-color: var(--glass-bg);
   border: 1px solid var(--glass-border);
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
+  backdrop-filter: blur(var(--glass-blur)) saturate(180%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(180%);
   box-shadow: var(--glass-shadow);
   transition: background-color 0.5s ease, border-color 0.5s ease, box-shadow 0.5s ease;
 }

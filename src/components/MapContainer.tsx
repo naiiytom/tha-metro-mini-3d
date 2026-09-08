@@ -470,14 +470,17 @@ export function MapContainer() {
         binding?.applyThemeElevation(eff);
         document.documentElement.dataset.theme = effectiveTheme(mode, dir.elevationDeg);
         // Solar-adaptive glassmorphism easing (spec §1): lerp glass opacity between
-        // 76% (full day, eff >= 0) and 78% (night, eff <= -6) so panels transition
-        // naturally alongside the Three.js lighting cycle.
+        // 93% (full day, eff >= 0) and 96% (night, eff <= -6) so panels remain
+        // crisp and legible over the map while transitioning with the lighting cycle.
         {
-          const dayPct = 76;
-          const nightPct = 78;
+          const dayPct = 95;
+          const nightPct = 96;
           const t = Math.max(0, Math.min(1, (-eff) / 6));
-          const glassPct = dayPct + (nightPct - dayPct) * t;
-          document.documentElement.style.setProperty("--glass-opacity-pct", String(Math.round(glassPct)));
+          const glassPct = Math.round(dayPct + (nightPct - dayPct) * t);
+          document.documentElement.style.setProperty(
+            "--glass-bg",
+            `color-mix(in srgb, var(--surface) ${glassPct}%, transparent)`
+          );
         }
       };
 

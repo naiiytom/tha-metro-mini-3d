@@ -1,4 +1,4 @@
-﻿import type { SheetDetent } from "../stores/useAppStore";
+import type { SheetDetent } from "../stores/useAppStore";
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 
 export interface BottomSheetOptions {
@@ -13,6 +13,7 @@ export interface BottomSheetOptions {
 export interface BottomSheetReturn {
   detent: SheetDetent;
   setDetent: (detent: SheetDetent) => void;
+  snapTo: (detent: SheetDetent) => void;
   translateY: number;
   isDragging: boolean;
   sheetRef: RefObject<HTMLDivElement | null>;
@@ -89,7 +90,10 @@ export function useBottomSheet(options: BottomSheetOptions = {}): BottomSheetRet
   } = options;
 
   const [detent, setDetentState] = useState<SheetDetent>(initialDetent);
-  const [translateY, setTranslateY] = useState(0);
+  const [translateY, setTranslateY] = useState(() => {
+    const frameH = typeof window !== "undefined" ? window.innerHeight : 800;
+    return getDetentY(initialDetent, frameH, { peekHeight, halfRatio, fullRatio });
+  });
   const [isDragging, setIsDragging] = useState(false);
 
   const sheetRef = useRef<HTMLDivElement | null>(null);
@@ -112,13 +116,14 @@ export function useBottomSheet(options: BottomSheetOptions = {}): BottomSheetRet
 
   const snapTo = useCallback(
     (nextDetent: SheetDetent) => {
-      const sheet = sheetRef.current;
-      if (!sheet) return;
       const frameH = typeof window !== "undefined" ? window.innerHeight : 800;
       const targetY = getDetentY(nextDetent, frameH, { peekHeight, halfRatio, fullRatio });
 
-      sheet.style.transition = "transform 0.35s cubic-bezier(0.16, 1, 0.3, 1)";
-      sheet.style.transform = `translateY(${targetY}px)`;
+      const sheet = sheetRef.current;
+      if (sheet) {
+        sheet.style.transition = "transform 0.35s cubic-bezier(0.16, 1, 0.3, 1)";
+        sheet.style.transform = `translateY(${targetY}px)`;
+      }
       setTranslateY(targetY);
       setDetentState(nextDetent);
       onDetentChange?.(nextDetent);
@@ -126,91 +131,111 @@ export function useBottomSheet(options: BottomSheetOptions = {}): BottomSheetRet
     [halfRatio, fullRatio, onDetentChange, peekHeight],
   );
 
-  useEffect(() => {
-    const handleEl = handleRef.current;
-    const sheetEl = sheetRef.current;
-    const contentEl = contentRef.current;
-    if (!handleEl || !sheetEl) return;
+    const currentYRef = useRef(translateY);
+    useEffect(() => {
+      currentYRef.current = translateY;
+    }, [translateY]);
 
-    const onPointerDown = (e: PointerEvent) => {
-      if (contentEl && contentEl.contains(e.target as Node)) {
-        if (detent === "full" && contentEl.scrollTop > 0) return;
-      }
+    useEffect(() => {
+      const handleEl = handleRef.current;
+      const sheetEl = sheetRef.current;
+      const contentEl = contentRef.current;
+      if (!handleEl || !sheetEl) return;
 
-      setIsDragging(true);
-      const frameH = window.innerHeight;
-      const initialY = getDetentY(detent, frameH, { peekHeight, halfRatio, fullRatio });
+      const onPointerDown = (e: PointerEvent) => {
+        if (contentEl && contentEl.contains(e.target as Node)) {
+          if (detent === "full" && contentEl.scrollTop > 0) return;
+        }
 
-      dragStartRef.current = {
-        startY: e.clientY,
-        initialTranslateY: initialY,
-        lastY: e.clientY,
-        lastTime: performance.now(),
-        velocity: 0,
+        setIsDragging(true);
+        const frameH = window.innerHeight;
+        const initialY = getDetentY(detent, frameH, { peekHeight, halfRatio, fullRatio });
+
+        dragStartRef.current = {
+          startY: e.clientY,
+          initialTranslateY: initialY,
+          lastY: e.clientY,
+          lastTime: performance.now(),
+          velocity: 0,
+        };
+
+        sheetEl.style.transition = "none";
+        sheetEl.setPointerCapture(e.pointerId);
       };
 
-      sheetEl.style.transition = "none";
-      sheetEl.setPointerCapture(e.pointerId);
-    };
+      const onPointerMove = (e: PointerEvent) => {
+        if (!sheetEl.hasPointerCapture(e.pointerId)) return;
 
-    const onPointerMove = (e: PointerEvent) => {
-      if (!sheetEl.hasPointerCapture(e.pointerId)) return;
+        const { startY, initialTranslateY, lastY, lastTime } = dragStartRef.current;
+        const deltaY = e.clientY - startY;
+        const now = performance.now();
+        const dt = now - lastTime;
 
-      const { startY, initialTranslateY, lastY, lastTime } = dragStartRef.current;
-      const deltaY = e.clientY - startY;
-      const now = performance.now();
-      const dt = now - lastTime;
+        if (dt > 10) {
+          dragStartRef.current.velocity = (e.clientY - lastY) / dt;
+          dragStartRef.current.lastY = e.clientY;
+          dragStartRef.current.lastTime = now;
+        }
 
-      if (dt > 10) {
-        dragStartRef.current.velocity = (e.clientY - lastY) / dt;
-        dragStartRef.current.lastY = e.clientY;
-        dragStartRef.current.lastTime = now;
+        const frameH = window.innerHeight;
+        const minY = getDetentY("full", frameH, { peekHeight, halfRatio, fullRatio });
+        const maxY = getDetentY("peek", frameH, { peekHeight, halfRatio, fullRatio });
+
+        const nextY = applyRubberBand(initialTranslateY + deltaY, minY, maxY);
+        currentYRef.current = nextY;
+        sheetEl.style.transform = `translateY(${nextY}px)`;
+        setTranslateY(nextY);
+      };
+
+      const onPointerUp = (e: PointerEvent) => {
+        if (!sheetEl.hasPointerCapture(e.pointerId)) return;
+        sheetEl.releasePointerCapture(e.pointerId);
+        setIsDragging(false);
+
+        const frameH = window.innerHeight;
+        const currentY = currentYRef.current;
+        const vel = dragStartRef.current.velocity;
+
+        const target = calcTargetDetent(currentY, vel, frameH, {
+          peekHeight,
+          halfRatio,
+          fullRatio,
+          velocityThreshold,
+        });
+
+        snapTo(target);
+      };
+
+      handleEl.addEventListener("pointerdown", onPointerDown);
+      sheetEl.addEventListener("pointermove", onPointerMove);
+      sheetEl.addEventListener("pointerup", onPointerUp);
+      sheetEl.addEventListener("pointercancel", onPointerUp);
+
+      return () => {
+        handleEl.removeEventListener("pointerdown", onPointerDown);
+        sheetEl.removeEventListener("pointermove", onPointerMove);
+        sheetEl.removeEventListener("pointerup", onPointerUp);
+        sheetEl.removeEventListener("pointercancel", onPointerUp);
+      };
+    }, [detent, fullRatio, halfRatio, peekHeight, snapTo, velocityThreshold]);
+
+  useEffect(() => {
+    const onResize = () => {
+      const frameH = window.innerHeight;
+      const targetY = getDetentY(detent, frameH, { peekHeight, halfRatio, fullRatio });
+      setTranslateY(targetY);
+      if (sheetRef.current && !isDragging) {
+        sheetRef.current.style.transform = `translateY(${targetY}px)`;
       }
-
-      const frameH = window.innerHeight;
-      const minY = getDetentY("full", frameH, { peekHeight, halfRatio, fullRatio });
-      const maxY = getDetentY("peek", frameH, { peekHeight, halfRatio, fullRatio });
-
-      const nextY = applyRubberBand(initialTranslateY + deltaY, minY, maxY);
-      sheetEl.style.transform = `translateY(${nextY}px)`;
-      setTranslateY(nextY);
     };
-
-    const onPointerUp = (e: PointerEvent) => {
-      if (!sheetEl.hasPointerCapture(e.pointerId)) return;
-      sheetEl.releasePointerCapture(e.pointerId);
-      setIsDragging(false);
-
-      const frameH = window.innerHeight;
-      const currentY = translateY;
-      const vel = dragStartRef.current.velocity;
-
-      const target = calcTargetDetent(currentY, vel, frameH, {
-        peekHeight,
-        halfRatio,
-        fullRatio,
-        velocityThreshold,
-      });
-
-      snapTo(target);
-    };
-
-    handleEl.addEventListener("pointerdown", onPointerDown);
-    sheetEl.addEventListener("pointermove", onPointerMove);
-    sheetEl.addEventListener("pointerup", onPointerUp);
-    sheetEl.addEventListener("pointercancel", onPointerUp);
-
-    return () => {
-      handleEl.removeEventListener("pointerdown", onPointerDown);
-      sheetEl.removeEventListener("pointermove", onPointerMove);
-      sheetEl.removeEventListener("pointerup", onPointerUp);
-      sheetEl.removeEventListener("pointercancel", onPointerUp);
-    };
-  }, [detent, fullRatio, halfRatio, peekHeight, snapTo, translateY, velocityThreshold]);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [detent, halfRatio, fullRatio, isDragging, peekHeight]);
 
   return {
     detent,
     setDetent: snapTo,
+    snapTo,
     translateY,
     isDragging,
     sheetRef,
