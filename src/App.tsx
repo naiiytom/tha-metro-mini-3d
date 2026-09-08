@@ -27,7 +27,7 @@ export default function App() {
         className={
           uiHidden
             ? "hidden md:contents md:p-0"
-            : "pointer-events-none fixed inset-x-0 bottom-0 z-30 flex flex-col items-center md:contents md:p-0"
+            : "pointer-events-none fixed inset-x-0 bottom-0 z-30 flex flex-col items-center pl-[max(0rem,env(safe-area-inset-left))] pr-[max(0rem,env(safe-area-inset-right))] md:contents md:p-0"
         }
       >
         <TrainInspector />

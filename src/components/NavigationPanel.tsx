@@ -136,7 +136,7 @@ export function NavigationPanel() {
       style={isMobile && translateY !== undefined ? { transform: `translateY(${translateY}px)` } : undefined}
       className={`panel-glass pointer-events-auto overflow-hidden transition-all ${
         isMobile
-          ? "fixed inset-x-0 bottom-0 z-30 flex h-[85dvh] max-h-[85dvh] w-full flex-col rounded-t-[28px] rounded-b-none border-t border-edge border-x-0 border-b-0 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
+          ? "fixed inset-x-0 bottom-0 z-30 flex h-[85dvh] max-h-[85dvh] w-full flex-col rounded-t-[28px] rounded-b-none border-t border-edge border-x-0 border-b-0 pb-[max(0.75rem,env(safe-area-inset-bottom))] pl-[max(0rem,env(safe-area-inset-left))] pr-[max(0rem,env(safe-area-inset-right))]"
           : `absolute left-4 top-4 z-20 rounded-2xl border max-h-[calc(100dvh-2rem)] ${
               expanded ? "w-88" : "w-12"
             }`
