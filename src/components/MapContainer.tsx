@@ -1,8 +1,8 @@
-import { useEffect, useRef } from "react";
-// maplibre-gl v6 ships named exports only — there is no default export.
+﻿import { useEffect, useRef } from "react";
+// maplibre-gl v6 ships named exports only â€” there is no default export.
 import { Map as MapLibreMap, NavigationControl, setWorkerUrl, type MapMouseEvent } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-// v6 locates its tile worker with `new URL(\`./${name}\`, import.meta.url)` —
+// v6 locates its tile worker with `new URL(\`./${name}\`, import.meta.url)` â€”
 // a dynamic specifier no bundler can rewrite, so after bundling it points at a
 // nonexistent /assets/maplibre-gl-worker.mjs and every vector-tile source
 // silently stalls (blank base map). Hand it a URL Vite actually emits; the
@@ -46,13 +46,13 @@ export function MapContainer() {
   const setMapReady = useAppStore((s) => s.setMapReady);
 
   // `data-theme` is also stamped by the sim-clock-driven paths further down
-  // (the `themeMode` store subscription and `updateSun`'s ~2 Hz tick) — but
+  // (the `themeMode` store subscription and `updateSun`'s ~2 Hz tick) â€” but
   // both are gated on the sim engine/Three layer being ready, so before the
   // engine finishes loading (or if it errors) `<html>` never got a
   // `data-theme` at all, and every panel rendered light regardless of the
   // user's stored preference. `effectiveElevationDeg` already ignores the
   // real solar elevation entirely for the two PINNED modes ("light"/"dark")
-  // — only "auto" needs the real clock — so this mount-time effect can
+  // â€” only "auto" needs the real clock â€” so this mount-time effect can
   // stamp the correct appearance immediately, using a wall-clock estimate
   // (`Date.now()`, not the sim clock, which doesn't exist yet) only for the
   // "auto" case.
@@ -62,7 +62,7 @@ export function MapContainer() {
   // writers below: both would write `data-theme` off a `themeMode` change once
   // the engine is up, but off DIFFERENT elevation sources (this one's
   // wall-clock guess vs. the sim clock), and whichever React notifies second
-  // would silently win — the exact "two independent writers of one DOM
+  // would silently win â€” the exact "two independent writers of one DOM
   // property" class of bug this codebase's own Task 10b history already hit
   // once (see CLAUDE.md). This effect's only job is to cover the gap before
   // the engine-gated writers exist at all.
@@ -92,18 +92,18 @@ export function MapContainer() {
       // pointerdown/up, which MapLibre's dragPan handler then reclassifies as
       // a pan (firing dragstart instead of click). Combined with onDragStart
       // below (which drops `following` on any real pan), that made the very
-      // next click after starting to follow a train cancel it — "follow only
+      // next click after starting to follow a train cancel it â€” "follow only
       // works once." A few extra px absorbs normal click jitter without
       // affecting genuine drag gestures.
       clickTolerance: 6,
       // Uncapped devicePixelRatio (commonly 2-3 on phones) multiplies the
       // shared MapLibre/Three canvas's fragment cost up to ~9x at dpr=3 vs
-      // dpr=1 — this is Three's own drawing buffer too, since it renders
-      // into MapLibre's canvas (§3A "MapLibre↔Three bridge"). 2 is the
+      // dpr=1 â€” this is Three's own drawing buffer too, since it renders
+      // into MapLibre's canvas (Â§3A "MapLibreâ†”Three bridge"). 2 is the
       // standard mobile-safe ceiling. Gated on a coarse (touch-primary)
       // pointer rather than applied unconditionally: a 3x desktop retina
       // display has a real, visible sharpness regression from this cap, and
-      // that hardware is never the fragment-cost problem this exists for —
+      // that hardware is never the fragment-cost problem this exists for â€”
       // only a fine-pointer device with room for a large uncapped canvas
       // gets to skip it. ThreeLayer.ts needs no matching change: its
       // render() already reads back the actual drawing-buffer size every
@@ -115,7 +115,7 @@ export function MapContainer() {
       canvasContextAttributes: { antialias: true },
       attributionControl: {
         customAttribution:
-          "Track © OpenStreetMap contributors (ODbL) · Stations: Namtang / OTP open data (CC-BY 4.0)",
+          "Track Â© OpenStreetMap contributors (ODbL) Â· Stations: Namtang / OTP open data (CC-BY 4.0)",
       },
     });
     map.addControl(new NavigationControl({ visualizePitch: true }), "top-right");
@@ -137,16 +137,18 @@ export function MapContainer() {
         return true;
       },
     });
-    // On-map label tracking whichever train is selected — see its own doc
+    // On-map label tracking whichever train is selected â€” see its own doc
     // comment for why this exists as a class rather than a React component.
     const trainTooltip = new TrainTooltip(containerRef.current!);
-    const stationBillboards = new StationBillboardManager(containerRef.current!);
+    const stationBillboards = new StationBillboardManager(containerRef.current!, (routeIdx, stationIdx) => {
+        useAppStore.getState().selectStation({ routeIdx, stationIdx });
+      });
     // Latest interpolated poses, kept for click hit-testing. Owned by the
-    // render path — never copied into React state (§3A.7).
+    // render path â€” never copied into React state (Â§3A.7).
     let lastVehicles: Float32Array<ArrayBufferLike> = new Float32Array(0);
     let lastCount = 0;
     // Followed train's altitude, captured on the frame path (below) and acted
-    // on in the rAF loop — see decideAutoUnderground's own doc comment for
+    // on in the rAF loop â€” see decideAutoUnderground's own doc comment for
     // why this decides on altitude rather than the track's structure tag.
     let followedAltitudeM: number | null = null;
     let autoUnderground = initialAutoState();
@@ -154,7 +156,7 @@ export function MapContainer() {
 
     // Everything below is RE-CREATED on every style.load (map.setStyle()
     // destroys every custom layer). SimClient/FollowCamera/TrainTooltip and
-    // the rAF loop are per-MAP, not per-style — see styleBinding.ts's own
+    // the rAF loop are per-MAP, not per-style â€” see styleBinding.ts's own
     // doc comment for why re-creating SimClient on a style swap would leak a
     // second worker holding a second copy of the timetable cache.
     let layer: NetworkLayer | null = null;
@@ -162,7 +164,7 @@ export function MapContainer() {
     let binding: StyleBinding | null = null;
     // True after the first style.load. A style SWAP must rebuild the Three
     // layer and re-capture the paint snapshots, but must NOT create a second
-    // SimClient — that would spawn a second worker holding a second copy of
+    // SimClient â€” that would spawn a second worker holding a second copy of
     // the timetable cache, and the rAF loop/click handlers/tooltip are all
     // per-map, not per-style.
     let simInitialised = false;
@@ -172,7 +174,7 @@ export function MapContainer() {
      * model in over the procedural geometry `VehicleManager` already built.
      *
      * No registry line declares `glbUrl` today, and glbStock.ts explains why
-     * that is the expected steady state — but the seam still has to be
+     * that is the expected steady state â€” but the seam still has to be
      * CONNECTED. Left unwired (as it was until code review 2026-08-23), adding
      * `glbUrl` to the registry would pass `assertRegistryValid`, flow through
      * `resolveStock` into the `StockSpec`, and then silently do nothing with no
@@ -188,8 +190,8 @@ export function MapContainer() {
         if (stock.glbUrl === undefined) return;
         loadStockGeometry(stock)
           .then((geometry) => {
-            // The load is async, so an unmount — or a style swap, which builds
-            // an entirely new VehicleManager — may have landed while it was in
+            // The load is async, so an unmount â€” or a style swap, which builds
+            // an entirely new VehicleManager â€” may have landed while it was in
             // flight. Swapping into a manager the scene no longer owns would
             // leak the geometry and write to a mesh that is already disposed.
             if (disposed || manager !== vehicleManager) {
@@ -215,16 +217,16 @@ export function MapContainer() {
       const { selectedRunIdx, following } = useAppStore.getState();
       vehicleManager?.update(vehicles, count, selectedRunIdx);
       // Read the follow target here (the buffer is already in hand) but move
-      // the camera in the rAF loop — jumpTo() inside render() re-enters
+      // the camera in the rAF loop â€” jumpTo() inside render() re-enters
       // MapLibre's render path.
       follow.capture(vehicles, count, following ? selectedRunIdx : null);
-      // Unlike follow.capture above, this is NOT gated on `following` — the
+      // Unlike follow.capture above, this is NOT gated on `following` â€” the
       // tooltip tracks whichever train is selected regardless of camera lock.
       trainTooltip.capture(vehicles, count, selectedRunIdx);
       // Followed train's altitude, for the auto-underground decision made in
       // the rAF loop below. Reading it here is free (the buffer is in hand);
-      // acting on it here is not — setUndergroundMode goes through Zustand,
-      // which must never be written from the render path (§3A.7).
+      // acting on it here is not â€” setUndergroundMode goes through Zustand,
+      // which must never be written from the render path (Â§3A.7).
       followedAltitudeM = null;
       if (following && selectedRunIdx !== null) {
         for (let i = 0; i < count; i++) {
@@ -240,7 +242,7 @@ export function MapContainer() {
 
     // Visibility/underground/shadows/theme/basemap are all UI state, so they
     // drive the scene through a subscription rather than the per-frame path.
-    // Registered ONCE per map mount — NOT inside style.load, or a style swap
+    // Registered ONCE per map mount â€” NOT inside style.load, or a style swap
     // would register a second copy of this on every swap.
     const unsubscribeVisibility = useAppStore.subscribe((state, prev) => {
       if (state.hiddenRoutes !== prev.hiddenRoutes) {
@@ -250,7 +252,7 @@ export function MapContainer() {
           vehicleManager?.setRouteVisible(i, visible);
         }
         // A route highlight is drawn per LEG, on track this loop may have
-        // just hidden — so it has to be rebuilt here too, or hiding a line
+        // just hidden â€” so it has to be rebuilt here too, or hiding a line
         // after planning leaves that leg's white span stranded over track
         // that is no longer there (and unhiding never brings it back).
         layer?.setRouteHighlight(highlightSpans(state.routePlan, state.hiddenRoutes));
@@ -283,14 +285,14 @@ export function MapContainer() {
         // our custom layer: Style.serialize() explicitly excludes `type:
         // "custom"` layers (CustomStyleLayer.serialize() even throws if
         // called), so the diff between old and new style JSON never emits a
-        // removeLayer for it — the OLD NetworkLayer instance survives the
+        // removeLayer for it â€” the OLD NetworkLayer instance survives the
         // swap untouched, and the style.load handler below's map.addLayer()
         // then throws "Layer ... already exists on this map." (verified live
         // against a real dev server while implementing this). `{diff:
         // false}` avoids that collision but is worse: it tears the whole
         // Style object down without ever calling removeLayer() per layer, so
-        // NetworkLayer.onRemove() — which disposes Three.js geometry,
-        // materials and the WebGLRenderer wrapper — never fires, leaking
+        // NetworkLayer.onRemove() â€” which disposes Three.js geometry,
+        // materials and the WebGLRenderer wrapper â€” never fires, leaking
         // real GPU resources on every swap. Removing the layer ourselves
         // first runs the genuine removeLayer path (same one an unmount
         // already exercises), so disposal is real either way.
@@ -334,7 +336,7 @@ export function MapContainer() {
       layer.setMap3D(useAppStore.getState().map3D);
       layer.setShadowsEnabled(useAppStore.getState().shadowsEnabled);
       // Seed line visibility from any hiddenRoutes already in the store at
-      // mount — the subscription above only reacts to CHANGES, so without
+      // mount â€” the subscription above only reacts to CHANGES, so without
       // this a remount (or a style swap) with pre-existing hidden routes (a
       // React StrictMode double-invoke, or future persistence) would render
       // every line visible until the next toggle (finding 6c).
@@ -372,11 +374,11 @@ export function MapContainer() {
           const s = useAppStore.getState();
           s.setValidation(validation);
           s.setEngineStatus("ready");
-          // Static station list, fetched once — powers click hit-testing and
-          // the station board's indices (contract §7). `z` is reconciled to
+          // Static station list, fetched once â€” powers click hit-testing and
+          // the station board's indices (contract Â§7). `z` is reconciled to
           // the ALTITUDE THE MARKER IS ACTUALLY DRAWN AT (network.json's
           // static per-station altitude via `buildMarkerPair`), not the
-          // engine's more "correct" per-point track altitude — click/hover
+          // engine's more "correct" per-point track altitude â€” click/hover
           // picking must agree with what's on screen. See
           // `reconcileStationAltitude`'s own doc comment (src/map/coordinates.ts).
           void sim
@@ -389,7 +391,7 @@ export function MapContainer() {
         onError: (message) => useAppStore.getState().setEngineStatus("error", message),
         onClock: (params) => useAppStore.getState().setClock(params),
         onFrame: (_simEpochMs, count) => {
-          // 10 Hz worker frames -> 1 Hz UI updates (§3A.7).
+          // 10 Hz worker frames -> 1 Hz UI updates (Â§3A.7).
           const now = performance.now();
           if (now - lastCountUpdate >= 1000) {
             lastCountUpdate = now;
@@ -400,14 +402,14 @@ export function MapContainer() {
       activeSimClient.current = sim;
 
       // Tooltip content (headsign/next-stop) is UI-rate, not per-frame, so a
-      // plain 1 Hz poll is fine — the same query and cadence TrainInspector.tsx
+      // plain 1 Hz poll is fine â€” the same query and cadence TrainInspector.tsx
       // already runs when its own panel is open. Deliberately duplicated
       // rather than shared: a small, independent poll matches the existing
       // TrainInspector/StationBoard precedent and avoids new cross-component
       // cache plumbing for one short string.
       //
       // The placeholder ("Train {idx}") is only ever written on a selection
-      // change, not on every poll tick — mirroring TrainInspector.tsx, whose
+      // change, not on every poll tick â€” mirroring TrainInspector.tsx, whose
       // placeholder reset lives in the `selectedRunIdx === null` branch of its
       // effect, outside the poll body. Writing it unconditionally here too
       // used to flash the resolved label back to the placeholder once a
@@ -420,7 +422,7 @@ export function MapContainer() {
         if (showPlaceholder) trainTooltip.setContent("#94a3b8", `Train ${selectedRunIdx}`);
         try {
           const detail = await client.getRunDetail(selectedRunIdx, client.getSimNow());
-          // Bail on a stale response after the user re-selected mid-flight —
+          // Bail on a stale response after the user re-selected mid-flight â€”
           // same guard TrainInspector.tsx's own poll uses.
           if (useAppStore.getState().selectedRunIdx !== selectedRunIdx) return;
           if (!detail) {
@@ -430,7 +432,7 @@ export function MapContainer() {
           const color = `#${detail.color_rgb.toString(16).padStart(6, "0")}`;
           const next =
             detail.next_station !== null && detail.next_arrival_in_s !== null
-              ? ` · ${detail.next_station} in ${formatCountdown(detail.next_arrival_in_s)}`
+              ? ` Â· ${detail.next_station} in ${formatCountdown(detail.next_arrival_in_s)}`
               : "";
           trainTooltip.setContent(color, `${detail.headsign}${next}`);
         } catch {
@@ -442,9 +444,9 @@ export function MapContainer() {
         if (state.selectedRunIdx !== prev.selectedRunIdx) void refreshTooltipContent(true);
       });
 
-      // Day/night follows the SIM clock, not wall time (F3.3) — scrubbing to
-      // 22:00 must actually look like 22:00. Updated at ~2 Hz: at 60× warp
-      // that is still under 0.25° of solar motion per step, well below what
+      // Day/night follows the SIM clock, not wall time (F3.3) â€” scrubbing to
+      // 22:00 must actually look like 22:00. Updated at ~2 Hz: at 60Ã— warp
+      // that is still under 0.25Â° of solar motion per step, well below what
       // is visible, and it keeps trigonometry off the frame path.
       let lastSunUpdate = 0;
       const updateSun = (now: number) => {
@@ -464,7 +466,7 @@ export function MapContainer() {
         document.documentElement.dataset.theme = effectiveTheme(mode, dir.elevationDeg);
       };
 
-      // MapLibre only repaints on demand — keep frames coming while the
+      // MapLibre only repaints on demand â€” keep frames coming while the
       // engine is running.
       let lastEcoFrame = 0;
       const loop = () => {
@@ -473,7 +475,7 @@ export function MapContainer() {
           const now = performance.now();
           // Eco mode still runs the rAF callback every frame (that is how it
           // stays alive to notice being switched off) but only does the
-          // actual paint work at ECO_TICK_MS — the roadmap-item-2 power save.
+          // actual paint work at ECO_TICK_MS â€” the roadmap-item-2 power save.
           const paint = !s.ecoMode || now - lastEcoFrame >= ECO_TICK_MS;
           if (paint) {
             lastEcoFrame = now;
@@ -499,10 +501,7 @@ export function MapContainer() {
               stationBillboards.apply(
                 view,
                 map.getZoom(),
-                s.undergroundMode,
-                s.hiddenRoutes,
-                s.selectedStation,
-                s.uiHidden,
+                { hiddenRoutes: s.hiddenRoutes, selectedStation: s.selectedStation, uiHidden: s.uiHidden, undergroundMode: s.undergroundMode },
                 s.stations,
                 s.routes,
                 s.primaryLang,
@@ -516,10 +515,10 @@ export function MapContainer() {
       rafId = requestAnimationFrame(loop);
 
       if (disposed) {
-        // Cleanup already ran before this fired — tear down what it missed
+        // Cleanup already ran before this fired â€” tear down what it missed
         // instead of leaking a running rAF loop, worker and subscription.
         // (unsubscribeVisibility is registered synchronously above, outside
-        // style.load, so effect cleanup already unsubscribed it — nothing to
+        // style.load, so effect cleanup already unsubscribed it â€” nothing to
         // do for it here.)
         cancelAnimationFrame(rafId);
         if (tooltipTimer !== null) clearInterval(tooltipTimer);
@@ -530,7 +529,7 @@ export function MapContainer() {
     });
 
     // Click to select a train or station. Uses the most recent interpolated
-    // buffer — the same poses that are on screen.
+    // buffer â€” the same poses that are on screen.
     const onMapClick = (e: { point: { x: number; y: number } }) => {
       const { stations, selectRun, selectStation, hiddenRoutes, map3D } = useAppStore.getState();
       const view = layer?.viewProjection();
@@ -617,7 +616,7 @@ export function MapContainer() {
     // user drag hands control back (Mini Tokyo 3D does the same).
     //
     // `controls.isOrbiting()` is mouse-gesture-only (see cameraControls.ts's
-    // `isOrbitDrag` for the full explanation) — a touch device has no orbit
+    // `isOrbitDrag` for the full explanation) â€” a touch device has no orbit
     // gesture at all, so `isOrbiting()` is always false there and EVERY drag
     // while following (there being no other kind, on touch) cancels follow.
     // Disclosed limitation (Minor #11): issue #31's yaw-offset fix helps
@@ -639,13 +638,16 @@ export function MapContainer() {
 
     // Releasing follow must also clear the smoothed bearing, or the next
     // follow starts from a stale heading. Switching the followed train while
-    // still following (clicking train B while locked onto train A —
+    // still following (clicking train B while locked onto train A â€”
     // selectRun() intentionally preserves `following`) needs the same
     // treatment for bearing alone: the pose snaps instantly via capture(),
     // but bearing eases, so leaving it set carries A's heading into B's shot.
     const unsubscribeFollow = useAppStore.subscribe((state, prev) => {
       if (prev.following && !state.following) {
-        follow.reset();
+        // resetBearing() only — bridge contract §3.2 requires center/bearing/pitch to stay
+        // where they are on breakout to avoid a visual snap. reset() would zero the
+        // smoothed bearing, causing a jump; resetBearing() clears the accumulator only.
+        follow.resetBearing();
       } else if (state.following && state.selectedRunIdx !== prev.selectedRunIdx) {
         follow.resetBearing();
       }
@@ -657,12 +659,12 @@ export function MapContainer() {
     window.addEventListener("recenter-follow-camera", onRecenterCamera);
 
     // Station search / nearest-station selection requests a one-shot camera
-    // jump (see useAppStore's flyToRequest doc comment). Not per-frame —
-    // §3A.7 doesn't apply — a UI action fired at most once per selection,
+    // jump (see useAppStore's flyToRequest doc comment). Not per-frame â€”
+    // Â§3A.7 doesn't apply â€” a UI action fired at most once per selection,
     // cleared immediately after MapLibre picks it up.
     const unsubscribeFlyTo = useAppStore.subscribe((state, prev) => {
-      if (state.flyToRequest && state.flyToRequest !== prev.flyToRequest) {
-        const { lng, lat } = state.flyToRequest;
+      if (state.cameraFlightRequest && state.cameraFlightRequest !== prev.cameraFlightRequest) {
+        const { lng, lat } = state.cameraFlightRequest;
         const isMobile = window.matchMedia(MOBILE_BREAKPOINT_QUERY).matches;
         const center: [number, number] = isMobile
           ? offsetCenterForSheet([lng, lat], map, 0.4)
@@ -711,7 +713,7 @@ export function MapContainer() {
     // only when opted in via `?debug=1`, so ordinary production visitors never
     // get debug globals on `window`. The `?debug=1` path was added for the NF1
     // perf harness (deleted 2026-08-09), which had to measure a real prod
-    // bundle — dev-mode React and unminified Three would have made the numbers
+    // bundle â€” dev-mode React and unminified Three would have made the numbers
     // meaningless. Kept: it is still the only way to inspect a prod build.
     const debugRequested =
       typeof window !== "undefined" && new URLSearchParams(window.location.search).get("debug") === "1";
@@ -756,7 +758,7 @@ export function MapContainer() {
       sim?.dispose();
       map.remove();
       // The sun/theme tick above (and the style.load handler) stamp
-      // `data-theme` on <html> as a GLOBAL DOM side effect — it outlives this
+      // `data-theme` on <html> as a GLOBAL DOM side effect â€” it outlives this
       // component's own React tree. Remove it here rather than leaving the
       // last-applied value stuck forever if MapContainer is ever unmounted
       // while the document persists (a future route change, a test mounting
@@ -781,3 +783,6 @@ export function MapContainer() {
   // so size with h-full/w-full rather than absolute inset positioning.
   return <div ref={containerRef} className="h-full w-full" />;
 }
+
+
+

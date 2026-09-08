@@ -1,7 +1,7 @@
-import type { StationInfo } from "../sim/protocol";
+﻿import type { StationInfo } from "../sim/protocol";
 import type { LineGeometry } from "../types";
 import { projectLocal, type ViewProjection } from "./screenProject";
-import { useAppStore, type PrimaryLanguage } from "../stores/useAppStore";
+import type { PrimaryLanguage } from "../stores/useAppStore";
 import { formatBilingualStation } from "../utils/stationTypography";
 
 export type StationTier = 1 | 2 | 3;
@@ -17,10 +17,22 @@ export interface BillboardCandidate {
 }
 
 /**
+ * Read-only render filter state passed into apply() each frame.
+ * Bundled together because these four always travel together — the
+ * Data Clump that the 9-arg apply() signature was hiding.
+ */
+export interface BillboardRenderFilter {
+  hiddenRoutes: number[];
+  selectedStation: { routeIdx: number; stationIdx: number } | null;
+  uiHidden: boolean;
+  undergroundMode: boolean;
+}
+
+/**
  * Classifies a station into one of 3 LOD hierarchy tiers:
- * - Tier 1: Multi-line interchange hubs (visible z >= 12.0)
- * - Tier 2: Line termini / major junctions (visible z >= 13.5)
- * - Tier 3: Standard intermediate stations (visible z >= 14.8)
+ * - Tier 1: Multi-line interchange hubs (visible zoom >= 12)
+ * - Tier 2: Line termini / major junctions (visible zoom >= 13)
+ * - Tier 3: Standard intermediate stations (visible zoom >= 15)
  */
 export function classifyStationTier(station: StationInfo, isTerminus: boolean): StationTier {
   if (station.interchanges.length > 0) return 1;
@@ -30,6 +42,7 @@ export function classifyStationTier(station: StationInfo, isTerminus: boolean): 
 
 /**
  * Evaluates visibility of a station tier at the given zoom level.
+ * Thresholds match spec section 5.3: zoom 12 = interchanges only; zoom 13 = + termini; zoom 15 = all.
  * The currently selected station is always visible regardless of zoom.
  */
 export function isStationVisibleAtZoom(
@@ -38,9 +51,9 @@ export function isStationVisibleAtZoom(
   isSelected: boolean,
 ): boolean {
   if (isSelected) return true;
-  if (zoom < 12.0) return false;
-  if (zoom < 13.5) return tier === 1;
-  if (zoom < 14.8) return tier <= 2;
+  if (zoom < 12) return false;
+  if (zoom < 13) return tier === 1;
+  if (zoom < 15) return tier <= 2;
   return true;
 }
 
@@ -103,13 +116,27 @@ const POOL_SIZE = 40;
 const BADGE_WIDTH = 90;
 const BADGE_HEIGHT = 26;
 
+/** Called by the host (MapContainer) whenever a badge is clicked. Never called from inside apply(). */
+export type StationSelectCallback = (routeIdx: number, stationIdx: number) => void;
+
 export class StationBillboardManager {
   private readonly container: HTMLDivElement;
   private readonly badgePool: HTMLDivElement[] = [];
+  /** Per-slot dot span (stable DOM node). */
+  private readonly dotSpans: HTMLSpanElement[] = [];
+  /** Per-slot primary-name span. */
+  private readonly nameSpans: HTMLSpanElement[] = [];
+  /** Per-slot subtitle span. */
+  private readonly subtitleSpans: HTMLSpanElement[] = [];
+  /** Per-slot cached badge key — avoids redundant text/color writes. */
+  private readonly badgeKeys: string[] = [];
   private lastStations: StationInfo[] | null = null;
   private routeLengths: Map<number, number> = new Map();
+  private onSelect: StationSelectCallback | null = null;
 
-  constructor(mountParent: HTMLElement) {
+  constructor(mountParent: HTMLElement, onSelect?: StationSelectCallback) {
+    this.onSelect = onSelect ?? null;
+
     this.container = document.createElement("div");
     this.container.dataset.testid = "station-billboard-container";
     this.container.className =
@@ -120,27 +147,70 @@ export class StationBillboardManager {
       el.dataset.testid = "station-billboard";
       el.className =
         "pointer-events-auto absolute left-0 top-0 hidden items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium shadow-md transition-opacity cursor-pointer panel-glass";
+
+      // Stable child DOM — never recreated between frames.
+      const dot = document.createElement("span");
+      dot.className = "h-2 w-2 rounded-full shrink-0";
+
+      const name = document.createElement("span");
+      name.className = "truncate max-w-28 text-ink font-semibold";
+
+      const subtitle = document.createElement("span");
+      subtitle.className = "truncate max-w-20 text-[10px] text-ink-subtle";
+      subtitle.style.display = "none";
+
+      el.appendChild(dot);
+      el.appendChild(name);
+      el.appendChild(subtitle);
+
+      // Single stable onclick per pool slot. Reads route/stationIdx from
+      // data attributes — never closes over frame-path mutable values.
+      // Fires on user click (outside the rAF path), so calling the host
+      // callback is safe here.
+      el.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const routeIdx = Number(el.dataset.routeIdx);
+        const stationIdx = Number(el.dataset.stationIdx);
+        if (!Number.isNaN(routeIdx) && !Number.isNaN(stationIdx)) {
+          this.onSelect?.(routeIdx, stationIdx);
+        }
+      });
+
       this.container.appendChild(el);
       this.badgePool.push(el);
+      this.dotSpans.push(dot);
+      this.nameSpans.push(name);
+      this.subtitleSpans.push(subtitle);
+      this.badgeKeys.push("");
     }
 
     mountParent.appendChild(this.container);
   }
 
   /**
+   * Imperative selection signal from the bridge (bridge contract section 3.1 step 4).
+   * Pass null to clear.
+   */
+  setSelected(stationKey: string | null): void {
+    this.container.dataset.selectedKey = stationKey ?? "";
+  }
+
+  /**
    * Evaluated per rAF frame outside React state.
+   * Never reads or writes Zustand — selection events are routed through
+   * the onSelect constructor callback, called only on user click events
+   * (outside the frame path).
    */
   apply(
     view: ViewProjection,
     zoom: number,
-    undergroundMode: boolean,
-    hiddenRoutes: number[],
-    selectedStation: { routeIdx: number; stationIdx: number } | null,
-    uiHidden: boolean,
+    filter: BillboardRenderFilter,
     stations: StationInfo[],
     routes: LineGeometry[],
-    primaryLang: PrimaryLanguage = "en",
+    primaryLang: PrimaryLanguage,
   ): void {
+    const { uiHidden, hiddenRoutes, selectedStation, undergroundMode } = filter;
+
     if (uiHidden || stations.length === 0 || zoom < 11.5) {
       this.container.style.display = "none";
       return;
@@ -217,27 +287,30 @@ export class StationBillboardManager {
           item.screenY - 8,
         )}px, 0) translate(-50%, -100%)`;
 
-        const badgeKey = `${s.route_idx}:${s.station_idx}:${primaryLang}:${s.code}`;
-        if (el.dataset.stationKey !== badgeKey) {
-          el.dataset.stationKey = badgeKey;
+        // Write routing data to attributes for the stable click listener.
+        el.dataset.routeIdx = String(s.route_idx);
+        el.dataset.stationIdx = String(s.station_idx);
+
+        const badgeKey = `${s.route_idx}:${s.station_idx}:${primaryLang}:${s.code}:${lineColor}`;
+        if (this.badgeKeys[i] !== badgeKey) {
+          this.badgeKeys[i] = badgeKey;
           const { primaryName, subtitle } = formatBilingualStation(s, primaryLang);
-          el.innerHTML = `
-            <span class="h-2 w-2 rounded-full shrink-0" style="background-color: ${lineColor}"></span>
-            <span class="truncate max-w-28 text-ink font-semibold">${primaryName}</span>
-            ${subtitle ? `<span class="truncate max-w-20 text-[10px] text-ink-subtle">${subtitle}</span>` : ""}
-          `;
-          el.onclick = (e) => {
-            e.stopPropagation();
-            useAppStore.getState().selectStation({
-              routeIdx: s.route_idx,
-              stationIdx: s.station_idx,
-            });
-          };
+          this.dotSpans[i].style.backgroundColor = lineColor;
+          this.nameSpans[i].textContent = primaryName;
+          if (subtitle) {
+            this.subtitleSpans[i].textContent = subtitle;
+            this.subtitleSpans[i].style.display = "";
+          } else {
+            this.subtitleSpans[i].textContent = "";
+            this.subtitleSpans[i].style.display = "none";
+          }
         }
       } else {
         el.style.display = "none";
-        el.dataset.stationKey = "";
-        el.onclick = null;
+        // Clear routing data so a stale click on a hidden badge is a no-op.
+        el.dataset.routeIdx = "";
+        el.dataset.stationIdx = "";
+        this.badgeKeys[i] = "";
       }
     }
   }

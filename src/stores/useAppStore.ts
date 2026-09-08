@@ -1,4 +1,4 @@
-import { create } from "zustand";
+﻿import { create } from "zustand";
 import type { BasemapStyleKey } from "../map/basemapStyles";
 import type { ThemeMode } from "../map/themeMode";
 import type { RoutePlan, StationInfo, ValidationSummary } from "../sim/protocol";
@@ -6,11 +6,11 @@ import type { ClockParams } from "../sim/SimClient";
 import type { LineGeometry } from "../types";
 
 /**
- * UI-facing state only (SRS §3A.7): per-frame render/kinematic state must
- * never live here — Zustand state changes trigger React re-renders. Vehicle
+ * UI-facing state only (SRS Â§3A.7): per-frame render/kinematic state must
+ * never live here â€” Zustand state changes trigger React re-renders. Vehicle
  * buffers stay inside SimClient/VehicleManager; only slow-changing engine
  * status, clock params (rebased on warp change) and a 1 Hz-throttled vehicle
- * count pass through the store (ENGINE_CONTRACT.md §6).
+ * count pass through the store (ENGINE_CONTRACT.md Â§6).
  */
 
 export type EngineStatus = "off" | "loading" | "ready" | "error";
@@ -36,13 +36,13 @@ interface AppState {
   validation: ValidationSummary | null;
   setValidation: (validation: ValidationSummary | null) => void;
 
-  /** Sim clock params — simNow = clockEpochMs + (perfNow - clockSetAt) * warp. */
+  /** Sim clock params â€” simNow = clockEpochMs + (perfNow - clockSetAt) * warp. */
   warp: Warp;
   clockEpochMs: number;
   clockSetAt: number;
   setClock: (params: ClockParams) => void;
 
-  /** Throttled to 1 Hz by MapContainer — never per-frame. */
+  /** Throttled to 1 Hz by MapContainer â€” never per-frame. */
   vehicleCount: number;
   setVehicleCount: (count: number) => void;
 
@@ -53,7 +53,7 @@ interface AppState {
   setActiveTab: (tab: NavigationTab | null) => void;
   toggleTab: (tab: NavigationTab) => void;
 
-  /** 3D perspective (pitch 55°) vs 2D top-down (pitch 0°) view mode. Default true. */
+  /** 3D perspective (pitch 55Â°) vs 2D top-down (pitch 0Â°) view mode. Default true. */
   map3D: boolean;
   setMap3D: (on: boolean) => void;
   toggleMap3D: () => void;
@@ -87,14 +87,14 @@ interface AppState {
   toggleRoute: (routeIdx: number) => void;
   isRouteVisible: (routeIdx: number) => boolean;
 
-  // ---- View modes (F3.2 / §3A.5) ----
+  // ---- View modes (F3.2 / Â§3A.5) ----
 
   /** Underground transparency: dim the basemap and the surface network so
-   *  sub-surface track is the subject (SRS §F3.2). */
+   *  sub-surface track is the subject (SRS Â§F3.2). */
   undergroundMode: boolean;
   setUndergroundMode: (on: boolean) => void;
 
-  /** Shadow quality toggle — off by default for the 30-FPS mobile target. */
+  /** Shadow quality toggle â€” off by default for the 30-FPS mobile target. */
   shadowsEnabled: boolean;
   setShadowsEnabled: (on: boolean) => void;
 
@@ -127,9 +127,10 @@ interface AppState {
   routePlan: RoutePlan | null;
   setRoutePlan: (plan: RoutePlan | null) => void;
 
-  /** One-shot camera-jump request from station search / nearest-station selection. */
-  flyToRequest: { lng: number; lat: number } | null;
-  requestFlyTo: (target: { lng: number; lat: number }) => void;
+  /** One-shot camera-jump request (bridge contract §4). Consumed and cleared by MapContainer.
+   *  Includes the full BridgeState.cameraFlightRequest payload. */
+  cameraFlightRequest: { lng: number; lat: number; altitudeM?: number; zoom?: number; pitch?: number; bearing?: number } | null;
+  requestFlyTo: (target: { lng: number; lat: number; altitudeM?: number; zoom?: number; pitch?: number; bearing?: number }) => void;
   clearFlyToRequest: () => void;
 }
 
@@ -284,7 +285,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   routePlan: null,
   setRoutePlan: (plan) => set({ routePlan: plan }),
 
-  flyToRequest: null,
-  requestFlyTo: (target) => set({ flyToRequest: target }),
-  clearFlyToRequest: () => set({ flyToRequest: null }),
+  cameraFlightRequest: null,
+  requestFlyTo: (target) => set({ cameraFlightRequest: target }),
+  clearFlyToRequest: () => set({ cameraFlightRequest: null }),
 }));
+
+

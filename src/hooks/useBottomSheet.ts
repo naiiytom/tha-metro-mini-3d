@@ -1,5 +1,5 @@
+﻿import type { SheetDetent } from "../stores/useAppStore";
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
-import type { SheetDetent } from "../stores/useAppStore";
 
 export interface BottomSheetOptions {
   initialDetent?: SheetDetent;
@@ -218,3 +218,5 @@ export function useBottomSheet(options: BottomSheetOptions = {}): BottomSheetRet
     contentRef,
   };
 }
+
+

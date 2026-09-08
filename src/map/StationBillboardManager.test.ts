@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+﻿import { describe, expect, it } from "vitest";
 import {
   classifyStationTier,
   isStationVisibleAtZoom,
@@ -56,19 +56,19 @@ describe("StationBillboardManager LOD & Decluttering", () => {
       expect(isStationVisibleAtZoom(3, 11.9, false)).toBe(false);
     });
 
-    it("shows only Tier 1 interchanges at zoom 12.0 - 13.4", () => {
-      expect(isStationVisibleAtZoom(1, 12.5, false)).toBe(true);
+    it("shows only Tier 1 interchanges at zoom >= 12 and < 13", () => {
+      expect(isStationVisibleAtZoom(1, 12.0, false)).toBe(true);
       expect(isStationVisibleAtZoom(2, 12.5, false)).toBe(false);
       expect(isStationVisibleAtZoom(3, 12.5, false)).toBe(false);
     });
 
-    it("shows Tier 1 and Tier 2 at zoom 13.5 - 14.7", () => {
-      expect(isStationVisibleAtZoom(1, 14.0, false)).toBe(true);
+    it("shows Tier 1 and Tier 2 at zoom >= 13 and < 15", () => {
+      expect(isStationVisibleAtZoom(1, 13.0, false)).toBe(true);
       expect(isStationVisibleAtZoom(2, 14.0, false)).toBe(true);
       expect(isStationVisibleAtZoom(3, 14.0, false)).toBe(false);
     });
 
-    it("shows all tiers at zoom >= 14.8", () => {
+    it("shows all tiers at zoom >= 15", () => {
       expect(isStationVisibleAtZoom(1, 15.0, false)).toBe(true);
       expect(isStationVisibleAtZoom(2, 15.0, false)).toBe(true);
       expect(isStationVisibleAtZoom(3, 15.0, false)).toBe(true);

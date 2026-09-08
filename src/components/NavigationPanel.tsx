@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+﻿import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { useBottomSheet } from "../hooks/useBottomSheet";
 import { useAppStore, type NavigationTab } from "../stores/useAppStore";
@@ -16,10 +16,10 @@ interface TabItem {
 }
 
 const TABS: TabItem[] = [
-  { id: "lines", label: "Lines", icon: "🚇", description: "Lines & view controls" },
-  { id: "stations", label: "Stations", icon: "🔍", description: "Find stations & departures" },
-  { id: "route", label: "Route", icon: "🧭", description: "Plan a journey" },
-  { id: "about", label: "About", icon: "ℹ️", description: "Attribution & sponsors" },
+  { id: "lines", label: "Lines", icon: "ðŸš‡", description: "Lines & view controls" },
+  { id: "stations", label: "Stations", icon: "ðŸ”", description: "Find stations & departures" },
+  { id: "route", label: "Route", icon: "ðŸ§­", description: "Plan a journey" },
+  { id: "about", label: "About", icon: "â„¹ï¸", description: "Attribution & sponsors" },
 ];
 
 export function NavigationPanel() {
@@ -116,7 +116,13 @@ export function NavigationPanel() {
       aria-label="Transit Navigation"
       data-testid="navigation-panel"
       style={isMobile && translateY ? { transform: `translateY(${translateY}px)` } : undefined}
-      className="panel-glass pointer-events-auto absolute left-[max(1rem,env(safe-area-inset-left))] top-4 max-h-[calc(100dvh-16rem)] w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border shadow-xl shadow-ink/10 backdrop-blur-xl md:left-4 md:max-h-[calc(100dvh-2rem)] md:w-88"
+      className={`panel-glass pointer-events-auto absolute left-[max(1rem,env(safe-area-inset-left))] top-4 overflow-hidden rounded-2xl border shadow-xl shadow-ink/10 backdrop-blur-xl md:left-4 md:max-h-[calc(100dvh-2rem)] ${
+        isMobile
+          ? "max-h-[calc(100dvh-16rem)] w-[min(22rem,calc(100vw-2rem))]"
+          : expanded
+            ? "w-88"
+            : "w-12"
+      }`}
     >
       {/* Mobile Drag Handle */}
       <div
@@ -134,9 +140,9 @@ export function NavigationPanel() {
           <p className="truncate text-xs text-ink-muted">
             {mapReady
               ? primaryLang === "th"
-                ? "ระบบจำลองรถไฟฟ้ากรุงเทพมหานครและปริมณฑล"
+                ? "à¸£à¸°à¸šà¸šà¸ˆà¸³à¸¥à¸­à¸‡à¸£à¸–à¹„à¸Ÿà¸Ÿà¹‰à¸²à¸à¸£à¸¸à¸‡à¹€à¸—à¸žà¸¡à¸«à¸²à¸™à¸„à¸£à¹à¸¥à¸°à¸›à¸£à¸´à¸¡à¸“à¸‘à¸¥"
                 : "Bangkok Urban Rail Simulation"
-              : "Loading map…"}
+              : "Loading mapâ€¦"}
           </p>
         </div>
 
@@ -159,10 +165,10 @@ export function NavigationPanel() {
           title={uiHidden ? "Show overlay UI" : "Hide overlay UI"}
           className="flex h-11 w-11 min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-lg text-sm text-ink-muted hover:bg-surface-sunken md:h-8 md:w-8 md:min-h-0 md:min-w-0"
         >
-          {uiHidden ? "👁️" : "✕"}
+          {uiHidden ? "ðŸ‘ï¸" : "âœ•"}
         </button>
 
-        {/* Collapse / Expand Toggle */}
+        {/* Collapse / Expand Toggle (desktop only — not shown on mobile) */}
         <button
           type="button"
           onClick={toggleExpanded}
@@ -171,7 +177,7 @@ export function NavigationPanel() {
           title={expanded ? "Collapse panel" : "Expand panel"}
           className="flex h-11 w-11 min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-lg text-xs font-semibold text-ink-muted hover:bg-surface-sunken md:h-8 md:w-8 md:min-h-0 md:min-w-0"
         >
-          {expanded ? "▲" : "▼"}
+          {expanded ? "â–²" : "â–¼"}
         </button>
       </div>
 
@@ -228,4 +234,5 @@ export function NavigationPanel() {
     </nav>
   );
 }
+
 

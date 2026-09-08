@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+﻿import { beforeEach, describe, expect, it } from "vitest";
 import type { RoutePlan } from "../sim/protocol";
 import { useAppStore } from "./useAppStore";
 
@@ -54,11 +54,11 @@ describe("theme mode", () => {
 });
 
 describe("station search", () => {
-  beforeEach(() => useAppStore.setState({ searchOpen: false, flyToRequest: null }));
+  beforeEach(() => useAppStore.setState({ searchOpen: false, cameraFlightRequest: null }));
 
   it("defaults to closed with no pending fly-to request", () => {
     expect(useAppStore.getState().searchOpen).toBe(false);
-    expect(useAppStore.getState().flyToRequest).toBeNull();
+    expect(useAppStore.getState().cameraFlightRequest).toBeNull();
   });
 
   it("opens and closes the search panel", () => {
@@ -70,9 +70,9 @@ describe("station search", () => {
 
   it("sets and clears a fly-to request", () => {
     useAppStore.getState().requestFlyTo({ lng: 100.5, lat: 13.75 });
-    expect(useAppStore.getState().flyToRequest).toEqual({ lng: 100.5, lat: 13.75 });
+    expect(useAppStore.getState().cameraFlightRequest).toEqual({ lng: 100.5, lat: 13.75 });
     useAppStore.getState().clearFlyToRequest();
-    expect(useAppStore.getState().flyToRequest).toBeNull();
+    expect(useAppStore.getState().cameraFlightRequest).toBeNull();
   });
 });
 
@@ -301,5 +301,7 @@ describe("clearSelection", () => {
     expect(useAppStore.getState().following).toBe(false);
   });
 });
+
+
 
 
