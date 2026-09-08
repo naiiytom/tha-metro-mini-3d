@@ -3,6 +3,7 @@ import type { StationBoard as StationBoardData, StationInfo } from "../sim/proto
 import { activeSimClient } from "../sim/SimClient";
 import { formatCountdown, formatServiceSec } from "../sim/time";
 import { useAppStore } from "../stores/useAppStore";
+import { formatBilingualStation } from "../utils/stationTypography";
 import { ESTIMATED_RUN_TIMES_NOTE, SYNTHETIC_SCHEDULE_NOTE } from "../types";
 
 /** `${route_idx}:${station_idx}` — the natural key for cross-route station lookup. */
@@ -28,6 +29,7 @@ export function StationBoard() {
   const selectRun = useAppStore((s) => s.selectRun);
   const routes = useAppStore((s) => s.routes);
   const stations = useAppStore((s) => s.stations);
+  const primaryLang = useAppStore((s) => s.primaryLang);
   const [board, setBoard] = useState<StationBoardData | null>(null);
 
   const routeIdx = selectedStation?.routeIdx;
@@ -72,14 +74,20 @@ export function StationBoard() {
 
   const info = stationByKey.get(stationKey(selectedStation.routeIdx, selectedStation.stationIdx));
 
+  const { primaryName, subtitle } = board
+    ? formatBilingualStation(board, primaryLang)
+    : { primaryName: "Station", subtitle: "" };
+
   return (
     <div className="panel-glass pointer-events-auto flex max-h-[50dvh] w-full flex-col overflow-hidden rounded-t-2xl border shadow-xl shadow-ink/10 backdrop-blur-md md:absolute md:right-4 md:top-4 md:max-h-[calc(100dvh-2rem)] md:w-72 md:rounded-xl">
       <div className="flex items-start gap-2 border-b border-edge px-4 py-3">
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold text-ink">
-            {board ? `${board.code ? `${board.code} · ` : ""}${board.name_en}` : "Station"}
+            {primaryName}
           </p>
-          <p className="truncate text-xs text-ink-muted">{board?.name_th ?? ""}</p>
+          {subtitle && (
+            <p className="truncate text-xs text-ink-muted">{subtitle}</p>
+          )}
         </div>
         <button
           type="button"

@@ -1,4 +1,4 @@
-@import "tailwindcss";
+﻿@import "tailwindcss";
 
 /*
  * Semantic colour tokens (issue #26).
@@ -10,7 +10,7 @@
  * Roles, not shades. A component asks for `bg-surface`, never `bg-white`, so
  * the light/dark pair is decided in exactly one place. The @theme block maps
  * each role onto a plain CSS variable, and the variable is what the
- * [data-theme] blocks below swap — @theme itself is evaluated once at build
+ * [data-theme] blocks below swap â€” @theme itself is evaluated once at build
  * time and cannot be re-declared per theme.
  */
 @theme {
@@ -45,6 +45,16 @@
      --danger-bg below, well clear of the 4.5:1 AA floor for normal text. */
   --danger-bg: #fef2f2;
   --danger-ink: #b91c1c;
+
+  /* Solar-adaptive glass opacity (fraction 0-100). Updated by updateSun() in
+     MapContainer at ~2 Hz from the sim clock elevation. Default 76 = full day. */
+  --glass-opacity-pct: 76;
+
+  /* Frosted Daylight Glass (Safari 15 static fallback) */
+  --glass-bg: rgba(255, 255, 255, 0.82);
+  --glass-border: rgba(203, 213, 225, 0.6);
+  --glass-blur: 24px;
+  --glass-shadow: 0 12px 32px -4px rgba(15, 23, 42, 0.12);
 }
 
 [data-theme="dark"] {
@@ -62,26 +72,43 @@
   /* Contrast checked: 9.31:1 against --danger-bg below. */
   --danger-bg: #2a1113;
   --danger-ink: #fca5a5;
+
+  /* Smoked Night Glass (Safari 15 static fallback) */
+  --glass-bg: rgba(15, 23, 42, 0.85);
+  --glass-border: rgba(51, 65, 85, 0.6);
+  --glass-blur: 24px;
+  --glass-shadow: 0 16px 40px -8px rgba(0, 0, 0, 0.60);
+}
+
+/* Upgrade to color-mix in modern browsers */
+@supports (background-color: color-mix(in srgb, red, blue)) {
+  :root {
+    --glass-bg: color-mix(in srgb, var(--surface) var(--glass-opacity-pct, 76)%, transparent);
+    --glass-border: color-mix(in srgb, #ffffff 50%, var(--edge));
+  }
+  [data-theme="dark"] {
+    --glass-bg: color-mix(in srgb, var(--surface) 78%, transparent);
+    --glass-border: color-mix(in srgb, #ffffff 12%, var(--edge));
+  }
 }
 
 /* The glassmorphism panels blur whatever is behind them, so their own
    backdrop has to stay translucent in both themes rather than adopt an
    opaque surface token. */
 .panel-glass {
-  /* Fallback for browsers without color-mix() support (e.g. Safari <16.2,
-     Firefox <113 — this project's own stated minimum, Safari 15+, predates
-     color-mix()). CSS drops an unsupported function value as an INVALID
-     declaration rather than falling back, so without a plain value declared
-     first, every glass panel (LineSelector, StationSearch, RoutePlanner,
-     TimeControls, TrainInspector, StationBoard) would render with NO
-     background/border at all on such a browser — fully transparent, not
-     semi-opaque. The color-mix() declarations below win the cascade (same
-     specificity, later) wherever the browser understands them; where it
-     doesn't, they're invalid and dropped, leaving these standing. */
-  background-color: var(--surface);
-  border-color: var(--edge);
-  background-color: color-mix(in srgb, var(--surface) 82%, transparent);
-  border-color: color-mix(in srgb, var(--edge) 70%, transparent);
+  background-color: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  box-shadow: var(--glass-shadow);
+  transition: background-color 0.5s ease, border-color 0.5s ease, box-shadow 0.5s ease;
+}
+
+@media (prefers-contrast: more) {
+  .panel-glass {
+    background-color: color-mix(in srgb, var(--surface) 98%, transparent);
+    border-color: var(--ink);
+  }
 }
 
 html,
@@ -90,3 +117,4 @@ body,
   height: 100%;
   margin: 0;
 }
+

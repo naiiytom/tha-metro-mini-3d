@@ -135,5 +135,18 @@ describe("NavigationPanel tab switching", () => {
     expect(screen.getByTestId("pre-revenue-badge")).toBeTruthy();
     expect(screen.getByText("Orange Line")).toBeTruthy();
   });
+
+  it("toggles language between English and Thai via header switcher", () => {
+    render(<NavigationPanel />);
+    const langBtn = screen.getByRole("button", { name: /switch language/i });
+    expect(langBtn).toBeTruthy();
+    expect(useAppStore.getState().primaryLang).toBe("en");
+
+    fireEvent.click(langBtn);
+    expect(useAppStore.getState().primaryLang).toBe("th");
+
+    fireEvent.click(langBtn);
+    expect(useAppStore.getState().primaryLang).toBe("en");
+  });
 });
 

@@ -1,4 +1,4 @@
-// @vitest-environment jsdom
+﻿// @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { StationSearch } from "../StationSearch";
@@ -24,8 +24,8 @@ function makeStation(overrides: Partial<StationInfo>): StationInfo {
 }
 
 const STATIONS = [
-  makeStation({ station_idx: 0, name_en: "Siam", name_th: "สยาม", x: 0, y: 0 }),
-  makeStation({ station_idx: 1, name_en: "Asok", name_th: "อโศก", x: 2000, y: 0 }),
+  makeStation({ station_idx: 0, name_en: "Siam", name_th: "à¸ªà¸¢à¸²à¸¡", x: 0, y: 0 }),
+  makeStation({ station_idx: 1, name_en: "Asok", name_th: "à¸­à¹‚à¸¨à¸", x: 2000, y: 0 }),
 ];
 
 describe("StationSearch", () => {
@@ -43,7 +43,7 @@ describe("StationSearch", () => {
       selectedStation: null,
       selectedRunIdx: null,
       following: false,
-      flyToRequest: null,
+      cameraFlightRequest: null,
     });
   });
 
@@ -55,7 +55,7 @@ describe("StationSearch", () => {
   // Issue #28 regression (found in the final whole-branch review): the
   // combobox only opens its list on the input's own `onFocus`, and the old
   // `StationSearch` input had `autoFocus` before the combobox replaced it.
-  // Losing that prop meant the panel opened with a closed, unfocused input —
+  // Losing that prop meant the panel opened with a closed, unfocused input â€”
   // the user had to click a SECOND time before anything was browsable at
   // all, defeating the "browsable, not just searchable" affordance #28 asked
   // for.
@@ -65,7 +65,7 @@ describe("StationSearch", () => {
 
     const input = screen.getByLabelText("Find a station station");
     expect(input).toHaveFocus();
-    // Every fixture station should already be listed — nothing was typed.
+    // Every fixture station should already be listed â€” nothing was typed.
     expect(screen.getByText("Siam")).toBeTruthy();
     expect(screen.getByText("Asok")).toBeTruthy();
   });
@@ -83,16 +83,16 @@ describe("StationSearch", () => {
   // Mirrors src/map/selection.ts's own hiddenRoutes skip for map-click
   // station picking: a station on a hidden line has no visible track to fly
   // to, so search must not surface it either. Uses a locally-scoped fixture
-  // with explicit route_idx values on each station — the shared STATIONS
+  // with explicit route_idx values on each station â€” the shared STATIONS
   // fixture above never sets route_idx, so every entry defaults to 0 and
   // can't distinguish "this route is hidden" from "that one is."
   const TWO_ROUTE_STATIONS = [
-    makeStation({ route_idx: 0, station_idx: 0, name_en: "Siam", name_th: "สยาม", x: 0, y: 0 }),
+    makeStation({ route_idx: 0, station_idx: 0, name_en: "Siam", name_th: "à¸ªà¸¢à¸²à¸¡", x: 0, y: 0 }),
     makeStation({
       route_idx: 1,
       station_idx: 0,
       name_en: "Asok",
-      name_th: "อโศก",
+      name_th: "à¸­à¹‚à¸¨à¸",
       x: 2000,
       y: 0,
     }),
@@ -113,7 +113,7 @@ describe("StationSearch", () => {
 
   it("excludes stations on a hidden route from the nearest-station pick", async () => {
     // Siam (route 0, x:0,y:0) is closer to the mocked position than Asok
-    // (route 1, x:2000,y:0) — hide route 0 so a correct implementation must
+    // (route 1, x:2000,y:0) â€” hide route 0 so a correct implementation must
     // skip past the nearer-but-hidden station and land on Asok instead.
     Object.defineProperty(navigator, "geolocation", {
       configurable: true,
@@ -142,7 +142,7 @@ describe("StationSearch", () => {
     fireEvent.click(screen.getByText("Siam"));
 
     expect(useAppStore.getState().selectedStation).toEqual({ routeIdx: 0, stationIdx: 0 });
-    expect(useAppStore.getState().flyToRequest).not.toBeNull();
+    expect(useAppStore.getState().cameraFlightRequest).not.toBeNull();
     expect(useAppStore.getState().searchOpen).toBe(false);
   });
 
@@ -172,7 +172,7 @@ describe("StationSearch", () => {
 
   it("renders a real nearest-station card on geolocation success, and selecting it selects the station, requests a fly-to, and closes the panel", async () => {
     // A plausible position near the app's own coordinate origin (Siam,
-    // src/map/coordinates.ts's ORIGIN_LNG_LAT) — not reverse-engineered
+    // src/map/coordinates.ts's ORIGIN_LNG_LAT) â€” not reverse-engineered
     // against either fixture station, since which fixture station is
     // "nearest" is derived the same way the component derives it, below.
     const mockLng = 100.5332;
@@ -206,7 +206,8 @@ describe("StationSearch", () => {
       routeIdx: expected!.station.route_idx,
       stationIdx: expected!.station.station_idx,
     });
-    expect(useAppStore.getState().flyToRequest).not.toBeNull();
+    expect(useAppStore.getState().cameraFlightRequest).not.toBeNull();
     expect(useAppStore.getState().searchOpen).toBe(false);
   });
 });
+

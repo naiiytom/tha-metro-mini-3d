@@ -1,6 +1,8 @@
 import { useEffect, useId, useMemo, useReducer, useRef, type KeyboardEvent } from "react";
 import { countMatches, groupByRoute, stationOptions } from "../search/stationSearch";
 import { INITIAL_COMBO, comboReducer, type ComboEvent, type ComboState } from "../search/comboboxState";
+import { useAppStore } from "../stores/useAppStore";
+import { formatBilingualStation } from "../utils/stationTypography";
 import type { StationInfo } from "../sim/protocol";
 import type { LineGeometry } from "../types";
 
@@ -17,16 +19,9 @@ export function StationCombobox({
   routes: LineGeometry[];
   onPick: (s: StationInfo | null) => void;
   placeholder?: string;
-  /** Default false: `RoutePlanner`'s two comboboxes (From/To) don't want a
-   *  fight over which one grabs focus on open. `StationSearch`'s single
-   *  combobox — issue #28's actual entry point — passes true so the panel
-   *  opens with a browsable, focused list rather than an unfocused, closed
-   *  one the user has to click a second time. React's `autoFocus` fires a
-   *  real `focus` event on mount, which reaches this input's own `onFocus`
-   *  handler below and opens the list the normal way — no separate open
-   *  path to keep in sync. */
   autoFocus?: boolean;
 }) {
+  const primaryLang = useAppStore((s) => s.primaryLang);
   const listId = useId();
   const options = useMemo(() => stationOptions(stations, ""), [stations]);
 
@@ -87,7 +82,8 @@ export function StationCombobox({
       if (chosen) {
         e.preventDefault();
         onPick(chosen);
-        rawDispatch({ type: "pick", label: chosen.name_en });
+        const label = primaryLang === "th" && chosen.name_th ? chosen.name_th : chosen.name_en;
+        rawDispatch({ type: "pick", label });
       }
     } else if (e.key === "Escape") {
       rawDispatch({ type: "close" });
@@ -157,6 +153,8 @@ export function StationCombobox({
                 {group.stations.map((s) => {
                   flatIndex += 1;
                   const index = flatIndex;
+                  const { primaryName, subtitle } = formatBilingualStation(s, primaryLang);
+
                   return (
                     <li key={`${s.route_idx}-${s.station_idx}`} role="presentation">
                       <button
@@ -172,7 +170,7 @@ export function StationCombobox({
                         onMouseDown={(e) => e.preventDefault()}
                         onClick={() => {
                           onPick(s);
-                          rawDispatch({ type: "pick", label: s.name_en });
+                          rawDispatch({ type: "pick", label: primaryName });
                         }}
                         className={`flex w-full items-center gap-2 px-2 py-1.5 text-left text-xs text-ink-muted hover:bg-surface-sunken ${
                           state.activeIndex === index ? "bg-surface-sunken" : ""
@@ -182,14 +180,9 @@ export function StationCombobox({
                           className="inline-block h-2 w-4 shrink-0 rounded-sm"
                           style={{ background: routes[s.route_idx]?.color ?? "#64748b" }}
                         />
-                        {s.code !== "" && (
-                          <span className="shrink-0 rounded bg-surface-sunken px-1 text-[10px] text-ink-muted">
-                            {s.code}
-                          </span>
-                        )}
                         <span className="min-w-0 flex-1 truncate">
-                          <span className="font-medium text-ink">{s.name_en}</span>
-                          <span className="ml-1 text-ink-subtle">{s.name_th}</span>
+                          <span className="font-semibold text-ink">{primaryName}</span>
+                          {subtitle && <span className="ml-1.5 text-[11px] text-ink-subtle">{subtitle}</span>}
                         </span>
                         {s.interchanges.length > 0 && (
                           <span className="shrink-0 text-[10px] text-ink-subtle" title="Interchange">
