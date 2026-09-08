@@ -226,7 +226,7 @@ export function NavigationPanel() {
         onKeyDown={handleKeyDown}
         className={`flex ${
           isMobile || expanded ? "flex-row border-b" : "flex-col gap-1 py-1"
-        } border-edge bg-surface-sunken/60 p-1`}
+        } border-edge bg-surface-sunken/80 p-1`}
       >
         {TABS.map((tab) => {
           const isSelected = (isMobile || expanded) && activeTab === tab.id;
