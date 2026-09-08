@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+// @vitest-environment jsdom
+import { beforeEach, describe, expect, it } from "vitest";
 import {
   applyRubberBand,
   calcTargetDetent,
@@ -60,3 +61,52 @@ describe("useBottomSheet detent calculations", () => {
     expect(calcTargetDetent(500, 0.6, frameH)).toBe("peek");
   });
 });
+
+describe("useBottomSheet hook lifecycle", () => {
+  beforeEach(() => {
+    Object.defineProperty(window, "innerHeight", {
+      writable: true,
+      configurable: true,
+      value: 1000,
+    });
+  });
+
+  it("initializes translateY to match initialDetent instead of zero", async () => {
+    const { renderHook } = await import("@testing-library/react");
+    const { useBottomSheet } = await import("./useBottomSheet");
+
+    const { result } = renderHook(() => useBottomSheet({ initialDetent: "peek" }));
+    // In 1000px height: peek translateY is 778px
+    expect(result.current.detent).toBe("peek");
+    expect(result.current.translateY).toBe(778);
+  });
+
+  it("updates detent and translateY on snapTo", async () => {
+    const { act, renderHook } = await import("@testing-library/react");
+    const { useBottomSheet } = await import("./useBottomSheet");
+
+    const { result } = renderHook(() => useBottomSheet({ initialDetent: "peek" }));
+    act(() => {
+      result.current.snapTo("half");
+    });
+    expect(result.current.detent).toBe("half");
+    expect(result.current.translateY).toBe(450);
+  });
+
+  it("recalibrates translateY on window resize", async () => {
+    const { act, renderHook } = await import("@testing-library/react");
+    const { useBottomSheet } = await import("./useBottomSheet");
+
+    const { result } = renderHook(() => useBottomSheet({ initialDetent: "half" }));
+    expect(result.current.translateY).toBe(450);
+
+    act(() => {
+      window.innerHeight = 800;
+      window.dispatchEvent(new Event("resize"));
+    });
+
+    // In 800px height: sheetH = 680, half visible = 320 -> Y = 680 - 320 = 360
+    expect(result.current.translateY).toBe(360);
+  });
+});
+

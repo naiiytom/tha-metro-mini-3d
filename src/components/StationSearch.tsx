@@ -84,7 +84,7 @@ export function StationSearch() {
   return (
     <div
       data-testid="station-search"
-      className="panel-glass pointer-events-auto flex max-h-[50dvh] w-full flex-col overflow-hidden rounded-t-2xl border shadow-xl shadow-ink/10 backdrop-blur-md md:absolute md:left-[17rem] md:top-4 md:max-h-[calc(100dvh-2rem)] md:w-72 md:rounded-xl"
+      className="panel-glass pointer-events-auto flex max-h-[50dvh] w-full flex-col overflow-hidden rounded-t-[28px] border-t border-edge border-x-0 border-b-0 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-xl shadow-ink/10 backdrop-blur-md md:absolute md:left-[17rem] md:top-4 md:max-h-[calc(100dvh-2rem)] md:w-72 md:rounded-xl md:border md:pb-0"
     >
       {/* items-start, not items-center: StationCombobox renders its open
        * dropdown inside this same flex child, which grows the row's height

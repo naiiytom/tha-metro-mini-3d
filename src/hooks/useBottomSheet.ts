@@ -1,4 +1,4 @@
-﻿import type { SheetDetent } from "../stores/useAppStore";
+import type { SheetDetent } from "../stores/useAppStore";
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 
 export interface BottomSheetOptions {
@@ -13,6 +13,7 @@ export interface BottomSheetOptions {
 export interface BottomSheetReturn {
   detent: SheetDetent;
   setDetent: (detent: SheetDetent) => void;
+  snapTo: (detent: SheetDetent) => void;
   translateY: number;
   isDragging: boolean;
   sheetRef: RefObject<HTMLDivElement | null>;
@@ -89,7 +90,10 @@ export function useBottomSheet(options: BottomSheetOptions = {}): BottomSheetRet
   } = options;
 
   const [detent, setDetentState] = useState<SheetDetent>(initialDetent);
-  const [translateY, setTranslateY] = useState(0);
+  const [translateY, setTranslateY] = useState(() => {
+    const frameH = typeof window !== "undefined" ? window.innerHeight : 800;
+    return getDetentY(initialDetent, frameH, { peekHeight, halfRatio, fullRatio });
+  });
   const [isDragging, setIsDragging] = useState(false);
 
   const sheetRef = useRef<HTMLDivElement | null>(null);
@@ -112,13 +116,14 @@ export function useBottomSheet(options: BottomSheetOptions = {}): BottomSheetRet
 
   const snapTo = useCallback(
     (nextDetent: SheetDetent) => {
-      const sheet = sheetRef.current;
-      if (!sheet) return;
       const frameH = typeof window !== "undefined" ? window.innerHeight : 800;
       const targetY = getDetentY(nextDetent, frameH, { peekHeight, halfRatio, fullRatio });
 
-      sheet.style.transition = "transform 0.35s cubic-bezier(0.16, 1, 0.3, 1)";
-      sheet.style.transform = `translateY(${targetY}px)`;
+      const sheet = sheetRef.current;
+      if (sheet) {
+        sheet.style.transition = "transform 0.35s cubic-bezier(0.16, 1, 0.3, 1)";
+        sheet.style.transform = `translateY(${targetY}px)`;
+      }
       setTranslateY(targetY);
       setDetentState(nextDetent);
       onDetentChange?.(nextDetent);
@@ -208,9 +213,23 @@ export function useBottomSheet(options: BottomSheetOptions = {}): BottomSheetRet
     };
   }, [detent, fullRatio, halfRatio, peekHeight, snapTo, translateY, velocityThreshold]);
 
+  useEffect(() => {
+    const onResize = () => {
+      const frameH = window.innerHeight;
+      const targetY = getDetentY(detent, frameH, { peekHeight, halfRatio, fullRatio });
+      setTranslateY(targetY);
+      if (sheetRef.current && !isDragging) {
+        sheetRef.current.style.transform = `translateY(${targetY}px)`;
+      }
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [detent, halfRatio, fullRatio, isDragging, peekHeight]);
+
   return {
     detent,
     setDetent: snapTo,
+    snapTo,
     translateY,
     isDragging,
     sheetRef,
