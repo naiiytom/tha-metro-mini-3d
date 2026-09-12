@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { RunDetail } from "../sim/protocol";
 import { activeSimClient } from "../sim/SimClient";
 import { useAppStore } from "../stores/useAppStore";
+import { useT } from "../i18n";
 
 export interface FollowHudChipProps {
   lineName?: string;
@@ -24,6 +25,8 @@ export function FollowHudChip({
   const selectedRunIdx = useAppStore((s) => s.selectedRunIdx);
   const setFollowing = useAppStore((s) => s.setFollowing);
   const routes = useAppStore((s) => s.routes);
+  const primaryLang = useAppStore((s) => s.primaryLang);
+  const t = useT();
   const [detail, setDetail] = useState<RunDetail | null>(null);
 
   useEffect(() => {
@@ -53,11 +56,14 @@ export function FollowHudChip({
   if (!following) return null;
 
   const displayTrainId = trainId ?? selectedRunIdx ?? "";
-  const resolvedLineName =
-    lineName ??
-    detail?.route_name ??
-    (detail?.route_idx !== undefined ? routes[detail.route_idx]?.name : null) ??
-    "Train";
+  const fallbackLineName =
+    detail?.route_idx !== undefined && routes[detail.route_idx]
+      ? (primaryLang === "th" && routes[detail.route_idx]?.nameTh
+          ? routes[detail.route_idx]?.nameTh
+          : routes[detail.route_idx]?.name)
+      : (detail?.route_name ?? t("follow.trainFallback"));
+
+  const resolvedLineName = lineName ?? fallbackLineName;
 
   const displayLine = lineName
     ? `${lineName} #${displayTrainId}`
@@ -97,7 +103,7 @@ export function FollowHudChip({
       data-testid="follow-hud-chip"
       className="panel-glass pointer-events-auto fixed top-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 px-4 py-2 rounded-full text-xs shadow-lg animate-in fade-in duration-200"
       role="region"
-      aria-label="Train follow status"
+      aria-label={t("follow.statusAriaLabel")}
     >
       <span
         className="h-2.5 w-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0"
@@ -109,25 +115,25 @@ export function FollowHudChip({
       </span>
       {resolvedSpeed !== undefined && (
         <span className="text-ink-muted tabular-nums font-mono">
-          {resolvedSpeed} km/h
+          {t("follow.speedKmh", { speed: resolvedSpeed })}
         </span>
       )}
       <button
         type="button"
         onClick={handleCenter}
-        aria-label="Center camera"
-        title="Center camera on train"
+        aria-label={t("follow.recenterAria")}
+        title={t("follow.recenterTitle")}
         className="rounded-full px-2 py-0.5 text-ink-muted hover:text-ink hover:bg-surface-sunken transition-colors font-medium"
       >
-        Recenter
+        {t("follow.recenter")}
       </button>
       <button
         type="button"
         onClick={handleUnfollow}
-        aria-label="Unfollow train"
+        aria-label={t("follow.unfollowAria")}
         className="rounded-full px-2 py-0.5 font-bold text-ink-muted hover:text-ink hover:bg-surface-sunken transition-colors"
       >
-        ✕ Unfollow
+        {t("follow.unfollow")}
       </button>
     </div>
   );

@@ -4,7 +4,7 @@ import { activeSimClient } from "../sim/SimClient";
 import { formatCountdown, formatServiceSec } from "../sim/time";
 import { useAppStore } from "../stores/useAppStore";
 import { formatBilingualStation } from "../utils/stationTypography";
-import { ESTIMATED_RUN_TIMES_NOTE, SYNTHETIC_SCHEDULE_NOTE } from "../types";
+import { useT } from "../i18n";
 
 /** `${route_idx}:${station_idx}` — the natural key for cross-route station lookup. */
 function stationKey(routeIdx: number, stationIdx: number): string {
@@ -30,6 +30,7 @@ export function StationBoard() {
   const routes = useAppStore((s) => s.routes);
   const stations = useAppStore((s) => s.stations);
   const primaryLang = useAppStore((s) => s.primaryLang);
+  const t = useT();
   const [board, setBoard] = useState<StationBoardData | null>(null);
 
   const routeIdx = selectedStation?.routeIdx;
@@ -76,7 +77,7 @@ export function StationBoard() {
 
   const { primaryName, subtitle } = board
     ? formatBilingualStation(board, primaryLang)
-    : { primaryName: "Station", subtitle: "" };
+    : { primaryName: t("board.stationFallback"), subtitle: "" };
 
   return (
     <div className="panel-glass pointer-events-auto flex max-h-[50dvh] w-full flex-col overflow-hidden rounded-t-[28px] border-t border-edge border-x-0 border-b-0 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-xl shadow-ink/10 backdrop-blur-md md:absolute md:right-4 md:top-4 md:max-h-[calc(100dvh-2rem)] md:w-72 md:rounded-xl md:border md:pb-0">
@@ -92,7 +93,7 @@ export function StationBoard() {
         <button
           type="button"
           onClick={() => selectStation(null)}
-          aria-label="Close station board"
+          aria-label={t("board.closeBoard")}
           className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-sm leading-none text-ink-muted hover:bg-surface-sunken hover:text-ink md:h-auto md:w-auto md:px-1.5 md:py-0.5"
         >
           ×
@@ -101,14 +102,16 @@ export function StationBoard() {
 
       {info && info.interchanges.length > 0 && (
         <div className="flex flex-wrap items-center gap-1 px-4 pb-2">
-          <span className="text-[10px] uppercase tracking-wide text-ink-muted">Interchange</span>
+          <span className="text-[10px] uppercase tracking-wide text-ink-muted">{t("board.interchange")}</span>
           {info.interchanges.map((ix) => (
             <span
               key={`${ix.route_idx}-${ix.station_idx}`}
               className="rounded-full px-1.5 py-0.5 text-[10px] font-medium text-white"
               style={{ background: routes[ix.route_idx]?.color ?? "#64748b" }}
             >
-              {routes[ix.route_idx]?.name ?? `Route ${ix.route_idx}`}
+              {primaryLang === "th" && routes[ix.route_idx]?.nameTh
+                ? routes[ix.route_idx]?.nameTh
+                : (routes[ix.route_idx]?.name ?? t("board.routeFallback", { index: ix.route_idx }))}
             </span>
           ))}
         </div>
@@ -116,7 +119,7 @@ export function StationBoard() {
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
         <p className="px-2 pb-1 text-[10px] uppercase tracking-wide text-ink-muted">
-          Next departures
+          {t("board.nextDepartures")}
         </p>
         {/* Every departure below is synthesized, not published — say so
          * before the user reads a single time (see SYNTHETIC_SCHEDULE_NOTE). */}
@@ -125,7 +128,7 @@ export function StationBoard() {
             data-testid="synthetic-schedule-note"
             className="mx-2 mb-1 rounded bg-note-bg px-2 py-1 text-[10px] leading-snug text-note-ink"
           >
-            {SYNTHETIC_SCHEDULE_NOTE}
+            {t("notes.syntheticSchedule")}
           </p>
         )}
         {/* Same box as the syntheticSchedule note directly above — this card
@@ -137,14 +140,14 @@ export function StationBoard() {
             data-testid="estimated-run-times-note"
             className="mx-2 mb-1 rounded bg-note-bg px-2 py-1 text-[10px] leading-snug text-note-ink"
           >
-            {ESTIMATED_RUN_TIMES_NOTE}
+            {t("notes.estimatedRunTimes")}
           </p>
         )}
         {!board ? (
-          <p className="px-2 py-2 text-xs text-ink-muted">Loading…</p>
+          <p className="px-2 py-2 text-xs text-ink-muted">{t("board.loading")}</p>
         ) : board.entries.length === 0 ? (
           <p className="px-2 py-2 text-xs text-ink-muted">
-            No further services scheduled today.
+            {t("board.noFurtherServices")}
           </p>
         ) : (
           <ul className="space-y-0.5">
@@ -156,7 +159,9 @@ export function StationBoard() {
                   className="flex w-full items-baseline justify-between gap-2 rounded-md px-3 py-2.5 text-left text-sm text-ink-muted transition-colors hover:bg-surface-sunken md:px-2 md:py-1.5 md:text-xs"
                 >
                   <span className="min-w-0 flex-1 truncate">
-                    <span className="font-medium text-ink">{e.destination}</span>
+                    <span className="font-medium text-ink">
+                      {primaryLang === "th" && e.headsign_th ? e.headsign_th : (e.headsign || e.destination)}
+                    </span>
                     <span className="ml-1 text-ink-muted">
                       {formatServiceSec(e.departure_sec)}
                     </span>
@@ -166,7 +171,7 @@ export function StationBoard() {
                       e.in_s <= 0 ? "font-semibold text-ink" : ""
                     }`}
                   >
-                    {formatCountdown(e.in_s)}
+                    {formatCountdown(e.in_s, primaryLang)}
                   </span>
                 </button>
               </li>

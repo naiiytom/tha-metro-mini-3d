@@ -3,7 +3,8 @@ import type { RunDetail, StationInfo } from "../sim/protocol";
 import { activeSimClient } from "../sim/SimClient";
 import { formatCountdown, formatServiceSec } from "../sim/time";
 import { useAppStore } from "../stores/useAppStore";
-import { ESTIMATED_RUN_TIMES_NOTE, SYNTHETIC_SCHEDULE_NOTE } from "../types";
+import { formatBilingualStation } from "../utils/stationTypography";
+import { useT } from "../i18n";
 
 /** `${route_idx}:${station_idx}` — the natural key for cross-route station lookup. */
 function stationKey(routeIdx: number, stationIdx: number): string {
@@ -29,6 +30,8 @@ export function TrainInspector() {
   const setFollowing = useAppStore((s) => s.setFollowing);
   const routes = useAppStore((s) => s.routes);
   const stations = useAppStore((s) => s.stations);
+  const primaryLang = useAppStore((s) => s.primaryLang);
+  const t = useT();
   const [detail, setDetail] = useState<RunDetail | null>(null);
   const [ended, setEnded] = useState(false);
 
@@ -85,10 +88,14 @@ export function TrainInspector() {
         />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold text-ink">
-            {detail ? detail.headsign : "Train"}
+            {detail
+              ? (primaryLang === "th" && detail.headsign_th ? detail.headsign_th : detail.headsign)
+              : t("inspector.trainFallback")}
           </p>
           <p className="truncate text-xs text-ink-muted">
-            {detail ? `${detail.route_name} · run ${detail.run_idx}` : `run ${selectedRunIdx}`}
+            {detail
+              ? `${primaryLang === "th" && routes[detail.route_idx]?.nameTh ? routes[detail.route_idx]?.nameTh : detail.route_name} · ${t("inspector.run", { run: detail.run_idx })}`
+              : t("inspector.run", { run: selectedRunIdx })}
           </p>
           {/* Not truncated, unlike the two lines above: this one is a caveat
            * about the times shown below, and a clipped caveat is worse than
@@ -98,7 +105,7 @@ export function TrainInspector() {
               data-testid="synthetic-schedule-note"
               className="mt-1 rounded bg-note-bg px-1.5 py-1 text-[10px] leading-snug text-note-ink"
             >
-              {SYNTHETIC_SCHEDULE_NOTE}
+              {t("notes.syntheticSchedule")}
             </p>
           )}
           {/* Same box as the syntheticSchedule note directly above — this
@@ -109,14 +116,14 @@ export function TrainInspector() {
               data-testid="estimated-run-times-note"
               className="mt-1 rounded bg-note-bg px-1.5 py-1 text-[10px] leading-snug text-note-ink"
             >
-              {ESTIMATED_RUN_TIMES_NOTE}
+              {t("notes.estimatedRunTimes")}
             </p>
           )}
         </div>
         <button
           type="button"
           onClick={() => selectRun(null)}
-          aria-label="Close inspector"
+          aria-label={t("inspector.closeInspector")}
           className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-sm leading-none text-ink-muted hover:bg-surface-sunken hover:text-ink md:h-auto md:w-auto md:px-1.5 md:py-0.5"
         >
           ×
@@ -125,10 +132,10 @@ export function TrainInspector() {
 
       {ended ? (
         <p className="px-4 py-3 text-xs text-ink-muted">
-          This run has finished its journey. Pick another train.
+          {t("inspector.runFinished")}
         </p>
       ) : !detail ? (
-        <p className="px-4 py-3 text-xs text-ink-muted">Loading…</p>
+        <p className="px-4 py-3 text-xs text-ink-muted">{t("inspector.loading")}</p>
       ) : (
         <>
           <div className="space-y-2 px-4 py-3">
@@ -138,25 +145,22 @@ export function TrainInspector() {
             <div className="rounded-lg bg-surface-sunken px-3 py-2">
               {detail.state === 0 ? (
                 <p className="text-xs text-ink-muted">
-                  Dwelling at{" "}
-                  <span className="font-semibold text-ink">{detail.at_station}</span>
+                  {t("inspector.dwellingAt", { station: detail.at_station ?? "" })}
                 </p>
               ) : (
                 <p className="text-xs text-ink-muted">
-                  Departed{" "}
-                  <span className="font-medium text-ink">{detail.prev_station}</span>
+                  {t("inspector.departed", { station: detail.prev_station ?? "" })}
                 </p>
               )}
               {detail.next_station !== null && detail.next_arrival_in_s !== null ? (
                 <p className="mt-1 text-xs text-ink-muted">
-                  Next: <span className="font-semibold text-ink">{detail.next_station}</span>{" "}
-                  in{" "}
-                  <span className="font-mono tabular-nums">
-                    {formatCountdown(detail.next_arrival_in_s)}
-                  </span>
+                  {t("inspector.nextStation", {
+                    station: detail.next_station,
+                    time: formatCountdown(detail.next_arrival_in_s, primaryLang),
+                  })}
                 </p>
               ) : (
-                <p className="mt-1 text-xs text-ink-muted">Terminus — end of run.</p>
+                <p className="mt-1 text-xs text-ink-muted">{t("inspector.terminus")}</p>
               )}
             </div>
             <button
@@ -169,7 +173,7 @@ export function TrainInspector() {
               // than silently different on touch).
               title={
                 following
-                  ? "Orbit with middle/right-drag or ctrl+drag (mouse only) — on touch, any drag releases follow"
+                  ? t("inspector.followHint")
                   : undefined
               }
               className={`w-full rounded-md px-4 py-3 text-sm font-medium transition-colors md:px-2 md:py-1.5 md:text-xs ${
@@ -178,12 +182,12 @@ export function TrainInspector() {
                   : "bg-surface-sunken text-ink-muted hover:bg-edge"
               }`}
             >
-              {following ? "Following — click to release" : "Follow this train"}
+              {following ? t("inspector.following") : t("inspector.followTrain")}
             </button>
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto border-t border-edge px-4 py-2">
-            <p className="pb-1 text-[10px] uppercase tracking-wide text-ink-muted">Schedule</p>
+            <p className="pb-1 text-[10px] uppercase tracking-wide text-ink-muted">{t("inspector.schedule")}</p>
             <ol className="space-y-0.5">
               {detail.stops.map((stop, i) => {
                 const isNext = detail.next_stop_ordinal === i;
@@ -195,6 +199,7 @@ export function TrainInspector() {
                   !isCurrent &&
                   (detail.next_stop_ordinal === null || i < detail.next_stop_ordinal);
                 const stationInfo = stationByKey.get(stationKey(detail.route_idx, stop.station_idx));
+                const { primaryName } = formatBilingualStation(stop, primaryLang);
                 return (
                   <li
                     key={`${stop.station_idx}-${i}`}
@@ -210,7 +215,7 @@ export function TrainInspector() {
                   >
                     <span className="min-w-0 flex-1 truncate">
                       {stop.code ? `${stop.code} · ` : ""}
-                      {stop.name_en}
+                      {primaryName}
                       {stationInfo && stationInfo.interchanges.length > 0 && (
                         <span className="ml-1 inline-flex flex-wrap items-center gap-1">
                           {stationInfo.interchanges.map((ix) => (
@@ -219,7 +224,9 @@ export function TrainInspector() {
                               className="rounded-full px-1 py-0 text-[9px] font-medium text-white"
                               style={{ background: routes[ix.route_idx]?.color ?? "#64748b" }}
                             >
-                              {routes[ix.route_idx]?.name ?? `Route ${ix.route_idx}`}
+                              {primaryLang === "th" && routes[ix.route_idx]?.nameTh
+                                ? routes[ix.route_idx]?.nameTh
+                                : (routes[ix.route_idx]?.name ?? t("board.routeFallback", { index: ix.route_idx }))}
                             </span>
                           ))}
                         </span>

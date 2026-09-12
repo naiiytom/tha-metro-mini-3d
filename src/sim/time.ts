@@ -21,18 +21,23 @@ export function formatServiceSec(sec: number): string {
   return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
 }
 
-/** Human countdown: "due", "45s", "2m 30s", "1h 05m". */
-export function formatCountdown(seconds: number): string {
-  if (seconds <= 0) return "due";
-  if (seconds < 60) return `${Math.round(seconds)}s`;
+/** Human countdown: "due", "45s", "2m 30s", "1h 05m" (or Thai equivalents). */
+export function formatCountdown(seconds: number, lang: "en" | "th" = "en"): string {
+  if (seconds <= 0) return lang === "th" ? "ถึงแล้ว" : "due";
+  const sSuffix = lang === "th" ? " วิ" : "s";
+  const mSuffix = lang === "th" ? " นาที" : "m";
+  const hSuffix = lang === "th" ? " ชม." : "h";
+  if (seconds < 60) return `${Math.round(seconds)}${sSuffix}`;
   if (seconds < 3600) {
     const m = Math.floor(seconds / 60);
     const s = Math.round(seconds % 60);
-    return s === 0 ? `${m}m` : `${m}m ${String(s).padStart(2, "0")}s`;
+    return s === 0
+      ? `${m}${mSuffix}`
+      : `${m}${mSuffix} ${String(s).padStart(2, "0")}${sSuffix}`;
   }
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
-  return `${h}h ${String(m).padStart(2, "0")}m`;
+  return `${h}${hSuffix} ${String(m).padStart(2, "0")}${mSuffix}`;
 }
 
 /** Epoch ms of Bangkok-local midnight for the day containing `epochMs`. */

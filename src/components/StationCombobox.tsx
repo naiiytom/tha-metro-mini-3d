@@ -3,6 +3,7 @@ import { countMatches, groupByRoute, stationOptions } from "../search/stationSea
 import { INITIAL_COMBO, comboReducer, type ComboEvent, type ComboState } from "../search/comboboxState";
 import { useAppStore } from "../stores/useAppStore";
 import { formatBilingualStation } from "../utils/stationTypography";
+import { useT } from "../i18n";
 import type { StationInfo } from "../sim/protocol";
 import type { LineGeometry } from "../types";
 
@@ -11,7 +12,7 @@ export function StationCombobox({
   stations,
   routes,
   onPick,
-  placeholder = "Search or browse stations…",
+  placeholder,
   autoFocus = false,
 }: {
   label: string;
@@ -21,7 +22,9 @@ export function StationCombobox({
   placeholder?: string;
   autoFocus?: boolean;
 }) {
+  const t = useT();
   const primaryLang = useAppStore((s) => s.primaryLang);
+  const resolvedPlaceholder = placeholder ?? t("stations.searchPlaceholder");
   const listId = useId();
   const options = useMemo(() => stationOptions(stations, ""), [stations]);
 
@@ -105,7 +108,7 @@ export function StationCombobox({
           aria-activedescendant={
             state.activeIndex >= 0 ? `${listId}-opt-${state.activeIndex}` : undefined
           }
-          aria-label={`${label} station`}
+          aria-label={t("stations.ariaStationInput", { label })}
           value={state.query}
           autoFocus={autoFocus}
           onFocus={() => rawDispatch({ type: "focus" })}
@@ -115,7 +118,7 @@ export function StationCombobox({
             onPick(null);
           }}
           onKeyDown={onKeyDown}
-          placeholder={placeholder}
+          placeholder={resolvedPlaceholder}
           className="mt-1 block w-full rounded-md border border-edge bg-surface px-2 py-1.5 text-sm text-ink"
         />
       </label>
@@ -124,83 +127,80 @@ export function StationCombobox({
         <ul
           id={listId}
           role="listbox"
-          aria-label={`${label} station results`}
+          aria-label={t("stations.ariaStationResults", { label })}
           className="mt-1 max-h-60 overflow-y-auto rounded-md border border-edge bg-surface"
         >
           {visible.length === 0 && (
             <li role="presentation" className="px-2 py-2 text-xs text-ink-subtle">
-              No matching station.
+              {t("stations.noMatchingStation")}
             </li>
           )}
-          {groups.map((group) => (
-            // `role="presentation"` on every plain <li>/<ul> in this subtree
-            // (here, the header div, and each option's <li> wrapper below)
-            // neutralizes their IMPLICIT listitem/list roles — per the
-            // WAI-ARIA listbox pattern, nothing between `role="listbox"` and
-            // each `role="option"` may introduce an unexpected role, or a
-            // screen reader can lose/misreport the listbox/option
-            // relationship. Only `listbox` (the outer <ul>), `group` (the
-            // per-route <ul> below) and `option` remain in the accessible
-            // tree.
-            <li key={group.routeIdx} role="presentation">
-              <div
-                role="presentation"
-                className="sticky top-0 bg-surface-sunken px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-ink-muted"
-              >
-                {routes[group.routeIdx]?.name ?? `Line ${group.routeIdx}`}
-              </div>
-              <ul role="group" aria-label={routes[group.routeIdx]?.name ?? `Line ${group.routeIdx}`}>
-                {group.stations.map((s) => {
-                  flatIndex += 1;
-                  const index = flatIndex;
-                  const { primaryName, subtitle } = formatBilingualStation(s, primaryLang);
+          {groups.map((group) => {
+            const lineName =
+              (primaryLang === "th" && routes[group.routeIdx]?.nameTh
+                ? routes[group.routeIdx]?.nameTh
+                : routes[group.routeIdx]?.name) ?? t("stations.lineFallback", { index: group.routeIdx });
+            return (
+              <li key={group.routeIdx} role="presentation">
+                <div
+                  role="presentation"
+                  className="sticky top-0 bg-surface-sunken px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-ink-muted"
+                >
+                  {lineName}
+                </div>
+                <ul role="group" aria-label={lineName}>
+                  {group.stations.map((s) => {
+                    flatIndex += 1;
+                    const index = flatIndex;
+                    const { primaryName, subtitle } = formatBilingualStation(s, primaryLang);
 
-                  return (
-                    <li key={`${s.route_idx}-${s.station_idx}`} role="presentation">
-                      <button
-                        type="button"
-                        ref={(el) => {
-                          if (el) optionRefs.current.set(index, el);
-                          else optionRefs.current.delete(index);
-                        }}
-                        id={`${listId}-opt-${index}`}
-                        role="option"
-                        aria-selected={state.activeIndex === index}
-                        tabIndex={-1}
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => {
-                          onPick(s);
-                          rawDispatch({ type: "pick", label: primaryName });
-                        }}
-                        className={`flex w-full items-center gap-2 px-2 py-1.5 text-left text-xs text-ink-muted hover:bg-surface-sunken ${
-                          state.activeIndex === index ? "bg-surface-sunken" : ""
-                        }`}
-                      >
-                        <span
-                          className="inline-block h-2 w-4 shrink-0 rounded-sm"
-                          style={{ background: routes[s.route_idx]?.color ?? "#64748b" }}
-                        />
-                        <span className="min-w-0 flex-1 truncate">
-                          <span className="font-semibold text-ink">{primaryName}</span>
-                          {subtitle && <span className="ml-1.5 text-[11px] text-ink-subtle">{subtitle}</span>}
-                        </span>
-                        {s.interchanges.length > 0 && (
-                          <span className="shrink-0 text-[10px] text-ink-subtle" title="Interchange">
-                            ⇄
+                    return (
+                      <li key={`${s.route_idx}-${s.station_idx}`} role="presentation">
+                        <button
+                          type="button"
+                          ref={(el) => {
+                            if (el) optionRefs.current.set(index, el);
+                            else optionRefs.current.delete(index);
+                          }}
+                          id={`${listId}-opt-${index}`}
+                          role="option"
+                          aria-selected={state.activeIndex === index}
+                          tabIndex={-1}
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => {
+                            onPick(s);
+                            rawDispatch({ type: "pick", label: primaryName });
+                          }}
+                          className={`flex w-full items-center gap-2 px-2 py-1.5 text-left text-xs text-ink-muted hover:bg-surface-sunken ${
+                            state.activeIndex === index ? "bg-surface-sunken" : ""
+                          }`}
+                        >
+                          <span
+                            className="inline-block h-2 w-4 shrink-0 rounded-sm"
+                            style={{ background: routes[s.route_idx]?.color ?? "#64748b" }}
+                          />
+                          <span className="min-w-0 flex-1 truncate">
+                            <span className="font-semibold text-ink">{primaryName}</span>
+                            {subtitle && <span className="ml-1.5 text-[11px] text-ink-subtle">{subtitle}</span>}
                           </span>
-                        )}
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            </li>
-          ))}
+                          {s.interchanges.length > 0 && (
+                            <span className="shrink-0 text-[10px] text-ink-subtle" title={t("stations.interchangeTitle")}>
+                              ⇄
+                            </span>
+                          )}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </li>
+            );
+          })}
         </ul>
       )}
       {state.open && truncated && (
         <p className="mt-1 px-1 text-[10px] text-ink-subtle">
-          Showing {visible.length} of {totalMatches} matches — refine your search to see more.
+          {t("stations.showingMatches", { count: visible.length, total: totalMatches })}
         </p>
       )}
     </div>

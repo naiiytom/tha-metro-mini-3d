@@ -1,5 +1,6 @@
 import { useAppStore } from "../stores/useAppStore";
-import { ESTIMATED_RUN_TIMES_NOTE, type LineGeometry, SYNTHETIC_SCHEDULE_NOTE } from "../types";
+import type { LineGeometry } from "../types";
+import { useT } from "../i18n";
 
 export interface LineRowProps {
   line: LineGeometry;
@@ -11,8 +12,12 @@ export interface LineRowProps {
  * `isRouteVisible` selector directly instead of re-deriving with a raw array lookup.
  */
 export function LineRow({ line, routeIdx }: LineRowProps) {
+  const t = useT();
   const visible = useAppStore((s) => s.isRouteVisible(routeIdx));
   const toggleRoute = useAppStore((s) => s.toggleRoute);
+  const primaryLang = useAppStore((s) => s.primaryLang);
+
+  const displayName = primaryLang === "th" && line.nameTh ? line.nameTh : line.name;
 
   return (
     <li>
@@ -28,33 +33,33 @@ export function LineRow({ line, routeIdx }: LineRowProps) {
           className="inline-block h-2 w-4 shrink-0 rounded-sm"
           style={{ background: line.color, opacity: visible ? 1 : 0.3 }}
         />
-        <span className="truncate">{line.name}</span>
+        <span className="truncate">{displayName}</span>
         {line.preRevenue ? (
           <span
             data-testid="pre-revenue-badge"
             className="ml-auto shrink-0 rounded bg-amber-100 px-1 text-[9px] uppercase text-amber-700"
           >
-            pre-revenue
+            {t("lines.badgePreRevenue")}
           </span>
         ) : line.syntheticSchedule !== null ? (
           <span
             className="ml-auto shrink-0 rounded bg-note-bg px-1 text-[9px] uppercase text-note-ink"
-            title={SYNTHETIC_SCHEDULE_NOTE}
+            title={t("notes.syntheticSchedule")}
             data-testid="synthetic-schedule-badge"
           >
-            estimated
+            {t("lines.badgeEstimated")}
           </span>
         ) : line.estimatedRunTimes != null ? (
           <span
             data-testid="estimated-run-times-badge"
             className="ml-auto shrink-0 rounded bg-note-bg px-1 text-[9px] uppercase text-note-ink"
-            title={ESTIMATED_RUN_TIMES_NOTE}
+            title={t("notes.estimatedRunTimes")}
           >
-            Est. times
+            {t("lines.badgeEstTimes")}
           </span>
         ) : line.gtfsRouteId === null ? (
           <span className="ml-auto shrink-0 text-[9px] uppercase text-ink-muted">
-            track only
+            {t("lines.badgeTrackOnly")}
           </span>
         ) : null}
       </button>

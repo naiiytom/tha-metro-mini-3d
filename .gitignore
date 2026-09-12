@@ -12,6 +12,8 @@ docs/superpowers/
 # never meant to be tracked, but wasn't ignored, so it was one `git add -A`
 # away from an accidental commit.
 scratch/
+.scratch/
+AGENTS.md
 
 # Namtang GTFS feed, fetched on demand by tools/fetch-gtfs.mjs — ~230 MB
 # extracted, dominated by shapes.txt/fare_*.txt the preprocessor never reads.

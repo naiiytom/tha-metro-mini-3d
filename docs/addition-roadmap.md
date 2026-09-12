@@ -19,7 +19,7 @@ Features to close parity with [nagix/mini-tokyo-3d](https://github.com/nagix/min
 | 4 | [Mobile / Responsive Layout](#4-mobile--responsive-layout--delivered-post-mvp-6-landed-alongside-the-on-map-train-tooltip) | UI / Mobile | Core Capability | ✅ Delivered |
 | 5 | [Underground Mode & Auto-Engage](#5-underground-mode--delivered-mvp-6--mvp-7) | 3D Rendering | Mini Tokyo 3D parity | ✅ Delivered (MVP 6/7) |
 | 6 | [Day/Night Lighting & Sky Dome](#6-daynight-lighting--delivered-mvp-6--mvp-7-sky-dome) | 3D Rendering | Mini Tokyo 3D parity | ✅ Delivered (MVP 6/7) |
-| 7 | [Multi-Language Support (i18n)](#7-multi-language-support-en--th) | Localization | Mini Tokyo 3D parity | ⏳ In Progress |
+| 7 | [Multi-Language Support (i18n)](#7-multi-language-support-en--th--delivered-2026-09-12) | Localization | Mini Tokyo 3D parity | ✅ Delivered (2026-09-12) |
 | 8 | [Route Search & Leg Highlights (RAPTOR)](#8-route-search-a--b--delivered-2026-08-16) | Routing Engine | Mini Tokyo 3D parity | ✅ Delivered |
 | 9 | [Plugin Architecture](#9-plugin-architecture) | Extensibility | Mini Tokyo 3D parity | 📋 Planned |
 | 10 | [Custom Rolling Stock & Liveries](#10-custom-train--rolling-stock-models--delivered-2026-08-22) | 3D Assets | Bangkok Context | ✅ Delivered |
@@ -89,11 +89,12 @@ Features to close parity with [nagix/mini-tokyo-3d](https://github.com/nagix/min
 - ✅ Calculated solar position (NOAA low-precision, UTC+7 fixed, no DST)
 - ✅ **Night legibility — fixed 2026-08-12.** The raised lighting floor (`sunIntensity` 0.9, `ambientIntensity` 1.35 at night) was never enough on its own: it cannot reach a dark livery, because at 8-bit sRGB a colour like MRT Blue's `#1964B7` saturates near-black at any ambient level. A **per-material emissive floor** now sits on top of it (`src/map/nightLift.ts`), lifting each material by the minimum amount needed to clear WCAG 3:1 — built from the material's *own* colour, so hue is preserved and the map still matches the UI swatch. See item 20 for the mechanism and the honest limits.
 
-### 7. Multi-Language Support (EN + TH)
-- Internationalization framework (i18n)
-- Thai translations for all UI labels, station names, line names
-- Language switcher in the UI
-- Station names should display in the selected language
+### 7. Multi-Language Support (EN + TH) — ✅ delivered 2026-09-12
+- ✅ **Typed compile-time dictionary** (`src/i18n/locales/en.ts`, `src/i18n/locales/th.ts`, `types.ts`, `index.ts`): zero external dependencies, strict `Record<TranslationKey, string>` parity and token slot matching verified by unit tests (`dictionary.test.ts`).
+- ✅ **Bilingual TMB binary cache bump (v3 → v4)**: `TmbV4` carries both English and Thai headsigns (`headsign_th` in Rust `sim-core`, `RouteDoc`, `RunDetail`, `BoardEntry`, `PlanLegRide`).
+- ✅ **UI Chrome & Navigation**: Full English and Thai translations across all panels, tabs (`NavigationPanel`), station search & combobox, route planner & tab, view controls, follow HUD chip, time controls & scrubber, train inspector, and about tab.
+- ✅ **Data Names & Countdowns**: Dynamic selection of Thai line names (`nameTh`) and operator names (`nameTh`), station names via `formatBilingualStation(s, primaryLang)` returning primaryName/subtitle, and localized countdown formatter (`formatCountdown(s, primaryLang)`: `due`/`ถึงแล้ว`, `s`/`วิ`, `m`/`นาที`, `h`/`ชม.`).
+- ✅ **Language Switcher & Persistence**: Header language toggle button (`EN / TH`) with persistence in `localStorage` (`tmm3d.lang`), auto-detecting browser language preference (Thai browsers default to `"th"`, fallback to `"en"`), and `document.documentElement.lang` sync.
 
 ### 8. Route Search (A → B) — ✅ delivered 2026-08-16 (Alternative Itineraries added 2026-08-24)
 - ✅ Search panel with origin and destination station pickers (`RoutePlanner.tsx`), reusing `filterStations` and StationSearch's result-row UX; triggered from `LineSelector`'s header
@@ -102,7 +103,7 @@ Features to close parity with [nagix/mini-tokyo-3d](https://github.com/nagix/min
 - ✅ Leg-by-leg transfer instructions, board/alight times, total duration and transfer count; map highlight of each ride leg's arc span
 - ✅ Suvarnabhumi APM is plannable, via an ARL↔APM interchange override (332 m, just outside the 300 m auto-link radius)
 - ✅ **Incidental fix**: `station_board` now shows post-midnight departures late at night. It shared the two-service-day-frame rule and structurally could not show a 00:10 departure at 23:00
-- ⚠️ **Honest limitations**: **Transfer time is one FLAT allowance** at every interchange regardless of walking distance, disclosed in the panel via `TRANSFER_TIMES_ESTIMATED_NOTE`; distance-derived times were considered and declined, since there is no per-interchange data to calibrate against. Interchange complexes expand **one hop** — a three-line complex whose outer pair is not directly linked is not treated as one complex. Leg instructions are English only (item 7). Track-only lines (`orange`, `purple-ext`) are structurally absent from the graph: they have zero stations.
+- ⚠️ **Honest limitations**: **Transfer time is one FLAT allowance** at every interchange regardless of walking distance, disclosed in the panel via `TRANSFER_TIMES_ESTIMATED_NOTE`; distance-derived times were considered and declined, since there is no per-interchange data to calibrate against. Interchange complexes expand **one hop** — a three-line complex whose outer pair is not directly linked is not treated as one complex. Leg instructions now support bilingual English/Thai formatting (delivered in item 7). Track-only lines (`orange`, `purple-ext`) are structurally absent from the graph: they have zero stations.
 
 ### 9. Plugin Architecture
 - Formal plugin interface (register/unregister, lifecycle hooks)

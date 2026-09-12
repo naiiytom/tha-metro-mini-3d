@@ -184,6 +184,11 @@ describe("geoErrorMessage and formatDistance", () => {
     expect(geoErrorMessage({ code: 2 })).toBe("Location unavailable.");
     expect(geoErrorMessage({ code: 3 })).toBe("Location request timed out.");
     expect(geoErrorMessage({ code: 99 })).toBe("Could not determine your location.");
+
+    expect(geoErrorMessage({ code: 1 }, "th")).toBe("ไม่ได้รับอนุญาตให้เข้าถึงตำแหน่ง");
+    expect(geoErrorMessage({ code: 2 }, "th")).toBe("ไม่สามารถระบุตำแหน่งได้");
+    expect(geoErrorMessage({ code: 3 }, "th")).toBe("หมดเวลาขอข้อมูลตำแหน่ง");
+    expect(geoErrorMessage({ code: 99 }, "th")).toBe("ไม่สามารถระบุตำแหน่งของคุณได้");
   });
 
   it("formats distances in meters or kilometers", () => {
@@ -191,6 +196,9 @@ describe("geoErrorMessage and formatDistance", () => {
     expect(formatDistance(999.4)).toBe("999 m");
     expect(formatDistance(1000)).toBe("1.0 km");
     expect(formatDistance(2450)).toBe("2.5 km");
+
+    expect(formatDistance(350, "th")).toBe("350 ม.");
+    expect(formatDistance(2450, "th")).toBe("2.5 กม.");
   });
 });
 

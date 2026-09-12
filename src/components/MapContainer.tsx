@@ -421,32 +421,48 @@ export function MapContainer() {
       // second, since every poll's `await` momentarily left the tooltip
       // showing the reset text before the real detail came back.
       const refreshTooltipContent = async (showPlaceholder: boolean) => {
-        const selectedRunIdx = useAppStore.getState().selectedRunIdx;
+        const state = useAppStore.getState();
+        const selectedRunIdx = state.selectedRunIdx;
+        const primaryLang = state.primaryLang;
         const client = activeSimClient.current;
         if (selectedRunIdx === null || !client) return;
-        if (showPlaceholder) trainTooltip.setContent("#94a3b8", `Train ${selectedRunIdx}`);
+        if (showPlaceholder) {
+          const placeholder =
+            primaryLang === "th" ? `ขบวน ${selectedRunIdx}` : `Train ${selectedRunIdx}`;
+          trainTooltip.setContent("#94a3b8", placeholder);
+        }
         try {
           const detail = await client.getRunDetail(selectedRunIdx, client.getSimNow());
           // Bail on a stale response after the user re-selected mid-flight —
           // same guard TrainInspector.tsx's own poll uses.
           if (useAppStore.getState().selectedRunIdx !== selectedRunIdx) return;
           if (!detail) {
-            trainTooltip.setContent("#94a3b8", "Trip ended");
+            const ended = primaryLang === "th" ? "สิ้นสุดการเดินรถ" : "Trip ended";
+            trainTooltip.setContent("#94a3b8", ended);
             return;
           }
           const color = `#${detail.color_rgb.toString(16).padStart(6, "0")}`;
+          const headsign =
+            primaryLang === "th" && detail.headsign_th ? detail.headsign_th : detail.headsign;
           const next =
             detail.next_station !== null && detail.next_arrival_in_s !== null
-              ? ` · ${detail.next_station} in ${formatCountdown(detail.next_arrival_in_s)}`
+              ? primaryLang === "th"
+                ? ` · ${detail.next_station} ในอีก ${formatCountdown(detail.next_arrival_in_s, primaryLang)}`
+                : ` · ${detail.next_station} in ${formatCountdown(detail.next_arrival_in_s, primaryLang)}`
               : "";
-          trainTooltip.setContent(color, `${detail.headsign}${next}`);
+          trainTooltip.setContent(color, `${headsign}${next}`);
         } catch {
           // Worker torn down mid-flight; the next poll or selection re-queries.
         }
       };
       tooltipTimer = setInterval(() => void refreshTooltipContent(false), 1000);
       unsubscribeTooltipSelection = useAppStore.subscribe((state, prev) => {
-        if (state.selectedRunIdx !== prev.selectedRunIdx) void refreshTooltipContent(true);
+        if (
+          state.selectedRunIdx !== prev.selectedRunIdx ||
+          state.primaryLang !== prev.primaryLang
+        ) {
+          void refreshTooltipContent(state.selectedRunIdx !== prev.selectedRunIdx);
+        }
       });
 
       // Day/night follows the SIM clock, not wall time (F3.3) — scrubbing to

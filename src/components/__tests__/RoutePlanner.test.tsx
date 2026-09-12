@@ -40,7 +40,7 @@ const PLAN: RoutePlan = {
   legs: [
     {
       kind: "ride", routeIdx: 0, routeName: "Test Line", colorRgb: "#65B724",
-      headsign: "Bravo-bound", direction: 0, runIdx: 5,
+      headsign: "Bravo-bound", headsignTh: "ไปบราโว่", direction: 0, runIdx: 5,
       boardStationIdx: 0, boardName: "Alpha", boardSec: 36030, boardArcM: 0,
       alightStationIdx: 1, alightName: "Bravo", alightSec: 36600, alightArcM: 1000,
       intermediateStops: [],
