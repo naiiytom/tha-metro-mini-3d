@@ -423,6 +423,7 @@ pub(crate) mod tests_support {
             route_idx: 0,
             direction: 0,
             headsign_en: "C".into(),
+            headsign_th: "C".into(),
             stops: vec![
                 PatternStop {
                     station_idx: 0,
@@ -450,6 +451,7 @@ pub(crate) mod tests_support {
             route_idx: 0,
             direction: 1,
             headsign_en: "A".into(),
+            headsign_th: "A".into(),
             stops: vec![
                 PatternStop {
                     station_idx: 1,
@@ -540,6 +542,7 @@ pub(crate) mod tests_support {
             route_idx: 0,
             direction: 0,
             headsign_en: "B".into(),
+            headsign_th: "B".into(),
             stops: vec![
                 PatternStop {
                     station_idx: 0,
