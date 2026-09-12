@@ -404,3 +404,28 @@ Six workstreams addressing four reported defects (#25 click accuracy, #26 UI dar
 - **Ground shadow-catcher plane (#30)**: Inspection established that `renderer.shadowMap.enabled` flipped correctly in Three.js and `castShadow`/`receiveShadow` were set on meshes, but 0 Three.js ground receivers existed because MapLibre GL renders the ground tiles. A ground shadow-catcher plane (`THREE.ShadowMaterial({ opacity: 0.35 })` at `z = 0`) was added to `ThreeLayer.ts` to catch directional shadows from elevated tracks and trains. The shadow catcher is automatically hidden during underground mode.
 - **Route search correctness & alternatives (#27)**: Diagnostic harness `rust-engine/sim-core/examples/route_probe.rs` added. Closed **4 interchange override entries**, not 4 station pairs as an earlier draft of this note miscounted — `Bang Sue Red <-> Blue` is actually two separate `INTERCHANGE_OVERRIDES` entries (`tools/lines.config.mjs` and `src/data/network.json`), one per SRT service since SRT Dark Red and SRT Light Red each carry their own `gtfs_stop_id` for Krung Thep Aphiwat and each needs its own link to MRT Blue's Bang Sue. The real, current list: Ha Yaek Lat Phrao (Sukhumvit) <-> Phahon Yothin (Blue), Hua Mak (ARL) <-> Hua Mak (Yellow), Krung Thep Aphiwat (SRT Dark Red) <-> Bang Sue (Blue), and Krung Thep Aphiwat (SRT Light Red) <-> Bang Sue (Blue). Added standing invariant test `ride_legs_are_self_consistent_in_time_and_arc` in `rust-engine/sim-core/src/route.rs` to guarantee leg time & arc direction alignment (`alight_sec > board_sec` and `direction` matching arc). Surface up to 3 non-dominated alternative itineraries in `SimWorld::plan_alternatives`, WASM, `SimClient`, and `RoutePlanner.tsx`. `public/data/network.tmb`/`network.report.json` were regenerated as part of this interchange work (Task 17) — `feed_version` `20260821` -> `20260823`; every other reported figure (`runs`/`stations`/`per_route`/`peak_concurrent`) is unchanged, only the four new override links and the feed date moved.
 
+## Implementation notes (Multi-Language Support EN + TH, 2026-09-12)
+
+Delivered roadmap item 7 (#65, #66, #67, #68, #69): end-to-end bilingual English and Thai support across the full application surface, timetable binary cache, data models, and UI components.
+
+- **Mechanism shape (zero-dependency typed dictionary)**:
+  - Hand-rolled typed dictionary in `src/i18n/` (`types.ts`, `index.ts`, `locales/en.ts`, `locales/th.ts`). No translation library was added to the dependency tree.
+  - Compile-time parity is enforced via TypeScript: `th` is typed strictly as `Record<TranslationKey, string>`. Any missing or misspelled key in Thai fails `tsc -b`.
+  - Automated slot parity test (`src/i18n/dictionary.test.ts`) verifies 100% key parity and identical interpolation `{slots}` between English and Thai, catching translation omissions and interpolation mismatches during `npm test`.
+  - `useT()` hook reads `primaryLang` from the reactive Zustand store (`src/store/useStore.ts`) and provides `t(key, params?)` for reactive UI re-renders without full page reloads.
+  - Primary language persistence uses `tmm3d.lang` in `localStorage` (`src/i18n/persistence.ts`) with safe fallbacks. Initial resolution checks stored choice first; if absent, inspects `navigator.languages` / `navigator.language` (Thai browser -> `"th"`, all others -> `"en"`). Keeps `<html lang="...">` synchronized. No locale tokens exist in URLs (no query params or route paths).
+- **The per-language disclosure rule**:
+  - Standing project rule: disclosures (such as synthetic schedule or estimated run times notes) must be delivered in every supported primary language or reverted rather than silently dropped or shown in English to a Thai reader. All disclosures (`DISCLOSURE_NOTES`, `ESTIMATED_RUN_TIMES_NOTE`, `SYNTHETIC_SCHEDULE_NOTE`) are translated in the dictionary and unit-tested under both languages.
+- **Headsign pipeline change (TMB v3 -> v4)**:
+  - Header magic bumped from `b"TMB3"` to `b"TMB4"` in `sim-core/src/model.rs`.
+  - Preprocessor extracts both `headsign_en` and `headsign_th`: parses `Thai;English` or `Thai/English` GTFS headsigns, falling back to English when no Thai text is provided, and synthesizes Thai APM headsigns from terminal station Thai names.
+  - Protocols updated across the Rust engine and TypeScript mirrors (`RunDetail`, `BoardEntry`, `PlanLegRide`).
+  - Regenerated `public/data/network.tmb` and `public/data/network.report.json` with report stats byte-stable outside version and headsign additions.
+- **Translation review process**:
+  - Reader-facing UI strings must never be hardcoded inline.
+  - Add new keys to `src/i18n/locales/en.ts` and `src/i18n/locales/th.ts` simultaneously.
+  - Run `npm test` to verify key and token interpolation parity (`dictionary.test.ts`).
+  - Run `npm run check:bundle` to ensure dictionary expansion remains within the 5 MB gzip budget (measured 1.11 MB gzip total, well within the 5.00 MB NF2 budget).
+
+
+

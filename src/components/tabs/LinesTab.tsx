@@ -4,8 +4,10 @@ import { LineRow } from "../LineRow";
 import { ViewControls } from "../ViewControls";
 import { TimeControls } from "../TimeControls";
 import { TimeScrubber } from "../TimeScrubber";
+import { useT } from "../../i18n";
 
 export function LinesTab() {
+  const t = useT();
   const routes = useAppStore((s) => s.routes);
   const stations = useAppStore((s) => s.stations);
   const primaryLang = useAppStore((s) => s.primaryLang);
@@ -25,11 +27,10 @@ export function LinesTab() {
         className="mb-2 flex items-center justify-between rounded-md bg-surface-sunken/80 px-2.5 py-1.5 text-[11px] text-ink-muted"
       >
         <span>
-          <strong className="text-ink">{routes.length}</strong> {primaryLang === "th" ? "สาย" : "lines"} (
-          {simulatedCount} {primaryLang === "th" ? "จำลองเดินรถ" : "simulated"})
+          {t("lines.networkStats", { total: routes.length, simulated: simulatedCount })}
         </span>
         <span>
-          <strong className="text-ink">{stationCount}</strong> {primaryLang === "th" ? "สถานี" : "stations"}
+          {t("lines.stationStats", { count: stationCount })}
         </span>
       </div>
 
@@ -44,10 +45,10 @@ export function LinesTab() {
                   aria-hidden="true"
                 />
                 <span className="text-xs font-semibold text-ink">
-                  {primaryLang === "th" ? group.operator.nameTh : group.operator.nameEn}
+                  {primaryLang === "th" && group.operator.nameTh ? group.operator.nameTh : group.operator.nameEn}
                 </span>
                 <span className="ml-auto text-[10px] font-medium text-ink-subtle">
-                  {group.activeLines.length + group.preRevenueLines.length} {primaryLang === "th" ? "สาย" : "lines"}
+                  {t("lines.lineCount", { count: group.activeLines.length + group.preRevenueLines.length })}
                 </span>
               </div>
 
@@ -62,7 +63,7 @@ export function LinesTab() {
               {group.preRevenueLines.length > 0 && (
                 <div className="mt-1 ml-2 pl-2 border-l-2 border-amber-500/30">
                   <div className="text-[10px] font-medium text-amber-700 dark:text-amber-400 uppercase tracking-wider py-0.5">
-                    {primaryLang === "th" ? "โครงการส่วนต่อขยาย" : "Pre-Revenue / Future"}
+                    {t("lines.preRevenueSection")}
                   </div>
                   <ul className="space-y-0.5">
                     {group.preRevenueLines.map(({ line, routeIdx }) => (

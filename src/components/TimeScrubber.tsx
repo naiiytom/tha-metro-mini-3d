@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { activeSimClient } from "../sim/SimClient";
 import { bangkokDayStartMs, bangkokSecOfDay, DAY_SEC, formatServiceSec } from "../sim/time";
 import { useAppStore } from "../stores/useAppStore";
+import { useT } from "../i18n";
 
 /**
  * Time scrubber (F2.3): drag to any moment of the current Bangkok service day
@@ -21,6 +22,7 @@ const TICK_MS = 1000;
 
 export function TimeScrubber() {
   const engineStatus = useAppStore((s) => s.engineStatus);
+  const t = useT();
   const [sec, setSec] = useState(() => bangkokSecOfDay(Date.now()));
   const [dragging, setDragging] = useState(false);
 
@@ -66,7 +68,7 @@ export function TimeScrubber() {
     >
       <div className="flex items-center gap-3">
         <span className="shrink-0 text-[10px] uppercase tracking-wide text-ink-muted">
-          Scrub
+          {t("time.scrub")}
         </span>
         <input
           type="range"
@@ -74,7 +76,7 @@ export function TimeScrubber() {
           max={DAY_SEC - STEP_SEC}
           step={STEP_SEC}
           value={Math.min(sec, DAY_SEC - STEP_SEC)}
-          aria-label="Scrub to time of day"
+          aria-label={t("time.scrubAriaLabel")}
           onPointerDown={() => setDragging(true)}
           onPointerUp={() => setDragging(false)}
           onPointerCancel={() => setDragging(false)}

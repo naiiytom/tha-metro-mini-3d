@@ -67,7 +67,7 @@ pub const TMB_MAGIC: u32 = 0x544D_4231; // "TMB1"
 #[derive(Serialize, Deserialize)]
 pub struct CacheDoc {
     pub magic: u32,              // TMB_MAGIC
-    pub version: u16,            // 3 (bumped in MVP 6 Task 1: InterchangeRef.route_idx widened u8 -> u16)
+    pub version: u16,            // 4 (bumped in Issue #65: headsign_th added to PatternDoc)
     pub feed_version: String,    // "20260729"
     pub generated_unix: i64,
     pub origin_lng: f64,         // MUST equal frontend ORIGIN_LNG_LAT
@@ -150,6 +150,7 @@ pub struct PatternDoc {
     pub route_idx: u8,           // index into routes
     pub direction: u8,           // GTFS direction_id
     pub headsign_en: String,
+    pub headsign_th: String,
     /// Per stop of this pattern, in sequence order:
     pub stops: Vec<PatternStop>,
 }

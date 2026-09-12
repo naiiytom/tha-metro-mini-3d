@@ -50,6 +50,16 @@ describe("formatCountdown", () => {
     expect(formatCountdown(3600)).toBe("1h 00m");
     expect(formatCountdown(3600 + 5 * 60)).toBe("1h 05m");
   });
+
+  it("formats countdowns in Thai when requested", () => {
+    expect(formatCountdown(0, "th")).toBe("ถึงแล้ว");
+    expect(formatCountdown(-10, "th")).toBe("ถึงแล้ว");
+    expect(formatCountdown(45, "th")).toBe("45 วิ");
+    expect(formatCountdown(60, "th")).toBe("1 นาที");
+    expect(formatCountdown(150, "th")).toBe("2 นาที 30 วิ");
+    expect(formatCountdown(3600, "th")).toBe("1 ชม. 00 นาที");
+    expect(formatCountdown(3600 + 5 * 60, "th")).toBe("1 ชม. 05 นาที");
+  });
 });
 
 describe("bangkok day arithmetic", () => {

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { activeSimClient } from "../sim/SimClient";
 import { useAppStore, type Warp } from "../stores/useAppStore";
+import { useT } from "../i18n";
 
 /**
  * Bottom-center overlay: Bangkok sim clock, warp controls, vehicle count and
@@ -25,6 +26,7 @@ export function TimeControls() {
   const validation = useAppStore((s) => s.validation);
   const warp = useAppStore((s) => s.warp);
   const vehicleCount = useAppStore((s) => s.vehicleCount);
+  const t = useT();
   const [clockText, setClockText] = useState("--:--:--");
 
   useEffect(() => {
@@ -48,7 +50,7 @@ export function TimeControls() {
     >
       {engineStatus === "error" ? (
         <p className="max-w-xs text-xs text-danger-ink">
-          Engine error: {engineError ?? "unknown"}
+          {t("time.engineError", { error: engineError ?? "unknown" })}
         </p>
       ) : (
         <div className="flex flex-col items-center gap-2">
@@ -57,11 +59,13 @@ export function TimeControls() {
               {engineStatus === "ready" ? clockText : "--:--:--"}
             </span>
             <span className="text-xs text-ink-muted">
-              Bangkok{engineStatus === "loading" ? " · starting engine…" : ""}
+              {t("time.bangkok")}{engineStatus === "loading" ? t("time.startingEngine") : ""}
             </span>
             {engineStatus === "ready" && (
               <span className="text-xs text-ink-muted">
-                {vehicleCount} train{vehicleCount === 1 ? "" : "s"}
+                {vehicleCount === 1
+                  ? t("time.trainsOne", { count: 1 })
+                  : t("time.trainsOther", { count: vehicleCount })}
               </span>
             )}
           </div>
@@ -87,14 +91,19 @@ export function TimeControls() {
               onClick={() => activeSimClient.current?.resetToNow()}
               className="ml-2 rounded-md bg-surface-sunken px-3.5 py-2.5 text-sm font-medium text-ink-muted transition-colors hover:bg-edge hover:text-ink disabled:opacity-40 md:px-2 md:py-1 md:text-xs"
             >
-              Now
+              {t("time.now")}
             </button>
           </div>
           {validation && (
             <p className="text-[10px] text-ink-muted">
-              feed {validation.feedVersion} · {validation.routes} routes ·{" "}
-              {validation.stations} stations · {validation.patterns} patterns ·{" "}
-              {validation.runs} runs · {validation.services} services
+              {t("time.validationFeed", {
+                feedVersion: validation.feedVersion,
+                routes: validation.routes,
+                stations: validation.stations,
+                patterns: validation.patterns,
+                runs: validation.runs,
+                services: validation.services,
+              })}
             </p>
           )}
         </div>

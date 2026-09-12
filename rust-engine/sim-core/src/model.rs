@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 
 pub const TMB_MAGIC: u32 = 0x544D_4231; // "TMB1"
-pub const TMB_VERSION: u16 = 3;
+pub const TMB_VERSION: u16 = 4;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CacheDoc {
@@ -95,6 +95,7 @@ pub struct PatternDoc {
     pub route_idx: u8, // index into routes
     pub direction: u8, // GTFS direction_id
     pub headsign_en: String,
+    pub headsign_th: String,
     /// Per stop of this pattern, in sequence order:
     pub stops: Vec<PatternStop>,
 }

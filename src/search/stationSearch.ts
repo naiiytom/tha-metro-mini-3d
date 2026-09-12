@@ -116,7 +116,22 @@ export function groupByRoute(stations: StationInfo[]): StationGroup[] {
 /**
  * Format browser geolocation error codes into human-readable user messages.
  */
-export function geoErrorMessage(err: GeolocationPositionError | { code: number }): string {
+export function geoErrorMessage(
+  err: GeolocationPositionError | { code: number },
+  lang: "en" | "th" = "en",
+): string {
+  if (lang === "th") {
+    switch (err.code) {
+      case 1:
+        return "ไม่ได้รับอนุญาตให้เข้าถึงตำแหน่ง";
+      case 2:
+        return "ไม่สามารถระบุตำแหน่งได้";
+      case 3:
+        return "หมดเวลาขอข้อมูลตำแหน่ง";
+      default:
+        return "ไม่สามารถระบุตำแหน่งของคุณได้";
+    }
+  }
   switch (err.code) {
     case 1:
       return "Location permission denied.";
@@ -132,7 +147,12 @@ export function geoErrorMessage(err: GeolocationPositionError | { code: number }
 /**
  * Format distance in meters into human-readable km or m.
  */
-export function formatDistance(distanceM: number): string {
+export function formatDistance(distanceM: number, lang: "en" | "th" = "en"): string {
+  if (lang === "th") {
+    return distanceM >= 1000
+      ? `${(distanceM / 1000).toFixed(1)} กม.`
+      : `${Math.round(distanceM)} ม.`;
+  }
   return distanceM >= 1000 ? `${(distanceM / 1000).toFixed(1)} km` : `${Math.round(distanceM)} m`;
 }
 

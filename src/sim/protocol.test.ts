@@ -62,6 +62,7 @@ describe("route plan wire format", () => {
         routeName: "Line A",
         colorRgb: "#65B724",
         headsign: "A2",
+        headsignTh: "A2",
         direction: 0,
         runIdx: 0,
         boardStationIdx: 0,

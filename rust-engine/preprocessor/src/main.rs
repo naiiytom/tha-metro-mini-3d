@@ -1164,13 +1164,17 @@ fn run() -> Result<(), String> {
                 arc_m: resolved_arcs[i] as f32,
             });
         }
-        let (_, headsign_en) = gtfs::split_th_en(&trip.headsign);
+        let (mut headsign_th, headsign_en) = gtfs::split_th_en(&trip.headsign);
+        if headsign_th.is_empty() {
+            headsign_th = headsign_en.clone();
+        }
         pattern_idx_by_trip.insert(trip.trip_id.clone(), patterns.len() as u16);
         patterns.push(PatternDoc {
             gtfs_trip_id: trip.trip_id.clone(),
             route_idx: route_idx as u8,
             direction: trip.direction_id,
             headsign_en,
+            headsign_th,
             stops,
         });
     }
@@ -2663,6 +2667,7 @@ mod tests {
             route_idx,
             direction: 0,
             headsign_en: "T".to_string(),
+            headsign_th: "T".to_string(),
             stops: vec![basis_stop(0, 0, 0, 0.0), basis_stop(1, 100, 100, 1000.0)],
         }
     }
@@ -2728,5 +2733,33 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_ne!(before.speed_mps, from_mutated.speed_mps);
+    }
+
+    #[test]
+    fn headsign_split_preserves_both_thai_and_english_halves() {
+        let (th, en) = gtfs::split_th_en("คูคต;Khu Khot");
+        assert_eq!(th, "คูคต");
+        assert_eq!(en, "Khu Khot");
+
+        let (th2, en2) = gtfs::split_th_en("เคหะฯ;Kheha");
+        assert_eq!(th2, "เคหะฯ");
+        assert_eq!(en2, "Kheha");
+    }
+
+    #[test]
+    fn headsign_split_falls_back_to_english_when_thai_is_absent() {
+        let (mut th, en) = gtfs::split_th_en("Khu Khot");
+        if th.is_empty() {
+            th = en.clone();
+        }
+        assert_eq!(th, "Khu Khot");
+        assert_eq!(en, "Khu Khot");
+
+        let (mut th_empty, en2) = gtfs::split_th_en(";Khu Khot");
+        if th_empty.is_empty() {
+            th_empty = en2.clone();
+        }
+        assert_eq!(th_empty, "Khu Khot");
+        assert_eq!(en2, "Khu Khot");
     }
 }

@@ -1,3 +1,5 @@
+import { en } from "../i18n/locales/en";
+
 /** A 3D geographic coordinate: [longitude, latitude, altitude_meters] (SRS §F1.3). */
 export type LngLatAlt = [number, number, number];
 
@@ -41,8 +43,7 @@ export interface SyntheticSchedule {
  * optional: presenting invented departure times as if they came from an
  * operator feed is the one thing this feature must never do.
  */
-export const SYNTHETIC_SCHEDULE_NOTE =
-  "Estimated timetable — this service runs continuously but publishes no schedule.";
+export const SYNTHETIC_SCHEDULE_NOTE = en["notes.syntheticSchedule"];
 
 /**
  * Points at the line whose real feed times calibrate this line's estimated
@@ -62,8 +63,7 @@ export interface EstimatedRunTimes {
  * seconds of transit on every leg. Saying "estimated timetable" here would
  * overstate what is invented.
  */
-export const ESTIMATED_RUN_TIMES_NOTE =
-  "Estimated travel times — departures are from the operator feed, but it publishes no running time between stations.";
+export const ESTIMATED_RUN_TIMES_NOTE = en["notes.estimatedRunTimes"];
 
 /**
  * Shown on any planned route that contains a transfer.
@@ -76,8 +76,7 @@ export const ESTIMATED_RUN_TIMES_NOTE =
  * is the whole disclosure of that decision to the user. If it is ever
  * dropped, the flat model must not silently present as published data.
  */
-export const TRANSFER_TIMES_ESTIMATED_NOTE =
-  "Transfer times are a fixed estimate — the same allowance is used at every interchange, not a measured walking time.";
+export const TRANSFER_TIMES_ESTIMATED_NOTE = en["notes.transferTimesEstimated"];
 
 /** Front-end profile of the leading car. See docs/.../custom-rolling-stock-design.md. */
 export type NoseProfile = "raked" | "blunt" | "rounded";

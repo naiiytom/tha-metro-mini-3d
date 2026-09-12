@@ -62,6 +62,7 @@ export interface RunDetail {
   route_name: string;
   color_rgb: number;
   headsign: string;
+  headsign_th: string;
   direction: number;
   origin: string;
   destination: string;
@@ -82,6 +83,7 @@ export interface BoardEntry {
   run_idx: number;
   route_idx: number;
   headsign: string;
+  headsign_th: string;
   destination: string;
   direction: number;
   arrival_sec: number;
@@ -135,6 +137,7 @@ export interface PlanLegRide {
   /** `#RRGGBB`, already formatted for CSS (unlike RunDetail's numeric color_rgb). */
   colorRgb: string;
   headsign: string;
+  headsignTh: string;
   /** Pattern-relative arc direction for THIS leg — `route.rs`'s `build_plan`
    *  sets it `0` if the leg's arc runs ascending (`alightArcM >= boardArcM`),
    *  `1` if descending (`alightArcM < boardArcM`). This is NOT the GTFS
