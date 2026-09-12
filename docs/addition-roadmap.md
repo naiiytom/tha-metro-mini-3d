@@ -332,3 +332,18 @@ Concrete, already-scoped work that fell out of MVP 6. Constraints below were est
   - Responsive recalculation of target bounding rects on window resize and device orientation changes.
 - **Design System & Semantic Tokens:**
   - Full compatibility with Light and Dark theme modes using semantic CSS tokens (`panel-glass`, `text-ink`, `text-ink-muted`, `bg-surface`, `border-edge`) and responsive touch targets (`min-h-11` on coarse pointers).
+
+### 28. 3D Map Flyover & WASD / QE Keyboard Navigation Controls
+- **Full 6DOF Flyover Experience:** Continuous keyboard flight navigation over Bangkok's transit viaducts and 3D buildings using standard gaming key bindings:
+  - **Translational Flight (relative to current heading):** `W` / `↑` (Fly Forward), `S` / `↓` (Fly Backward), `A` / `←` (Strafe Left), `D` / `→` (Strafe Right).
+  - **Rotational Flight:** `Q` (Yaw Left / Counter-Clockwise turn), `E` (Yaw Right / Clockwise turn), `R` (Pitch Up toward horizon), `F` (Pitch Down toward ground nadir).
+  - **Vertical Flight & Speed Modifiers:** `Space` (Elevate / Zoom Out), `C` (Descend / Zoom In), `Shift` (2.5× Turbo Sprint), `Alt` / `Ctrl` (0.3× Precision Crawl).
+- **Smooth Kinematics & Inertia Engine:** Per-frame velocity integration in the render loop with acceleration, zoom-dependent velocity clamping ($v = f(\text{zoom})$), and exponential velocity damping for silky cinematic deceleration on key release.
+- **Strict Form Focus Isolation:** Flight controls are 100% inhibited when any `<input>`, `<textarea>`, or `[contenteditable]` element is focused (e.g. typing station names in `StationSearch` or `RoutePlanner`), preventing inadvertent camera jumps while typing.
+- **Follow-Camera Coordination:**
+  - Pressing translational keys (`W`, `A`, `S`, `D`) smoothly releases follow mode (`setFollowing(false)`), handing full manual control back to the user.
+  - Pressing rotational keys (`Q`, `E`) adjusts the follow-camera yaw offset (`addYawOffset`), orbiting smoothly around the moving train without breaking the follow lock.
+- **Specification:** Detailed architecture in [`docs/FLYOVER_CONTROLS_SPEC.md`](./docs/FLYOVER_CONTROLS_SPEC.md).
+
+
+
