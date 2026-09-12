@@ -293,6 +293,7 @@ Concrete, already-scoped work that fell out of MVP 6. Constraints below were est
   - `tools/support.test.mjs`: Decodes `public/promptpay-qr.svg` to verify it matches `SUPPORT.promptPayId`, asserts static mode without baked-in amount, confirms bank account is not in the QR, and enforces HTTPS for external links.
 
 ### 26. SEO, Structured Data & Web App Manifest Suite
+- **Status / Reality Check (reconciled 2026-09-12):** No SEO suite, sitemap generator, or hreflang alternate tags exist in `main`. The nine-locale hreflang set (`en`, `th`, `zh`, `ja`, `ko`, `fr`, `de`, `ru`, `es`) and `public/sitemap.xml` live only on an unmerged fork branch, and its `?lang=` query approach conflicts with this project's no-URL-locales design constraint. The application's canonical multi-language delivery is roadmap item 7 (zero-dependency in-memory/localStorage switching for EN + TH). The entry below describes the fork's proposed design for future reference:
 - **Progressive Web App Manifest (`public/site.webmanifest`):**
   - Standalone display configuration (`display: "standalone"`, `orientation: "any"`, `background_color: "#0f172a"`, `theme_color: "#0f172a"`, categories: `travel`, `navigation`, `maps`, `utilities`).
   - High-resolution SVG app icon (`public/icon.svg`) featuring Bangkok transit liveries (BTS Green, MRT Blue, MRT Pink).
@@ -302,10 +303,10 @@ Concrete, already-scoped work that fell out of MVP 6. Constraints below were est
   - Twitter Card tags (`summary_large_image`) with high-resolution 1200×630 social preview card (`public/og-image.png`).
   - Viewport configuration with `viewport-fit=cover` for notched devices and no unpinned maximum-scale restrictions (accessibility-compliant).
   - Canonical URL (`https://metro.itstom.me/`), crawler directives, keywords, and author tags.
-- **Multilingual Sitemap & Hreflang Alternates (`public/sitemap.xml`):**
-  - Declares canonical URL with `xhtml:link` hreflang alternates for all supported language endpoints (`en`, `th`, `zh`, `ja`, `ko`, `fr`, `de`, `ru`, `es`) plus `x-default`, mirrored by matching `<link rel="alternate">` tags in `index.html`.
+- **Multilingual Sitemap & Hreflang Alternates (Fork branch):**
+  - Proposed canonical URL with `xhtml:link` hreflang alternates for nine language endpoints (`en`, `th`, `zh`, `ja`, `ko`, `fr`, `de`, `ru`, `es`) plus `x-default`. (Note: conflicts with no-URL-locales rule).
 - **Crawler Directives (`public/robots.txt`):**
-  - `User-agent: *`, `Allow: /`, `Disallow: /data/` (protects binary timetable cache `network.tmb` and report artifacts from wasting crawl budget), and `Sitemap: https://metro.itstom.me/sitemap.xml`.
+  - `User-agent: *`, `Allow: /`, `Disallow: /data/` (protects binary timetable cache `network.tmb` and report artifacts from wasting crawl budget).
 - **Schema.org Structured Data (JSON-LD):**
   - `@graph` schema combining:
     1. `WebApplication`: Category `TravelApplication`, WebGL 2.0 / WebAssembly requirements, free offer (`0 THB`), language tags, MIT license, and source repository link.
@@ -313,8 +314,9 @@ Concrete, already-scoped work that fell out of MVP 6. Constraints below were est
     3. `FAQPage`: Answers clarifying timetable simulation vs. live vehicle feeds, line coverage details, and zero-cost/no-cookie privacy guarantees.
 - **Prerendered Crawlable DOM & Fallback:**
   - Semantic HTML markup inside `<div id="root">` (`<h1>`, multilingual overview, line list, `<noscript>` instructions) so non-JS web crawlers and search spiders index genuine content prior to React hydration.
-- **Automated Verification Suite (`tools/seo.test.mjs`):**
-  - Vitest test suite asserting title/description length limits, canonical URLs, robots directives, Open Graph completeness, hreflang completeness, JSON-LD schema validity, and prerender text content.
+- **Automated Verification Suite:**
+  - Test suite asserting title/description length limits, canonical URLs, robots directives, Open Graph completeness, JSON-LD schema validity, and prerender text content.
+
 
 ### 27. UI Elements: About & Privacy Panel, Share QR, and Guided Spotlight Tour
 - **Consolidated About & Privacy Modal Panel (`AboutPanel.tsx`):**
