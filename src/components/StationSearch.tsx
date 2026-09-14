@@ -3,6 +3,7 @@ import { lngLatToLocal, localToLngLat } from "../map/coordinates";
 import { formatDistance, geoErrorMessage, nearestStation } from "../search/stationSearch";
 import { useAppStore } from "../stores/useAppStore";
 import { formatBilingualStation } from "../utils/stationTypography";
+import { useT } from "../i18n";
 import { StationCombobox } from "./StationCombobox";
 
 type GeoState =
@@ -23,6 +24,7 @@ type GeoState =
  * panel sits open.
  */
 export function StationSearch() {
+  const t = useT();
   const searchOpen = useAppStore((s) => s.searchOpen);
   const setSearchOpen = useAppStore((s) => s.setSearchOpen);
   const stations = useAppStore((s) => s.stations);
@@ -39,7 +41,7 @@ export function StationSearch() {
     if (!searchOpen || requestedRef.current) return;
     requestedRef.current = true;
     if (!("geolocation" in navigator)) {
-      setGeo({ status: "error", message: "Location is not supported by this browser." });
+      setGeo({ status: "error", message: t("stations.geoNotSupported") });
       return;
     }
     setGeo({ status: "loading" });
@@ -50,10 +52,10 @@ export function StationSearch() {
           userLocal: lngLatToLocal(pos.coords.longitude, pos.coords.latitude),
         });
       },
-      (err) => setGeo({ status: "error", message: geoErrorMessage(err) }),
+      (err) => setGeo({ status: "error", message: geoErrorMessage(err, primaryLang) }),
       { timeout: 8000, maximumAge: 300_000 },
     );
-  }, [searchOpen]);
+  }, [searchOpen, t, primaryLang]);
 
   // Mirrors src/map/selection.ts's own hiddenRoutes skip — a station on a
   // hidden line has no visible track/deck to fly to, and StationBoard has
@@ -96,7 +98,7 @@ export function StationSearch() {
       <div className="flex items-start gap-2 border-b border-edge px-2 py-1">
         <div className="min-w-0 flex-1">
           <StationCombobox
-            label="Find a station"
+            label={t("stations.findStation")}
             stations={visibleStations}
             routes={routes}
             onPick={(s) => {
@@ -109,7 +111,7 @@ export function StationSearch() {
         <button
           type="button"
           onClick={() => setSearchOpen(false)}
-          aria-label="Close search"
+          aria-label={t("stations.closeSearchShort")}
           className="mt-4 flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-sm leading-none text-ink-muted hover:bg-surface-sunken hover:text-ink md:mt-3.5 md:h-auto md:w-auto md:px-1.5 md:py-0.5"
         >
           ×
@@ -118,14 +120,14 @@ export function StationSearch() {
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
         <p className="px-2 pb-1 text-[10px] uppercase tracking-wide text-ink-muted">
-          Nearest station
+          {t("stations.nearestStation")}
         </p>
         {geo.status === "loading" && (
-          <p className="px-2 py-2 text-xs text-ink-muted">Finding your location…</p>
+          <p className="px-2 py-2 text-xs text-ink-muted">{t("stations.findingLocation")}</p>
         )}
         {geo.status === "error" && <p className="px-2 py-2 text-xs text-ink-muted">{geo.message}</p>}
         {geo.status === "ready" && !nearest && (
-          <p className="px-2 py-2 text-xs text-ink-muted">No stations available yet.</p>
+          <p className="px-2 py-2 text-xs text-ink-muted">{t("stations.noStationsYet")}</p>
         )}
         {geo.status === "ready" && nearest && (
           <button
@@ -149,7 +151,7 @@ export function StationSearch() {
               <span className="font-semibold text-ink">{nearestBilingual?.primaryName}</span>
               <span className="ml-1 text-ink-subtle">{nearestBilingual?.secondaryName}</span>
             </span>
-            <span className="shrink-0 text-ink-muted">{formatDistance(nearest.distanceM)}</span>
+            <span className="shrink-0 text-ink-muted">{formatDistance(nearest.distanceM, primaryLang)}</span>
           </button>
         )}
       </div>

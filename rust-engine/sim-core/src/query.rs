@@ -34,6 +34,7 @@ pub struct RunDetail {
     pub route_name: String,
     pub color_rgb: u32,
     pub headsign: String,
+    pub headsign_th: String,
     pub direction: u8,
     pub origin: String,
     pub destination: String,
@@ -60,6 +61,7 @@ pub struct BoardEntry {
     pub run_idx: u32,
     pub route_idx: u8,
     pub headsign: String,
+    pub headsign_th: String,
     pub destination: String,
     pub direction: u8,
     /// Seconds after the *queried* day's midnight (spillover runs go negative-
@@ -225,6 +227,7 @@ impl SimWorld {
             route_name: route.name_en.clone(),
             color_rgb: route.color_rgb,
             headsign: pattern.headsign_en.clone(),
+            headsign_th: pattern.headsign_th.clone(),
             direction: pattern.direction,
             origin: stops.first().map(|s| s.name_en.clone()).unwrap_or_default(),
             destination: stops.last().map(|s| s.name_en.clone()).unwrap_or_default(),
@@ -336,6 +339,7 @@ impl SimWorld {
                     run_idx: idx as u32,
                     route_idx,
                     headsign: pattern.headsign_en.clone(),
+                    headsign_th: pattern.headsign_th.clone(),
                     destination: pattern
                         .stops
                         .last()

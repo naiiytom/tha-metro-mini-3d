@@ -1,3 +1,6 @@
+import { translate } from "../i18n";
+import type { PrimaryLanguage } from "../i18n/persistence";
+
 /**
  * Bangkok service-time helpers shared by the MVP 4 UI panels.
  *
@@ -21,18 +24,23 @@ export function formatServiceSec(sec: number): string {
   return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
 }
 
-/** Human countdown: "due", "45s", "2m 30s", "1h 05m". */
-export function formatCountdown(seconds: number): string {
-  if (seconds <= 0) return "due";
-  if (seconds < 60) return `${Math.round(seconds)}s`;
+/** Human countdown: "due", "45s", "2m 30s", "1h 05m" (or Thai equivalents). */
+export function formatCountdown(seconds: number, lang: PrimaryLanguage = "en"): string {
+  if (seconds <= 0) return translate(lang, "units.due");
+  const sSuffix = translate(lang, "units.secSuffix");
+  const mSuffix = translate(lang, "units.minSuffix");
+  const hSuffix = translate(lang, "units.hourSuffix");
+  if (seconds < 60) return `${Math.round(seconds)}${sSuffix}`;
   if (seconds < 3600) {
     const m = Math.floor(seconds / 60);
     const s = Math.round(seconds % 60);
-    return s === 0 ? `${m}m` : `${m}m ${String(s).padStart(2, "0")}s`;
+    return s === 0
+      ? `${m}${mSuffix}`
+      : `${m}${mSuffix} ${String(s).padStart(2, "0")}${sSuffix}`;
   }
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
-  return `${h}h ${String(m).padStart(2, "0")}m`;
+  return `${h}${hSuffix} ${String(m).padStart(2, "0")}${mSuffix}`;
 }
 
 /** Epoch ms of Bangkok-local midnight for the day containing `epochMs`. */

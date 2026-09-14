@@ -4,6 +4,7 @@ import { useAppStore } from "../stores/useAppStore";
 import { LineRow } from "./LineRow";
 import { browserStorage, hasStoredPreference, loadCollapsed, saveCollapsed } from "./panelCollapse";
 import { ViewControls } from "./ViewControls";
+import { useT } from "../i18n";
 
 
 /**
@@ -25,6 +26,7 @@ import { ViewControls } from "./ViewControls";
  * MapLibre's own `NavigationControl` (top-right) doesn't already occupy.
  */
 export function LineSelector() {
+  const t = useT();
   const routes = useAppStore((s) => s.routes);
   const mapReady = useAppStore((s) => s.mapReady);
   const uiHidden = useAppStore((s) => s.uiHidden);
@@ -79,7 +81,7 @@ export function LineSelector() {
         <div className="min-w-0 flex-1">
           <h1 className="text-sm font-semibold text-ink">Greater Bangkok Metro Mini 3D</h1>
           <p className="text-xs text-ink-muted">
-            {mapReady ? "Click a train or station to inspect it." : "Loading map…"}
+            {mapReady ? t("lines.inspectHint") : t("nav.loadingMap")}
           </p>
         </div>
         {/* Hidden rather than merely disabled while uiHidden, matching the ▲
@@ -92,8 +94,8 @@ export function LineSelector() {
             type="button"
             onClick={() => setSearchOpen(!searchOpen)}
             aria-pressed={searchOpen}
-            aria-label={searchOpen ? "Close station search" : "Search stations"}
-            title={searchOpen ? "Close station search" : "Search stations"}
+            aria-label={searchOpen ? t("stations.closeSearch") : t("stations.searchStations")}
+            title={searchOpen ? t("stations.closeSearch") : t("stations.searchStations")}
             className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-base leading-none text-ink-muted hover:bg-surface-sunken md:h-8 md:w-8 md:text-sm"
           >
             🔍
@@ -107,8 +109,8 @@ export function LineSelector() {
             type="button"
             onClick={() => setRoutePlannerOpen(!routePlannerOpen)}
             aria-pressed={routePlannerOpen}
-            aria-label={routePlannerOpen ? "Close route planner" : "Plan a route"}
-            title={routePlannerOpen ? "Close route planner" : "Plan a route"}
+            aria-label={routePlannerOpen ? t("route.closePlanner") : t("route.planRoute")}
+            title={routePlannerOpen ? t("route.closePlanner") : t("route.planRoute")}
             className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-base leading-none text-ink-muted hover:bg-surface-sunken md:h-8 md:w-8 md:text-sm"
           >
             🧭
@@ -118,8 +120,8 @@ export function LineSelector() {
           type="button"
           onClick={() => setUiHidden(!uiHidden)}
           aria-pressed={uiHidden}
-          aria-label={uiHidden ? "Show map controls" : "Hide map controls"}
-          title={uiHidden ? "Show map controls" : "Hide map controls"}
+          aria-label={uiHidden ? t("lines.showMapControls") : t("lines.hideMapControls")}
+          title={uiHidden ? t("lines.showMapControls") : t("lines.hideMapControls")}
           className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-base leading-none text-ink-muted hover:bg-surface-sunken md:hidden"
         >
           {uiHidden ? "☰" : "✕"}
@@ -134,7 +136,7 @@ export function LineSelector() {
             type="button"
             onClick={toggleExpanded}
             aria-expanded={bodyVisible}
-            aria-label={expanded ? "Collapse line list" : "Expand line list"}
+            aria-label={expanded ? t("lines.collapseLineList") : t("lines.expandLineList")}
             className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-ink-muted hover:bg-surface-sunken"
           >
             {expanded ? "▲" : "▼"}

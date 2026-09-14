@@ -7,11 +7,7 @@ import { useAppStore } from "../../stores/useAppStore";
 import { planDisclosures } from "../../route/routePlanDisclosures";
 import { StationCombobox } from "../StationCombobox";
 import { LegRow, NOTE_CLASS } from "../LegRow";
-import {
-  ESTIMATED_RUN_TIMES_NOTE,
-  SYNTHETIC_SCHEDULE_NOTE,
-  TRANSFER_TIMES_ESTIMATED_NOTE,
-} from "../../types";
+import { useT } from "../../i18n";
 
 type Status = { kind: "idle" } | { kind: "loading" } | { kind: "done" } | { kind: "failed" };
 
@@ -21,6 +17,8 @@ export function RouteTab() {
   const routes = useAppStore((s) => s.routes);
   const currentPlan = useAppStore((s) => s.routePlan);
   const setPlan = useAppStore((s) => s.setRoutePlan);
+  const primaryLang = useAppStore((s) => s.primaryLang);
+  const t = useT();
 
   const [from, setFrom] = useState<StationInfo | null>(null);
   const [to, setTo] = useState<StationInfo | null>(null);
@@ -73,8 +71,8 @@ export function RouteTab() {
 
   return (
     <div data-testid="route-tab" className="space-y-3 px-2 py-1">
-      <StationCombobox label="From" stations={visibleStations} routes={routes} onPick={setFrom} />
-      <StationCombobox label="To" stations={visibleStations} routes={routes} onPick={setTo} />
+      <StationCombobox label={t("route.from")} stations={visibleStations} routes={routes} onPick={setFrom} />
+      <StationCombobox label={t("route.to")} stations={visibleStations} routes={routes} onPick={setTo} />
 
       <button
         type="button"
@@ -82,19 +80,18 @@ export function RouteTab() {
         disabled={!from || !to || status.kind === "loading"}
         className="w-full rounded-md bg-accent px-3 py-2 text-sm font-medium text-accent-ink transition-opacity hover:opacity-90 disabled:bg-edge disabled:text-ink-muted"
       >
-        {status.kind === "loading" ? "Searching…" : "Find Route"}
+        {status.kind === "loading" ? t("route.searching") : t("route.findRoute")}
       </button>
 
       {status.kind === "failed" && (
         <p className="px-2 text-xs text-ink-muted">
-          Couldn&apos;t plan a route — the engine rejected that request.
+          {t("route.planningFailed")}
         </p>
       )}
 
       {currentPlan?.unreachable && (
         <p className="px-2 text-xs text-ink-muted">
-          No route found within {Math.round(DEFAULT_MAX_WAIT_S / 60)} minutes of this departure time.
-          Try a different time of day.
+          {t("route.unreachable", { minutes: Math.round(DEFAULT_MAX_WAIT_S / 60) })}
         </p>
       )}
 
@@ -118,9 +115,11 @@ export function RouteTab() {
                         : "border-edge hover:bg-surface-sunken/50"
                     }`}
                   >
-                    <p className="text-xs font-semibold text-ink">{formatCountdown(p.durationS)}</p>
+                    <p className="text-xs font-semibold text-ink">{formatCountdown(p.durationS, primaryLang)}</p>
                     <p className="text-[10px] text-ink-muted">
-                      {p.transfers} transfer{p.transfers === 1 ? "" : "s"}
+                      {p.transfers === 1
+                        ? t("route.transfersOne", { count: 1 })
+                        : t("route.transfersOther", { count: p.transfers })}
                     </p>
                   </button>
                 );
@@ -133,24 +132,26 @@ export function RouteTab() {
               {formatServiceSec(currentPlan.departSec)} → {formatServiceSec(currentPlan.arriveSec)}
             </span>
             <span className="ml-2 text-ink-muted">
-              {formatCountdown(currentPlan.durationS)} · {currentPlan.transfers} transfer
-              {currentPlan.transfers === 1 ? "" : "s"}
+              {formatCountdown(currentPlan.durationS, primaryLang)} ·{" "}
+              {currentPlan.transfers === 1
+                ? t("route.transfersOne", { count: 1 })
+                : t("route.transfersOther", { count: currentPlan.transfers })}
             </span>
           </div>
 
           {disclosures.synthetic && (
             <p data-testid="synthetic-schedule-note" className={NOTE_CLASS}>
-              {SYNTHETIC_SCHEDULE_NOTE}
+              {t("notes.syntheticSchedule")}
             </p>
           )}
           {disclosures.estimated && (
             <p data-testid="estimated-run-times-note" className={NOTE_CLASS}>
-              {ESTIMATED_RUN_TIMES_NOTE}
+              {t("notes.estimatedRunTimes")}
             </p>
           )}
           {disclosures.transfers && (
             <p data-testid="transfer-times-note" className={NOTE_CLASS}>
-              {TRANSFER_TIMES_ESTIMATED_NOTE}
+              {t("notes.transferTimesEstimated")}
             </p>
           )}
 

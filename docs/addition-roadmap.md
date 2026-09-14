@@ -19,7 +19,7 @@ Features to close parity with [nagix/mini-tokyo-3d](https://github.com/nagix/min
 | 4 | [Mobile / Responsive Layout](#4-mobile--responsive-layout--delivered-post-mvp-6-landed-alongside-the-on-map-train-tooltip) | UI / Mobile | Core Capability | ✅ Delivered |
 | 5 | [Underground Mode & Auto-Engage](#5-underground-mode--delivered-mvp-6--mvp-7) | 3D Rendering | Mini Tokyo 3D parity | ✅ Delivered (MVP 6/7) |
 | 6 | [Day/Night Lighting & Sky Dome](#6-daynight-lighting--delivered-mvp-6--mvp-7-sky-dome) | 3D Rendering | Mini Tokyo 3D parity | ✅ Delivered (MVP 6/7) |
-| 7 | [Multi-Language Support (i18n)](#7-multi-language-support-en--th) | Localization | Mini Tokyo 3D parity | ⏳ In Progress |
+| 7 | [Multi-Language Support (i18n)](#7-multi-language-support-en--th--delivered-2026-09-12) | Localization | Mini Tokyo 3D parity | ✅ Delivered (2026-09-12) |
 | 8 | [Route Search & Leg Highlights (RAPTOR)](#8-route-search-a--b--delivered-2026-08-16) | Routing Engine | Mini Tokyo 3D parity | ✅ Delivered |
 | 9 | [Plugin Architecture](#9-plugin-architecture) | Extensibility | Mini Tokyo 3D parity | 📋 Planned |
 | 10 | [Custom Rolling Stock & Liveries](#10-custom-train--rolling-stock-models--delivered-2026-08-22) | 3D Assets | Bangkok Context | ✅ Delivered |
@@ -89,11 +89,12 @@ Features to close parity with [nagix/mini-tokyo-3d](https://github.com/nagix/min
 - ✅ Calculated solar position (NOAA low-precision, UTC+7 fixed, no DST)
 - ✅ **Night legibility — fixed 2026-08-12.** The raised lighting floor (`sunIntensity` 0.9, `ambientIntensity` 1.35 at night) was never enough on its own: it cannot reach a dark livery, because at 8-bit sRGB a colour like MRT Blue's `#1964B7` saturates near-black at any ambient level. A **per-material emissive floor** now sits on top of it (`src/map/nightLift.ts`), lifting each material by the minimum amount needed to clear WCAG 3:1 — built from the material's *own* colour, so hue is preserved and the map still matches the UI swatch. See item 20 for the mechanism and the honest limits.
 
-### 7. Multi-Language Support (EN + TH)
-- Internationalization framework (i18n)
-- Thai translations for all UI labels, station names, line names
-- Language switcher in the UI
-- Station names should display in the selected language
+### 7. Multi-Language Support (EN + TH) — ✅ delivered 2026-09-12
+- ✅ **Typed compile-time dictionary** (`src/i18n/locales/en.ts`, `src/i18n/locales/th.ts`, `types.ts`, `index.ts`): zero external dependencies, strict `Record<TranslationKey, string>` parity and token slot matching verified by unit tests (`dictionary.test.ts`).
+- ✅ **Bilingual TMB binary cache bump (v3 → v4)**: `TmbV4` carries both English and Thai headsigns (`headsign_th` in Rust `sim-core`, `RouteDoc`, `RunDetail`, `BoardEntry`, `PlanLegRide`).
+- ✅ **UI Chrome & Navigation**: Full English and Thai translations across all panels, tabs (`NavigationPanel`), station search & combobox, route planner & tab, view controls, follow HUD chip, time controls & scrubber, train inspector, and about tab.
+- ✅ **Data Names & Countdowns**: Dynamic selection of Thai line names (`nameTh`) and operator names (`nameTh`), station names via `formatBilingualStation(s, primaryLang)` returning primaryName/subtitle, and localized countdown formatter (`formatCountdown(s, primaryLang)`: `due`/`ถึงแล้ว`, `s`/`วิ`, `m`/`นาที`, `h`/`ชม.`).
+- ✅ **Language Switcher & Persistence**: Header language toggle button (`EN / TH`) with persistence in `localStorage` (`tmm3d.lang`), auto-detecting browser language preference (Thai browsers default to `"th"`, fallback to `"en"`), and `document.documentElement.lang` sync.
 
 ### 8. Route Search (A → B) — ✅ delivered 2026-08-16 (Alternative Itineraries added 2026-08-24)
 - ✅ Search panel with origin and destination station pickers (`RoutePlanner.tsx`), reusing `filterStations` and StationSearch's result-row UX; triggered from `LineSelector`'s header
@@ -102,7 +103,7 @@ Features to close parity with [nagix/mini-tokyo-3d](https://github.com/nagix/min
 - ✅ Leg-by-leg transfer instructions, board/alight times, total duration and transfer count; map highlight of each ride leg's arc span
 - ✅ Suvarnabhumi APM is plannable, via an ARL↔APM interchange override (332 m, just outside the 300 m auto-link radius)
 - ✅ **Incidental fix**: `station_board` now shows post-midnight departures late at night. It shared the two-service-day-frame rule and structurally could not show a 00:10 departure at 23:00
-- ⚠️ **Honest limitations**: **Transfer time is one FLAT allowance** at every interchange regardless of walking distance, disclosed in the panel via `TRANSFER_TIMES_ESTIMATED_NOTE`; distance-derived times were considered and declined, since there is no per-interchange data to calibrate against. Interchange complexes expand **one hop** — a three-line complex whose outer pair is not directly linked is not treated as one complex. Leg instructions are English only (item 7). Track-only lines (`orange`, `purple-ext`) are structurally absent from the graph: they have zero stations.
+- ⚠️ **Honest limitations**: **Transfer time is one FLAT allowance** at every interchange regardless of walking distance, disclosed in the panel via `TRANSFER_TIMES_ESTIMATED_NOTE`; distance-derived times were considered and declined, since there is no per-interchange data to calibrate against. Interchange complexes expand **one hop** — a three-line complex whose outer pair is not directly linked is not treated as one complex. Leg instructions now support bilingual English/Thai formatting (delivered in item 7). Track-only lines (`orange`, `purple-ext`) are structurally absent from the graph: they have zero stations.
 
 ### 9. Plugin Architecture
 - Formal plugin interface (register/unregister, lifecycle hooks)
@@ -292,6 +293,7 @@ Concrete, already-scoped work that fell out of MVP 6. Constraints below were est
   - `tools/support.test.mjs`: Decodes `public/promptpay-qr.svg` to verify it matches `SUPPORT.promptPayId`, asserts static mode without baked-in amount, confirms bank account is not in the QR, and enforces HTTPS for external links.
 
 ### 26. SEO, Structured Data & Web App Manifest Suite
+- **Status / Reality Check (reconciled 2026-09-12):** No SEO suite, sitemap generator, or hreflang alternate tags exist in `main`. The nine-locale hreflang set (`en`, `th`, `zh`, `ja`, `ko`, `fr`, `de`, `ru`, `es`) and `public/sitemap.xml` live only on an unmerged fork branch, and its `?lang=` query approach conflicts with this project's no-URL-locales design constraint. The application's canonical multi-language delivery is roadmap item 7 (zero-dependency in-memory/localStorage switching for EN + TH). The entry below describes the fork's proposed design for future reference:
 - **Progressive Web App Manifest (`public/site.webmanifest`):**
   - Standalone display configuration (`display: "standalone"`, `orientation: "any"`, `background_color: "#0f172a"`, `theme_color: "#0f172a"`, categories: `travel`, `navigation`, `maps`, `utilities`).
   - High-resolution SVG app icon (`public/icon.svg`) featuring Bangkok transit liveries (BTS Green, MRT Blue, MRT Pink).
@@ -301,10 +303,10 @@ Concrete, already-scoped work that fell out of MVP 6. Constraints below were est
   - Twitter Card tags (`summary_large_image`) with high-resolution 1200×630 social preview card (`public/og-image.png`).
   - Viewport configuration with `viewport-fit=cover` for notched devices and no unpinned maximum-scale restrictions (accessibility-compliant).
   - Canonical URL (`https://metro.itstom.me/`), crawler directives, keywords, and author tags.
-- **Multilingual Sitemap & Hreflang Alternates (`public/sitemap.xml`):**
-  - Declares canonical URL with `xhtml:link` hreflang alternates for all supported language endpoints (`en`, `th`, `zh`, `ja`, `ko`, `fr`, `de`, `ru`, `es`) plus `x-default`, mirrored by matching `<link rel="alternate">` tags in `index.html`.
+- **Multilingual Sitemap & Hreflang Alternates (Fork branch):**
+  - Proposed canonical URL with `xhtml:link` hreflang alternates for nine language endpoints (`en`, `th`, `zh`, `ja`, `ko`, `fr`, `de`, `ru`, `es`) plus `x-default`. (Note: conflicts with no-URL-locales rule).
 - **Crawler Directives (`public/robots.txt`):**
-  - `User-agent: *`, `Allow: /`, `Disallow: /data/` (protects binary timetable cache `network.tmb` and report artifacts from wasting crawl budget), and `Sitemap: https://metro.itstom.me/sitemap.xml`.
+  - `User-agent: *`, `Allow: /`, `Disallow: /data/` (protects binary timetable cache `network.tmb` and report artifacts from wasting crawl budget).
 - **Schema.org Structured Data (JSON-LD):**
   - `@graph` schema combining:
     1. `WebApplication`: Category `TravelApplication`, WebGL 2.0 / WebAssembly requirements, free offer (`0 THB`), language tags, MIT license, and source repository link.
@@ -312,8 +314,9 @@ Concrete, already-scoped work that fell out of MVP 6. Constraints below were est
     3. `FAQPage`: Answers clarifying timetable simulation vs. live vehicle feeds, line coverage details, and zero-cost/no-cookie privacy guarantees.
 - **Prerendered Crawlable DOM & Fallback:**
   - Semantic HTML markup inside `<div id="root">` (`<h1>`, multilingual overview, line list, `<noscript>` instructions) so non-JS web crawlers and search spiders index genuine content prior to React hydration.
-- **Automated Verification Suite (`tools/seo.test.mjs`):**
-  - Vitest test suite asserting title/description length limits, canonical URLs, robots directives, Open Graph completeness, hreflang completeness, JSON-LD schema validity, and prerender text content.
+- **Automated Verification Suite:**
+  - Test suite asserting title/description length limits, canonical URLs, robots directives, Open Graph completeness, JSON-LD schema validity, and prerender text content.
+
 
 ### 27. UI Elements: About & Privacy Panel, Share QR, and Guided Spotlight Tour
 - **Consolidated About & Privacy Modal Panel (`AboutPanel.tsx`):**

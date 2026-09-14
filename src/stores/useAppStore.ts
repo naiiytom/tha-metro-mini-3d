@@ -5,6 +5,7 @@ import type { RoutePlan, StationInfo, ValidationSummary } from "../sim/protocol"
 import type { ClockParams } from "../sim/SimClient";
 import type { LineGeometry } from "../types";
 import { type TrainScale, loadTrainScale, saveTrainScale } from "../map/trainScale";
+import { resolveInitialLanguage, savePrimaryLang } from "../i18n/persistence";
 
 /**
  * UI-facing state only (SRS §3A.7): per-frame render/kinematic state must
@@ -140,10 +141,17 @@ interface AppState {
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
-  primaryLang:
-    typeof navigator !== "undefined" && navigator.language?.startsWith("th") ? "th" : "en",
-  setPrimaryLang: (lang) => set({ primaryLang: lang }),
-  togglePrimaryLang: () => set((s) => ({ primaryLang: s.primaryLang === "en" ? "th" : "en" })),
+  primaryLang: resolveInitialLanguage(),
+  setPrimaryLang: (lang) => {
+    savePrimaryLang(lang);
+    set({ primaryLang: lang });
+  },
+  togglePrimaryLang: () =>
+    set((s) => {
+      const next = s.primaryLang === "en" ? "th" : "en";
+      savePrimaryLang(next);
+      return { primaryLang: next };
+    }),
 
   sheetDetent: "peek",
   setSheetDetent: (detent) => set({ sheetDetent: detent }),

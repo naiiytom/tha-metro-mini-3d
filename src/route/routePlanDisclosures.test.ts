@@ -46,6 +46,7 @@ function ride(routeIdx: number): PlanLeg {
     routeName: "R",
     colorRgb: "#ff0000",
     headsign: "H",
+    headsignTh: "H",
     direction: 0,
     runIdx: 0,
     boardStationIdx: 0,

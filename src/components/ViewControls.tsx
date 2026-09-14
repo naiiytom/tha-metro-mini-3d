@@ -3,6 +3,7 @@ import { BASEMAP_STYLES } from "../map/basemapStyles";
 import { THEME_MODES } from "../map/themeMode";
 import { TRAIN_SCALES } from "../map/trainScale";
 import { useAppStore } from "../stores/useAppStore";
+import { useT } from "../i18n";
 
 /**
  * View-mode toggles (SRS §F3.2 underground transparency, §3A.5 shadow
@@ -24,6 +25,7 @@ export function ViewControls() {
   const setEcoMode = useAppStore((s) => s.setEcoMode);
   const trainScale = useAppStore((s) => s.trainScale);
   const setTrainScale = useAppStore((s) => s.setTrainScale);
+  const t = useT();
 
   const [isFullscreen, setIsFullscreen] = useState(false);
 
@@ -83,48 +85,70 @@ export function ViewControls() {
     </button>
   );
 
+  const themeLabel: Record<string, string> = {
+    auto: t("view.themeAuto"),
+    light: t("view.themeLight"),
+    dark: t("view.themeDark"),
+  };
+  const themeHint: Record<string, string> = {
+    auto: t("view.themeAutoHint"),
+    light: t("view.themeLightHint"),
+    dark: t("view.themeDarkHint"),
+  };
+  const basemapLabel: Record<string, string> = {
+    liberty: t("view.basemapLiberty"),
+    positron: t("view.basemapPositron"),
+    "dark-matter": t("view.basemapDarkMatter"),
+  };
+  const trainScaleHint: Record<number, string> = {
+    1: t("view.trainScale1xHint"),
+    1.5: t("view.trainScale15xHint"),
+    3: t("view.trainScale3xHint"),
+    5: t("view.trainScale5xHint"),
+  };
+
   return (
     <div className="mt-2 border-t border-edge pt-2">
       {row(
-        "3D perspective",
-        "Tilt camera to 3D perspective view; turn off for flat 2D top-down map",
+        t("view.perspective3d"),
+        t("view.perspective3dHint"),
         map3D,
         setMap3D,
         "toggle-3d-perspective",
       )}
       {row(
-        "Underground view",
-        "Fade the basemap and surface lines so tunnelled track is visible",
+        t("view.undergroundView"),
+        t("view.undergroundViewHint"),
         undergroundMode,
         setUndergroundMode,
         "toggle-underground-view",
       )}
       {row(
-        "Shadows",
-        "Higher fidelity, lower frame rate — only near central Bangkok; no effect further out",
+        t("view.shadows"),
+        t("view.shadowsHint"),
         shadowsEnabled,
         setShadowsEnabled,
         "toggle-shadows",
       )}
       {row(
-        "Eco mode",
-        "Drop to about 1 frame per second to save battery — trains stay on schedule",
+        t("view.ecoMode"),
+        t("view.ecoModeHint"),
         ecoMode,
         setEcoMode,
         "toggle-eco-mode",
       )}
       {row(
-        "Fullscreen",
-        "Fill the screen — press Esc to leave",
+        t("view.fullscreen"),
+        t("view.fullscreenHint"),
         isFullscreen,
         () => toggleFullscreen(),
         "toggle-fullscreen",
       )}
       <div className="mt-1 px-3 py-2 md:px-1.5 md:py-1">
-        <div className="mb-1 text-sm text-ink-muted md:text-xs">Theme</div>
+        <div className="mb-1 text-sm text-ink-muted md:text-xs">{t("view.theme")}</div>
         <div
           role="radiogroup"
-          aria-label="Theme"
+          aria-label={t("view.theme")}
           className="flex gap-1 rounded-md bg-surface-sunken p-0.5"
         >
           {THEME_MODES.map((mode) => (
@@ -135,27 +159,21 @@ export function ViewControls() {
               aria-checked={themeMode === mode}
               data-theme-mode={mode}
               onClick={() => setThemeMode(mode)}
-              title={
-                mode === "auto"
-                  ? "Follow the simulated clock — dusk and dawn fade smoothly"
-                  : mode === "light"
-                    ? "Pinned to full-day lighting, whatever the clock says"
-                    : "Always night colours, whatever the clock says"
-              }
+              title={themeHint[mode] ?? mode}
               className={`flex-1 rounded px-2 py-1.5 text-sm capitalize transition-colors md:py-0.5 md:text-xs ${
                 themeMode === mode
                   ? "bg-surface text-ink shadow-sm"
                   : "text-ink-muted hover:text-ink"
               }`}
             >
-              {mode}
+              {themeLabel[mode] ?? mode}
             </button>
           ))}
         </div>
       </div>
       <div className="mt-1 px-3 py-2 md:px-1.5 md:py-1">
-        <div className="mb-1 text-sm text-ink-muted md:text-xs">Basemap</div>
-        <div role="radiogroup" aria-label="Basemap" className="flex gap-1 rounded-md bg-surface-sunken p-0.5">
+        <div className="mb-1 text-sm text-ink-muted md:text-xs">{t("view.basemap")}</div>
+        <div role="radiogroup" aria-label={t("view.basemap")} className="flex gap-1 rounded-md bg-surface-sunken p-0.5">
           {BASEMAP_STYLES.map((s) => (
             <button
               key={s.key}
@@ -170,14 +188,14 @@ export function ViewControls() {
                   : "text-ink-muted hover:text-ink"
               }`}
             >
-              {s.label}
+              {basemapLabel[s.key] ?? s.label}
             </button>
           ))}
         </div>
       </div>
       <div className="mt-1 px-3 py-2 md:px-1.5 md:py-1">
-        <div className="mb-1 text-sm text-ink-muted md:text-xs">Train size</div>
-        <div role="radiogroup" aria-label="Train size" className="flex gap-1 rounded-md bg-surface-sunken p-0.5">
+        <div className="mb-1 text-sm text-ink-muted md:text-xs">{t("view.trainSize")}</div>
+        <div role="radiogroup" aria-label={t("view.trainSize")} className="flex gap-1 rounded-md bg-surface-sunken p-0.5">
           {TRAIN_SCALES.map((s) => (
             <button
               key={s.scale}
@@ -187,7 +205,7 @@ export function ViewControls() {
               data-train-scale={s.scale}
               data-testid={`train-scale-${s.scale}`}
               onClick={() => setTrainScale(s.scale)}
-              title={s.hint}
+              title={trainScaleHint[s.scale] ?? s.hint}
               className={`flex-1 rounded px-2 py-1.5 text-sm transition-colors md:py-0.5 md:text-xs ${
                 trainScale === s.scale
                   ? "bg-surface text-ink shadow-sm"

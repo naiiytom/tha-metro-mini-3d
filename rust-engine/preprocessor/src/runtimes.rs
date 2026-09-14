@@ -337,6 +337,7 @@ mod tests {
             route_idx: 0,
             direction: 0,
             headsign_en: "T".to_string(),
+            headsign_th: "T".to_string(),
             stops,
         }
     }

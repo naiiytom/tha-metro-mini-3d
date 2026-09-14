@@ -36,6 +36,7 @@ const DETAIL: RunDetail = {
   route_name: "Test Line",
   color_rgb: 0xff0000,
   headsign: "Test Headsign",
+  headsign_th: "สายทดสอบ",
   direction: 0,
   origin: "A",
   destination: "B",

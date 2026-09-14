@@ -35,6 +35,7 @@ import {
 import { SimClient, activeSimClient } from "../sim/SimClient";
 import { DEFAULT_TICK_MS, ECO_TICK_MS, LANE_RUN_IDX, LANE_Z, VEHICLE_STRIDE } from "../sim/protocol";
 import { formatCountdown } from "../sim/time";
+import { translate } from "../i18n";
 import { useAppStore } from "../stores/useAppStore";
 import network from "../data/network.json";
 import type { NetworkData } from "../types";
@@ -421,32 +422,50 @@ export function MapContainer() {
       // second, since every poll's `await` momentarily left the tooltip
       // showing the reset text before the real detail came back.
       const refreshTooltipContent = async (showPlaceholder: boolean) => {
-        const selectedRunIdx = useAppStore.getState().selectedRunIdx;
+        const state = useAppStore.getState();
+        const selectedRunIdx = state.selectedRunIdx;
+        const primaryLang = state.primaryLang;
         const client = activeSimClient.current;
         if (selectedRunIdx === null || !client) return;
-        if (showPlaceholder) trainTooltip.setContent("#94a3b8", `Train ${selectedRunIdx}`);
+        if (showPlaceholder) {
+          const placeholder = translate(primaryLang, "tooltip.trainFallback", {
+            runIdx: selectedRunIdx,
+          });
+          trainTooltip.setContent("#94a3b8", placeholder);
+        }
         try {
           const detail = await client.getRunDetail(selectedRunIdx, client.getSimNow());
           // Bail on a stale response after the user re-selected mid-flight —
           // same guard TrainInspector.tsx's own poll uses.
           if (useAppStore.getState().selectedRunIdx !== selectedRunIdx) return;
           if (!detail) {
-            trainTooltip.setContent("#94a3b8", "Trip ended");
+            const ended = translate(primaryLang, "tooltip.tripEnded");
+            trainTooltip.setContent("#94a3b8", ended);
             return;
           }
           const color = `#${detail.color_rgb.toString(16).padStart(6, "0")}`;
+          const headsign =
+            primaryLang === "th" && detail.headsign_th ? detail.headsign_th : detail.headsign;
           const next =
             detail.next_station !== null && detail.next_arrival_in_s !== null
-              ? ` · ${detail.next_station} in ${formatCountdown(detail.next_arrival_in_s)}`
+              ? translate(primaryLang, "tooltip.nextArrival", {
+                  station: detail.next_station,
+                  time: formatCountdown(detail.next_arrival_in_s, primaryLang),
+                })
               : "";
-          trainTooltip.setContent(color, `${detail.headsign}${next}`);
+          trainTooltip.setContent(color, `${headsign}${next}`);
         } catch {
           // Worker torn down mid-flight; the next poll or selection re-queries.
         }
       };
       tooltipTimer = setInterval(() => void refreshTooltipContent(false), 1000);
       unsubscribeTooltipSelection = useAppStore.subscribe((state, prev) => {
-        if (state.selectedRunIdx !== prev.selectedRunIdx) void refreshTooltipContent(true);
+        if (
+          state.selectedRunIdx !== prev.selectedRunIdx ||
+          state.primaryLang !== prev.primaryLang
+        ) {
+          void refreshTooltipContent(state.selectedRunIdx !== prev.selectedRunIdx);
+        }
       });
 
       // Day/night follows the SIM clock, not wall time (F3.3) — scrubbing to

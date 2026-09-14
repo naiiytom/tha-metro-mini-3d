@@ -3,6 +3,7 @@ import { useIsMobile } from "../hooks/useIsMobile";
 import { useBottomSheet } from "../hooks/useBottomSheet";
 import { useAppStore, type NavigationTab } from "../stores/useAppStore";
 import { browserStorage, hasStoredPreference, loadCollapsed, saveCollapsed } from "./panelCollapse";
+import { useT } from "../i18n";
 import { LinesTab } from "./tabs/LinesTab";
 import { StationsTab } from "./tabs/StationsTab";
 import { RouteTab } from "./tabs/RouteTab";
@@ -15,14 +16,11 @@ interface TabItem {
   description: string;
 }
 
-const TABS: TabItem[] = [
-  { id: "lines", label: "Lines", icon: "🚇", description: "Lines & view controls" },
-  { id: "stations", label: "Stations", icon: "🔍", description: "Find stations & departures" },
-  { id: "route", label: "Route", icon: "🧭", description: "Plan a journey" },
-  { id: "about", label: "About", icon: "ℹ️", description: "Attribution & sponsors" },
-];
+/** Static tab sequence for keyboard navigation order */
+const TAB_ORDER: readonly NavigationTab[] = ["lines", "stations", "route", "about"];
 
 export function NavigationPanel() {
+  const t = useT();
   const mapReady = useAppStore((s) => s.mapReady);
   const uiHidden = useAppStore((s) => s.uiHidden);
   const setUiHidden = useAppStore((s) => s.setUiHidden);
@@ -35,6 +33,13 @@ export function NavigationPanel() {
   const setSheetDetent = useAppStore((s) => s.setSheetDetent);
   const selectedStation = useAppStore((s) => s.selectedStation);
   const selectedRunIdx = useAppStore((s) => s.selectedRunIdx);
+
+  const tabs: TabItem[] = [
+    { id: "lines", label: t("nav.tabLines"), icon: "🚇", description: t("nav.tabLinesDesc") },
+    { id: "stations", label: t("nav.tabStations"), icon: "🔍", description: t("nav.tabStationsDesc") },
+    { id: "route", label: t("nav.tabRoute"), icon: "🧭", description: t("nav.tabRouteDesc") },
+    { id: "about", label: t("nav.tabAbout"), icon: "ℹ️", description: t("nav.tabAboutDesc") },
+  ];
 
   const { sheetRef, handleRef, contentRef, snapTo, translateY } = useBottomSheet({
     initialDetent: sheetDetent,
@@ -98,23 +103,23 @@ export function NavigationPanel() {
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    const currentIdx = TABS.findIndex((t) => t.id === (activeTab || lastActiveTab.current || "lines"));
+    const currentIdx = TAB_ORDER.indexOf(activeTab || lastActiveTab.current || "lines");
     if (currentIdx === -1) return;
 
     let targetIdx = -1;
     if (e.key === "ArrowRight") {
-      targetIdx = (currentIdx + 1) % TABS.length;
+      targetIdx = (currentIdx + 1) % TAB_ORDER.length;
     } else if (e.key === "ArrowLeft") {
-      targetIdx = (currentIdx - 1 + TABS.length) % TABS.length;
+      targetIdx = (currentIdx - 1 + TAB_ORDER.length) % TAB_ORDER.length;
     } else if (e.key === "Home") {
       targetIdx = 0;
     } else if (e.key === "End") {
-      targetIdx = TABS.length - 1;
+      targetIdx = TAB_ORDER.length - 1;
     }
 
     if (targetIdx !== -1) {
       e.preventDefault();
-      const targetTab = TABS[targetIdx].id;
+      const targetTab = TAB_ORDER[targetIdx];
       setExpanded(true);
       saveCollapsed(browserStorage(), false);
       setActiveTab(targetTab);
@@ -131,7 +136,7 @@ export function NavigationPanel() {
   return (
     <nav
       ref={isMobile ? sheetRef : undefined}
-      aria-label="Transit Navigation"
+      aria-label={t("nav.ariaLabel")}
       data-testid="navigation-panel"
       style={isMobile && translateY !== undefined ? { transform: `translateY(${translateY}px)` } : undefined}
       className={`panel-glass pointer-events-auto overflow-hidden transition-all ${
@@ -159,11 +164,7 @@ export function NavigationPanel() {
           <div className="min-w-0 flex-1">
             <h1 className="truncate text-sm font-semibold text-ink">Greater Bangkok Metro Mini 3D</h1>
             <p className="truncate text-xs text-ink-muted">
-              {mapReady
-                ? primaryLang === "th"
-                  ? "ระบบจำลองรถไฟฟ้ากรุงเทพมหานครและปริมณฑล"
-                  : "Bangkok Urban Rail Simulation"
-                : "Loading map…"}
+              {mapReady ? t("nav.subtitle") : t("nav.loadingMap")}
             </p>
           </div>
 
@@ -171,8 +172,8 @@ export function NavigationPanel() {
           <button
             type="button"
             onClick={togglePrimaryLang}
-            aria-label={`Switch language (current: ${primaryLang.toUpperCase()})`}
-            title={`Switch language (current: ${primaryLang.toUpperCase()})`}
+            aria-label={t("nav.switchLanguage", { current: primaryLang.toUpperCase() })}
+            title={t("nav.switchLanguage", { current: primaryLang.toUpperCase() })}
             className="flex h-11 min-h-[44px] shrink-0 items-center justify-center rounded-full border border-edge bg-surface-sunken/80 px-2 text-[11px] font-bold text-ink hover:bg-surface md:h-8 md:min-h-0"
           >
             {primaryLang === "en" ? "EN / TH" : "TH / EN"}
@@ -182,8 +183,8 @@ export function NavigationPanel() {
           <button
             type="button"
             onClick={() => setUiHidden(!uiHidden)}
-            aria-label={uiHidden ? "Show overlay UI" : "Hide overlay UI"}
-            title={uiHidden ? "Show overlay UI" : "Hide overlay UI"}
+            aria-label={uiHidden ? t("nav.showUi") : t("nav.hideUi")}
+            title={uiHidden ? t("nav.showUi") : t("nav.hideUi")}
             className="flex h-11 w-11 min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-lg text-sm text-ink-muted hover:bg-surface-sunken md:h-8 md:w-8 md:min-h-0 md:min-w-0"
           >
             {uiHidden ? "👁️" : "✕"}
@@ -194,8 +195,8 @@ export function NavigationPanel() {
             type="button"
             onClick={toggleExpanded}
             aria-expanded={expanded}
-            aria-label={expanded ? "Collapse navigation panel" : "Expand navigation panel"}
-            title={expanded ? "Collapse panel" : "Expand panel"}
+            aria-label={expanded ? t("nav.collapsePanel") : t("nav.expandPanel")}
+            title={expanded ? t("nav.collapsePanelShort") : t("nav.expandPanelShort")}
             className="hidden md:flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-semibold text-ink-muted hover:bg-surface-sunken"
           >
             ▲
@@ -210,8 +211,8 @@ export function NavigationPanel() {
             type="button"
             onClick={toggleExpanded}
             aria-expanded={false}
-            aria-label="Expand navigation panel"
-            title="Expand panel"
+            aria-label={t("nav.expandPanel")}
+            title={t("nav.expandPanelShort")}
             className="flex h-8 w-8 items-center justify-center rounded-lg text-xs font-semibold text-ink-muted hover:bg-surface-sunken hover:text-ink"
           >
             ▼
@@ -222,13 +223,13 @@ export function NavigationPanel() {
       {/* Accessible Tab Bar */}
       <div
         role="tablist"
-        aria-label="Navigation Sections"
+        aria-label={t("nav.sectionsAriaLabel")}
         onKeyDown={handleKeyDown}
         className={`flex ${
           isMobile || expanded ? "flex-row border-b" : "flex-col gap-1 py-1"
         } border-edge bg-surface-sunken/80 p-1`}
       >
-        {TABS.map((tab) => {
+        {tabs.map((tab) => {
           const isSelected = (isMobile || expanded) && activeTab === tab.id;
           return (
             <button

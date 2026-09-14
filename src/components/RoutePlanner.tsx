@@ -7,11 +7,7 @@ import { useAppStore } from "../stores/useAppStore";
 import { planDisclosures } from "../route/routePlanDisclosures";
 import { StationCombobox } from "./StationCombobox";
 import { LegRow, NOTE_CLASS } from "./LegRow";
-import {
-  ESTIMATED_RUN_TIMES_NOTE,
-  SYNTHETIC_SCHEDULE_NOTE,
-  TRANSFER_TIMES_ESTIMATED_NOTE,
-} from "../types";
+import { useT } from "../i18n";
 
 type Status = { kind: "idle" } | { kind: "loading" } | { kind: "done" } | { kind: "failed" };
 
@@ -46,6 +42,8 @@ export function RoutePlanner() {
   const stations = useAppStore((s) => s.stations);
   const routes = useAppStore((s) => s.routes);
   const hiddenRoutes = useAppStore((s) => s.hiddenRoutes);
+  const primaryLang = useAppStore((s) => s.primaryLang);
+  const t = useT();
 
   const [from, setFrom] = useState<StationInfo | null>(null);
   const [to, setTo] = useState<StationInfo | null>(null);
@@ -122,11 +120,11 @@ export function RoutePlanner() {
       className="panel-glass pointer-events-auto flex max-h-[50dvh] w-full flex-col overflow-hidden rounded-t-[28px] border-t border-edge border-x-0 border-b-0 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-xl shadow-ink/10 backdrop-blur-md md:absolute md:left-[17rem] md:top-4 md:max-h-[calc(100dvh-2rem)] md:w-80 md:rounded-xl md:border md:pb-0"
     >
       <div className="flex items-center gap-2 border-b border-edge px-4 py-3">
-        <p className="min-w-0 flex-1 truncate text-sm font-semibold text-ink">Plan a route</p>
+        <p className="min-w-0 flex-1 truncate text-sm font-semibold text-ink">{t("route.planRoute")}</p>
         <button
           type="button"
           onClick={() => setOpen(false)}
-          aria-label="Close route planner"
+          aria-label={t("route.closePlanner")}
           className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-sm leading-none text-ink-muted hover:bg-surface-sunken hover:text-ink md:h-auto md:w-auto md:px-1.5 md:py-0.5"
         >
           ×
@@ -134,8 +132,8 @@ export function RoutePlanner() {
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto py-2">
-        <StationCombobox label="From" stations={visibleStations} routes={routes} onPick={setFrom} />
-        <StationCombobox label="To" stations={visibleStations} routes={routes} onPick={setTo} />
+        <StationCombobox label={t("route.from")} stations={visibleStations} routes={routes} onPick={setFrom} />
+        <StationCombobox label={t("route.to")} stations={visibleStations} routes={routes} onPick={setTo} />
 
         <div className="px-4 py-2">
           <button
@@ -144,22 +142,21 @@ export function RoutePlanner() {
             disabled={!from || !to || status.kind === "loading"}
             className="w-full rounded-md bg-accent px-3 py-2 text-sm font-medium text-accent-ink transition-colors hover:opacity-90 disabled:bg-edge disabled:text-ink-muted"
           >
-            Find route
+            {t("route.findRoute")}
           </button>
         </div>
 
         {status.kind === "loading" && (
-          <p className="px-4 py-2 text-xs text-ink-muted">Searching the timetable…</p>
+          <p className="px-4 py-2 text-xs text-ink-muted">{t("route.searchingTimetable")}</p>
         )}
         {status.kind === "failed" && (
           <p className="px-4 py-2 text-xs text-ink-muted">
-            Couldn&apos;t plan a route — the engine rejected that request.
+            {t("route.planningFailed")}
           </p>
         )}
         {currentPlan?.unreachable && (
           <p className="px-4 py-2 text-xs text-ink-muted">
-            No route found within {Math.round(DEFAULT_MAX_WAIT_S / 60)} minutes of this departure
-            time. Try a different time of day.
+            {t("route.unreachable", { minutes: Math.round(DEFAULT_MAX_WAIT_S / 60) })}
           </p>
         )}
 
@@ -184,10 +181,12 @@ export function RoutePlanner() {
                       }`}
                     >
                       <p className="text-xs font-semibold text-ink">
-                        {formatCountdown(p.durationS)}
+                        {formatCountdown(p.durationS, primaryLang)}
                       </p>
                       <p className="text-[10px] text-ink-muted">
-                        {p.transfers} transfer{p.transfers === 1 ? "" : "s"}
+                        {p.transfers === 1
+                          ? t("route.transfersOne", { count: 1 })
+                          : t("route.transfersOther", { count: p.transfers })}
                       </p>
                     </button>
                   );
@@ -199,25 +198,27 @@ export function RoutePlanner() {
                 {formatServiceSec(currentPlan.departSec)} → {formatServiceSec(currentPlan.arriveSec)}
               </span>
               <span className="ml-2 text-xs text-ink-muted">
-                {formatCountdown(currentPlan.durationS)} · {currentPlan.transfers} transfer
-                {currentPlan.transfers === 1 ? "" : "s"}
+                {formatCountdown(currentPlan.durationS, primaryLang)} ·{" "}
+                {currentPlan.transfers === 1
+                  ? t("route.transfersOne", { count: 1 })
+                  : t("route.transfersOther", { count: currentPlan.transfers })}
               </span>
             </p>
             {/* Every caveat renders BEFORE the times it qualifies — a clipped
              * or trailing caveat is worse than none. */}
             {disclosures.synthetic && (
               <p data-testid="synthetic-schedule-note" className={NOTE_CLASS}>
-                {SYNTHETIC_SCHEDULE_NOTE}
+                {t("notes.syntheticSchedule")}
               </p>
             )}
             {disclosures.estimated && (
               <p data-testid="estimated-run-times-note" className={NOTE_CLASS}>
-                {ESTIMATED_RUN_TIMES_NOTE}
+                {t("notes.estimatedRunTimes")}
               </p>
             )}
             {disclosures.transfers && (
               <p data-testid="transfer-times-note" className={NOTE_CLASS}>
-                {TRANSFER_TIMES_ESTIMATED_NOTE}
+                {t("notes.transferTimesEstimated")}
               </p>
             )}
             <ul className="divide-y divide-edge">

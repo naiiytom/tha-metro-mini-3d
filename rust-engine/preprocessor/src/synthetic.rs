@@ -190,6 +190,16 @@ pub fn synthesize(
             .last()
             .map(|(_, s)| s.name_en.clone())
             .unwrap_or_default();
+        let headsign_th = ordered
+            .last()
+            .map(|(_, s)| {
+                if s.name_th.trim().is_empty() {
+                    s.name_en.clone()
+                } else {
+                    s.name_th.clone()
+                }
+            })
+            .unwrap_or_default();
         patterns.push(PatternDoc {
             // `synthetic:` prefix so this can never be mistaken for a feed
             // trip id in a log line, a report file, or the train inspector.
@@ -198,6 +208,7 @@ pub fn synthesize(
                 .map_err(|_| format!("route_idx {route_idx} exceeds PatternDoc's u8"))?,
             direction,
             headsign_en,
+            headsign_th,
             stops,
         });
 
@@ -444,5 +455,32 @@ mod tests {
         let flat = [station("A", 50.0), station("B", 50.0)];
         let err = synthesize("apm", 0, &flat, &apm_like()).unwrap_err();
         assert!(err.contains("zero arc length"), "got: {err}");
+    }
+
+    #[test]
+    fn synthetic_headsign_resolves_thai_from_terminal_station() {
+        let stations = [
+            StationDoc {
+                gtfs_stop_id: "A".into(),
+                code: "".into(),
+                name_en: "Main Terminal".into(),
+                name_th: "อาคารผู้โดยสารหลัก".into(),
+                arc_m: 0.0,
+                interchanges: Vec::new(),
+            },
+            StationDoc {
+                gtfs_stop_id: "B".into(),
+                code: "".into(),
+                name_en: "Satellite 1".into(),
+                name_th: "อาคารเทียบเครื่องบินรอง 1".into(),
+                arc_m: 1000.0,
+                interchanges: Vec::new(),
+            },
+        ];
+        let out = synthesize("apm", 0, &stations, &apm_like()).unwrap();
+        assert_eq!(out.patterns[0].headsign_en, "Satellite 1");
+        assert_eq!(out.patterns[0].headsign_th, "อาคารเทียบเครื่องบินรอง 1");
+        assert_eq!(out.patterns[1].headsign_en, "Main Terminal");
+        assert_eq!(out.patterns[1].headsign_th, "อาคารผู้โดยสารหลัก");
     }
 }

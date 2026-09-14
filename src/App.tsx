@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { FollowHudChip } from "./components/FollowHudChip";
 import { MapContainer } from "./components/MapContainer";
 import { NavigationPanel } from "./components/NavigationPanel";
@@ -9,6 +10,13 @@ import { useAppStore } from "./stores/useAppStore";
 
 export default function App() {
   const uiHidden = useAppStore((s) => s.uiHidden);
+  const primaryLang = useAppStore((s) => s.primaryLang);
+
+  useEffect(() => {
+    if (typeof document !== "undefined") {
+      document.documentElement.lang = primaryLang;
+    }
+  }, [primaryLang]);
 
   return (
     <div

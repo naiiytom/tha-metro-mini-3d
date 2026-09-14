@@ -221,6 +221,7 @@ pub enum PlanLeg {
         /// `RunDetail` uses — the UI wants a CSS colour.
         color_rgb: String,
         headsign: String,
+        headsign_th: String,
         direction: u8,
         run_idx: u32,
         board_station_idx: u16,
@@ -487,6 +488,7 @@ fn reconstruct(
                     route_name: route.name_en.clone(),
                     color_rgb: format!("#{:06X}", route.color_rgb & 0x00FF_FFFF),
                     headsign: pattern.headsign_en.clone(),
+                    headsign_th: pattern.headsign_th.clone(),
                     direction: if alight.arc_m < board.arc_m { 1 } else { 0 },
                     run_idx,
                     board_station_idx: board.station_idx,
@@ -1138,6 +1140,7 @@ pub(crate) mod tests_support {
             route_idx: 0,
             direction: 0,
             headsign_en: "A2".into(),
+            headsign_th: "A2".into(),
             stops: vec![
                 pstop(0, 0, 30, 0.0),
                 pstop(1, 300, 330, 5000.0),
@@ -1149,6 +1152,7 @@ pub(crate) mod tests_support {
             route_idx: 1,
             direction: 0,
             headsign_en: "B1".into(),
+            headsign_th: "B1".into(),
             stops: vec![pstop(0, 0, 30, 0.0), pstop(1, 300, 300, 1000.0)],
         };
         CacheDoc {
@@ -1398,6 +1402,7 @@ pub(crate) mod tests_support {
                     route_idx: 0,
                     direction: 0,
                     headsign_en: "D".into(),
+                    headsign_th: "D".into(),
                     stops: vec![pstop(0, 0, 30, 0.0), pstop(1, 20_000, 20_000, 8000.0)],
                 },
                 // pattern 1: route1, O(0/30) -> M1(1000/1000).
@@ -1406,6 +1411,7 @@ pub(crate) mod tests_support {
                     route_idx: 1,
                     direction: 0,
                     headsign_en: "M1".into(),
+                    headsign_th: "M1".into(),
                     stops: vec![pstop(0, 0, 30, 0.0), pstop(1, 1000, 1000, 1000.0)],
                 },
                 // pattern 2: route2, M1(0/0) -> D(6300/6300).
@@ -1414,6 +1420,7 @@ pub(crate) mod tests_support {
                     route_idx: 2,
                     direction: 0,
                     headsign_en: "D".into(),
+                    headsign_th: "D".into(),
                     stops: vec![pstop(0, 0, 0, 0.0), pstop(1, 6300, 6300, 8000.0)],
                 },
                 // pattern 3: route3, M1(0/0) -> M2(800/800).
@@ -1422,6 +1429,7 @@ pub(crate) mod tests_support {
                     route_idx: 3,
                     direction: 0,
                     headsign_en: "M2".into(),
+                    headsign_th: "M2".into(),
                     stops: vec![pstop(0, 0, 0, 0.0), pstop(1, 800, 800, 1000.0)],
                 },
                 // pattern 4: route4, M2(0/0) -> D(3300/3300).
@@ -1430,6 +1438,7 @@ pub(crate) mod tests_support {
                     route_idx: 4,
                     direction: 0,
                     headsign_en: "D".into(),
+                    headsign_th: "D".into(),
                     stops: vec![pstop(0, 0, 0, 0.0), pstop(1, 3300, 3300, 8000.0)],
                 },
                 // pattern 5: route5, M2(0/0) -> M3(700/700).
@@ -1438,6 +1447,7 @@ pub(crate) mod tests_support {
                     route_idx: 5,
                     direction: 0,
                     headsign_en: "M3".into(),
+                    headsign_th: "M3".into(),
                     stops: vec![pstop(0, 0, 0, 0.0), pstop(1, 700, 700, 1000.0)],
                 },
                 // pattern 6: route6, M3(0/0) -> D(1800/1800).
@@ -1446,6 +1456,7 @@ pub(crate) mod tests_support {
                     route_idx: 6,
                     direction: 0,
                     headsign_en: "D".into(),
+                    headsign_th: "D".into(),
                     stops: vec![pstop(0, 0, 0, 0.0), pstop(1, 1800, 1800, 8000.0)],
                 },
             ],
@@ -1472,6 +1483,7 @@ pub(crate) mod tests_support {
             route_idx: 0,
             direction: 0,
             headsign_en: "A2 via A1".into(),
+            headsign_th: "A2 via A1".into(),
             stops: vec![
                 pstop(0, 0, 30, 0.0),
                 pstop(1, 300, 330, 1000.0),
