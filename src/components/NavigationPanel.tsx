@@ -16,12 +16,8 @@ interface TabItem {
   description: string;
 }
 
-const TABS: TabItem[] = [
-  { id: "lines", label: "Lines", icon: "🚇", description: "Lines & view controls" },
-  { id: "stations", label: "Stations", icon: "🔍", description: "Find stations & departures" },
-  { id: "route", label: "Route", icon: "🧭", description: "Plan a journey" },
-  { id: "about", label: "About", icon: "ℹ️", description: "Attribution & sponsors" },
-];
+/** Static tab sequence for keyboard navigation order */
+const TAB_ORDER: readonly NavigationTab[] = ["lines", "stations", "route", "about"];
 
 export function NavigationPanel() {
   const t = useT();
@@ -107,23 +103,23 @@ export function NavigationPanel() {
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    const currentIdx = TABS.findIndex((t) => t.id === (activeTab || lastActiveTab.current || "lines"));
+    const currentIdx = TAB_ORDER.indexOf(activeTab || lastActiveTab.current || "lines");
     if (currentIdx === -1) return;
 
     let targetIdx = -1;
     if (e.key === "ArrowRight") {
-      targetIdx = (currentIdx + 1) % TABS.length;
+      targetIdx = (currentIdx + 1) % TAB_ORDER.length;
     } else if (e.key === "ArrowLeft") {
-      targetIdx = (currentIdx - 1 + TABS.length) % TABS.length;
+      targetIdx = (currentIdx - 1 + TAB_ORDER.length) % TAB_ORDER.length;
     } else if (e.key === "Home") {
       targetIdx = 0;
     } else if (e.key === "End") {
-      targetIdx = TABS.length - 1;
+      targetIdx = TAB_ORDER.length - 1;
     }
 
     if (targetIdx !== -1) {
       e.preventDefault();
-      const targetTab = TABS[targetIdx].id;
+      const targetTab = TAB_ORDER[targetIdx];
       setExpanded(true);
       saveCollapsed(browserStorage(), false);
       setActiveTab(targetTab);

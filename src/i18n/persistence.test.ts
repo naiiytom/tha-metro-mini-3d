@@ -25,6 +25,9 @@ describe("persistence helpers (Seam C)", () => {
     expect(detectBrowserLanguage({ language: "TH" })).toBe("th");
     expect(detectBrowserLanguage({ language: "en-US" })).toBe("en");
     expect(detectBrowserLanguage({ language: "ja-JP" })).toBe("en");
+    expect(detectBrowserLanguage({ languages: ["en-US", "th-TH"], language: "en-US" })).toBe("th");
+    expect(detectBrowserLanguage({ languages: ["en-US", "en-GB"], language: "en-US" })).toBe("en");
+    expect(detectBrowserLanguage({ languages: ["th", "en"], language: "th" })).toBe("th");
     expect(detectBrowserLanguage(undefined)).toBe("en");
   });
 
@@ -75,7 +78,7 @@ describe("persistence helpers (Seam C)", () => {
     expect(store[PRIMARY_LANG_KEY]).toBe("th");
     expect(loadPrimaryLang(storage)).toBe("th");
 
-    savePrimaryLang(storage, "en");
+    savePrimaryLang("en", storage);
     expect(store[PRIMARY_LANG_KEY]).toBe("en");
     expect(loadPrimaryLang(storage)).toBe("en");
   });

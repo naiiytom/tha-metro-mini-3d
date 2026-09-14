@@ -45,20 +45,9 @@ export function loadPrimaryLang(storage: ReadableStorage = browserStorage()): Pr
 }
 
 export function savePrimaryLang(
-  arg1: PrimaryLanguage | WritableStorage,
-  arg2?: PrimaryLanguage | WritableStorage
+  lang: PrimaryLanguage,
+  storage: WritableStorage = browserStorage(),
 ): void {
-  let lang: PrimaryLanguage;
-  let storage: WritableStorage;
-
-  if (typeof arg1 === "string") {
-    lang = arg1;
-    storage = (arg2 as WritableStorage) ?? browserStorage();
-  } else {
-    storage = arg1;
-    lang = arg2 as PrimaryLanguage;
-  }
-
   try {
     storage.setItem(PRIMARY_LANG_KEY, lang);
   } catch {
@@ -66,9 +55,21 @@ export function savePrimaryLang(
   }
 }
 
-export function detectBrowserLanguage(nav?: Pick<Navigator, "language">): PrimaryLanguage {
+export function detectBrowserLanguage(
+  nav?: Partial<Pick<Navigator, "language" | "languages">>,
+): PrimaryLanguage {
   const n = nav ?? (typeof navigator !== "undefined" ? navigator : undefined);
-  if (n && typeof n.language === "string" && n.language.toLowerCase().startsWith("th")) {
+  if (!n) return "en";
+
+  if (Array.isArray(n.languages)) {
+    for (const lang of n.languages) {
+      if (typeof lang === "string" && lang.toLowerCase().startsWith("th")) {
+        return "th";
+      }
+    }
+  }
+
+  if (typeof n.language === "string" && n.language.toLowerCase().startsWith("th")) {
     return "th";
   }
   return "en";
@@ -76,9 +77,10 @@ export function detectBrowserLanguage(nav?: Pick<Navigator, "language">): Primar
 
 export function resolveInitialLanguage(
   storage: ReadableStorage = browserStorage(),
-  nav?: Pick<Navigator, "language">
+  nav?: Partial<Pick<Navigator, "language" | "languages">>,
 ): PrimaryLanguage {
   const persisted = loadPrimaryLang(storage);
   if (persisted) return persisted;
   return detectBrowserLanguage(nav);
 }
+

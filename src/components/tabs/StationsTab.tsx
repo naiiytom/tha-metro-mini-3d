@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { lngLatToLocal } from "../../map/coordinates";
 import { formatDistance, geoErrorMessage, nearestStation } from "../../search/stationSearch";
 import { useAppStore } from "../../stores/useAppStore";
-import { formatBilingualStation } from "../../utils/stationTypography";
+import { formatBilingualStation, resolveLineName } from "../../utils/stationTypography";
 import { useT } from "../../i18n";
 import { StationCombobox } from "../StationCombobox";
 import type { StationInfo } from "../../sim/protocol";
@@ -116,9 +116,11 @@ export function StationsTab() {
                 {nearestBilingual.secondaryName ? ` · ${nearestBilingual.secondaryName}` : ""}
               </p>
               <p className="text-[10px] text-ink-muted">
-                {(primaryLang === "th" && routes[nearest.station.route_idx]?.nameTh
-                  ? routes[nearest.station.route_idx]?.nameTh
-                  : routes[nearest.station.route_idx]?.name) || t("stations.transitLineFallback")}
+                {resolveLineName(
+                  routes[nearest.station.route_idx],
+                  primaryLang,
+                  t("stations.transitLineFallback"),
+                )}
               </p>
             </div>
             <span className="ml-2 shrink-0 rounded bg-accent/10 px-1.5 py-0.5 text-[10px] font-medium text-accent">

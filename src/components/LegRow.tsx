@@ -3,6 +3,7 @@ import { formatCountdown, formatServiceSec } from "../sim/time";
 import type { LineGeometry } from "../types";
 import { useAppStore } from "../stores/useAppStore";
 import { useT } from "../i18n";
+import { resolveLineName } from "../utils/stationTypography";
 
 /**
  * Standard disclosure note styling across StationBoard/TrainInspector/RoutePlanner.
@@ -43,9 +44,7 @@ export function LegRow({ leg, routes, rideBefore, rideAfter }: LegRowProps) {
   }
 
   const resolvedHeadsign = primaryLang === "th" && leg.headsignTh ? leg.headsignTh : leg.headsign;
-  const resolvedRouteName = primaryLang === "th" && routes[leg.routeIdx]?.nameTh
-    ? routes[leg.routeIdx]?.nameTh
-    : leg.routeName;
+  const resolvedRouteName = resolveLineName(routes[leg.routeIdx], primaryLang, leg.routeName);
 
   return (
     <li className="flex items-start gap-2 px-3 py-1.5">

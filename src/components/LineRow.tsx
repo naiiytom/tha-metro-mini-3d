@@ -1,6 +1,7 @@
 import { useAppStore } from "../stores/useAppStore";
 import type { LineGeometry } from "../types";
 import { useT } from "../i18n";
+import { resolveLineName } from "../utils/stationTypography";
 
 export interface LineRowProps {
   line: LineGeometry;
@@ -17,7 +18,7 @@ export function LineRow({ line, routeIdx }: LineRowProps) {
   const toggleRoute = useAppStore((s) => s.toggleRoute);
   const primaryLang = useAppStore((s) => s.primaryLang);
 
-  const displayName = primaryLang === "th" && line.nameTh ? line.nameTh : line.name;
+  const displayName = resolveLineName(line, primaryLang);
 
   return (
     <li>

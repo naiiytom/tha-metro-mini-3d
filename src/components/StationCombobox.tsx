@@ -2,7 +2,7 @@ import { useEffect, useId, useMemo, useReducer, useRef, type KeyboardEvent } fro
 import { countMatches, groupByRoute, stationOptions } from "../search/stationSearch";
 import { INITIAL_COMBO, comboReducer, type ComboEvent, type ComboState } from "../search/comboboxState";
 import { useAppStore } from "../stores/useAppStore";
-import { formatBilingualStation } from "../utils/stationTypography";
+import { formatBilingualStation, resolveLineName } from "../utils/stationTypography";
 import { useT } from "../i18n";
 import type { StationInfo } from "../sim/protocol";
 import type { LineGeometry } from "../types";
@@ -136,10 +136,11 @@ export function StationCombobox({
             </li>
           )}
           {groups.map((group) => {
-            const lineName =
-              (primaryLang === "th" && routes[group.routeIdx]?.nameTh
-                ? routes[group.routeIdx]?.nameTh
-                : routes[group.routeIdx]?.name) ?? t("stations.lineFallback", { index: group.routeIdx });
+            const lineName = resolveLineName(
+              routes[group.routeIdx],
+              primaryLang,
+              t("stations.lineFallback", { index: group.routeIdx }),
+            );
             return (
               <li key={group.routeIdx} role="presentation">
                 <div

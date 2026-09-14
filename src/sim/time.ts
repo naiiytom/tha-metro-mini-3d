@@ -1,3 +1,6 @@
+import { translate } from "../i18n";
+import type { PrimaryLanguage } from "../i18n/persistence";
+
 /**
  * Bangkok service-time helpers shared by the MVP 4 UI panels.
  *
@@ -22,11 +25,11 @@ export function formatServiceSec(sec: number): string {
 }
 
 /** Human countdown: "due", "45s", "2m 30s", "1h 05m" (or Thai equivalents). */
-export function formatCountdown(seconds: number, lang: "en" | "th" = "en"): string {
-  if (seconds <= 0) return lang === "th" ? "ถึงแล้ว" : "due";
-  const sSuffix = lang === "th" ? " วิ" : "s";
-  const mSuffix = lang === "th" ? " นาที" : "m";
-  const hSuffix = lang === "th" ? " ชม." : "h";
+export function formatCountdown(seconds: number, lang: PrimaryLanguage = "en"): string {
+  if (seconds <= 0) return translate(lang, "units.due");
+  const sSuffix = translate(lang, "units.secSuffix");
+  const mSuffix = translate(lang, "units.minSuffix");
+  const hSuffix = translate(lang, "units.hourSuffix");
   if (seconds < 60) return `${Math.round(seconds)}${sSuffix}`;
   if (seconds < 3600) {
     const m = Math.floor(seconds / 60);

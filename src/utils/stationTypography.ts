@@ -41,3 +41,24 @@ export function formatBilingualStation(
     subtitle,
   };
 }
+
+export interface LineNameSource {
+  name?: string;
+  nameTh?: string;
+}
+
+/**
+ * Resolves a line or route display name given its bilingual fields and the user's primary language.
+ */
+export function resolveLineName(
+  route?: LineNameSource | null,
+  primaryLang: PrimaryLanguage = "en",
+  fallback = "",
+): string {
+  if (!route) return fallback;
+  if (primaryLang === "th" && route.nameTh) {
+    return route.nameTh;
+  }
+  return route.name || fallback;
+}
+

@@ -35,6 +35,7 @@ import {
 import { SimClient, activeSimClient } from "../sim/SimClient";
 import { DEFAULT_TICK_MS, ECO_TICK_MS, LANE_RUN_IDX, LANE_Z, VEHICLE_STRIDE } from "../sim/protocol";
 import { formatCountdown } from "../sim/time";
+import { translate } from "../i18n";
 import { useAppStore } from "../stores/useAppStore";
 import network from "../data/network.json";
 import type { NetworkData } from "../types";
@@ -427,8 +428,9 @@ export function MapContainer() {
         const client = activeSimClient.current;
         if (selectedRunIdx === null || !client) return;
         if (showPlaceholder) {
-          const placeholder =
-            primaryLang === "th" ? `ขบวน ${selectedRunIdx}` : `Train ${selectedRunIdx}`;
+          const placeholder = translate(primaryLang, "tooltip.trainFallback", {
+            runIdx: selectedRunIdx,
+          });
           trainTooltip.setContent("#94a3b8", placeholder);
         }
         try {
@@ -437,7 +439,7 @@ export function MapContainer() {
           // same guard TrainInspector.tsx's own poll uses.
           if (useAppStore.getState().selectedRunIdx !== selectedRunIdx) return;
           if (!detail) {
-            const ended = primaryLang === "th" ? "สิ้นสุดการเดินรถ" : "Trip ended";
+            const ended = translate(primaryLang, "tooltip.tripEnded");
             trainTooltip.setContent("#94a3b8", ended);
             return;
           }
@@ -446,9 +448,10 @@ export function MapContainer() {
             primaryLang === "th" && detail.headsign_th ? detail.headsign_th : detail.headsign;
           const next =
             detail.next_station !== null && detail.next_arrival_in_s !== null
-              ? primaryLang === "th"
-                ? ` · ${detail.next_station} ในอีก ${formatCountdown(detail.next_arrival_in_s, primaryLang)}`
-                : ` · ${detail.next_station} in ${formatCountdown(detail.next_arrival_in_s, primaryLang)}`
+              ? translate(primaryLang, "tooltip.nextArrival", {
+                  station: detail.next_station,
+                  time: formatCountdown(detail.next_arrival_in_s, primaryLang),
+                })
               : "";
           trainTooltip.setContent(color, `${headsign}${next}`);
         } catch {

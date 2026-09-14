@@ -40,11 +40,16 @@ impl Table {
 }
 
 /// "ไทย;English" -> (th, en). Single-part names land in both.
+/// If the Thai part is empty, it falls back to the English part.
 pub fn split_th_en(s: &str) -> (String, String) {
-    match s.split_once(';') {
+    let (mut th, en) = match s.split_once(';') {
         Some((th, en)) => (th.trim().to_string(), en.trim().to_string()),
         None => (s.trim().to_string(), s.trim().to_string()),
+    };
+    if th.is_empty() {
+        th = en.clone();
     }
+    (th, en)
 }
 
 /// GTFS HH:MM:SS -> seconds; hours may exceed 24.

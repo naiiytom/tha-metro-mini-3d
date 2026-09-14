@@ -3,7 +3,7 @@ import type { RunDetail, StationInfo } from "../sim/protocol";
 import { activeSimClient } from "../sim/SimClient";
 import { formatCountdown, formatServiceSec } from "../sim/time";
 import { useAppStore } from "../stores/useAppStore";
-import { formatBilingualStation } from "../utils/stationTypography";
+import { formatBilingualStation, resolveLineName } from "../utils/stationTypography";
 import { useT } from "../i18n";
 
 /** `${route_idx}:${station_idx}` — the natural key for cross-route station lookup. */
@@ -94,7 +94,7 @@ export function TrainInspector() {
           </p>
           <p className="truncate text-xs text-ink-muted">
             {detail
-              ? `${primaryLang === "th" && routes[detail.route_idx]?.nameTh ? routes[detail.route_idx]?.nameTh : detail.route_name} · ${t("inspector.run", { run: detail.run_idx })}`
+              ? `${resolveLineName(routes[detail.route_idx], primaryLang, detail.route_name)} · ${t("inspector.run", { run: detail.run_idx })}`
               : t("inspector.run", { run: selectedRunIdx })}
           </p>
           {/* Not truncated, unlike the two lines above: this one is a caveat
@@ -224,9 +224,11 @@ export function TrainInspector() {
                               className="rounded-full px-1 py-0 text-[9px] font-medium text-white"
                               style={{ background: routes[ix.route_idx]?.color ?? "#64748b" }}
                             >
-                              {primaryLang === "th" && routes[ix.route_idx]?.nameTh
-                                ? routes[ix.route_idx]?.nameTh
-                                : (routes[ix.route_idx]?.name ?? t("board.routeFallback", { index: ix.route_idx }))}
+                              {resolveLineName(
+                                routes[ix.route_idx],
+                                primaryLang,
+                                t("board.routeFallback", { index: ix.route_idx }),
+                              )}
                             </span>
                           ))}
                         </span>

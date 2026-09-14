@@ -3,7 +3,7 @@ import type { StationBoard as StationBoardData, StationInfo } from "../sim/proto
 import { activeSimClient } from "../sim/SimClient";
 import { formatCountdown, formatServiceSec } from "../sim/time";
 import { useAppStore } from "../stores/useAppStore";
-import { formatBilingualStation } from "../utils/stationTypography";
+import { formatBilingualStation, resolveLineName } from "../utils/stationTypography";
 import { useT } from "../i18n";
 
 /** `${route_idx}:${station_idx}` — the natural key for cross-route station lookup. */
@@ -109,9 +109,11 @@ export function StationBoard() {
               className="rounded-full px-1.5 py-0.5 text-[10px] font-medium text-white"
               style={{ background: routes[ix.route_idx]?.color ?? "#64748b" }}
             >
-              {primaryLang === "th" && routes[ix.route_idx]?.nameTh
-                ? routes[ix.route_idx]?.nameTh
-                : (routes[ix.route_idx]?.name ?? t("board.routeFallback", { index: ix.route_idx }))}
+              {resolveLineName(
+                routes[ix.route_idx],
+                primaryLang,
+                t("board.routeFallback", { index: ix.route_idx }),
+              )}
             </span>
           ))}
         </div>

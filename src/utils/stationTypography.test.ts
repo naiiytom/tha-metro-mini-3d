@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatBilingualStation } from "./stationTypography";
+import { formatBilingualStation, resolveLineName } from "./stationTypography";
 
 describe("formatBilingualStation", () => {
   it("formats English as primary and Thai + code as subtitle when primaryLang is 'en'", () => {
@@ -42,3 +42,24 @@ describe("formatBilingualStation", () => {
     expect(res.subtitle).toBe("อโศก • E4");
   });
 });
+
+describe("resolveLineName", () => {
+  const line = { name: "Sukhumvit Line", nameTh: "สายสุขุมวิท" };
+
+  it("returns English name when primaryLang is 'en'", () => {
+    expect(resolveLineName(line, "en")).toBe("Sukhumvit Line");
+  });
+
+  it("returns Thai name when primaryLang is 'th'", () => {
+    expect(resolveLineName(line, "th")).toBe("สายสุขุมวิท");
+  });
+
+  it("falls back to English when Thai name is empty in 'th' mode", () => {
+    expect(resolveLineName({ name: "Custom Line", nameTh: "" }, "th")).toBe("Custom Line");
+  });
+
+  it("returns fallback string when route is null/undefined", () => {
+    expect(resolveLineName(null, "th", "Default")).toBe("Default");
+  });
+});
+

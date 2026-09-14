@@ -1164,10 +1164,7 @@ fn run() -> Result<(), String> {
                 arc_m: resolved_arcs[i] as f32,
             });
         }
-        let (mut headsign_th, headsign_en) = gtfs::split_th_en(&trip.headsign);
-        if headsign_th.is_empty() {
-            headsign_th = headsign_en.clone();
-        }
+        let (headsign_th, headsign_en) = gtfs::split_th_en(&trip.headsign);
         pattern_idx_by_trip.insert(trip.trip_id.clone(), patterns.len() as u16);
         patterns.push(PatternDoc {
             gtfs_trip_id: trip.trip_id.clone(),
@@ -2748,17 +2745,11 @@ mod tests {
 
     #[test]
     fn headsign_split_falls_back_to_english_when_thai_is_absent() {
-        let (mut th, en) = gtfs::split_th_en("Khu Khot");
-        if th.is_empty() {
-            th = en.clone();
-        }
+        let (th, en) = gtfs::split_th_en("Khu Khot");
         assert_eq!(th, "Khu Khot");
         assert_eq!(en, "Khu Khot");
 
-        let (mut th_empty, en2) = gtfs::split_th_en(";Khu Khot");
-        if th_empty.is_empty() {
-            th_empty = en2.clone();
-        }
+        let (th_empty, en2) = gtfs::split_th_en(";Khu Khot");
         assert_eq!(th_empty, "Khu Khot");
         assert_eq!(en2, "Khu Khot");
     }

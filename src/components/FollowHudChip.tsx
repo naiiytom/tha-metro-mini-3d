@@ -3,6 +3,7 @@ import type { RunDetail } from "../sim/protocol";
 import { activeSimClient } from "../sim/SimClient";
 import { useAppStore } from "../stores/useAppStore";
 import { useT } from "../i18n";
+import { resolveLineName } from "../utils/stationTypography";
 
 export interface FollowHudChipProps {
   lineName?: string;
@@ -58,9 +59,11 @@ export function FollowHudChip({
   const displayTrainId = trainId ?? selectedRunIdx ?? "";
   const fallbackLineName =
     detail?.route_idx !== undefined && routes[detail.route_idx]
-      ? (primaryLang === "th" && routes[detail.route_idx]?.nameTh
-          ? routes[detail.route_idx]?.nameTh
-          : routes[detail.route_idx]?.name)
+      ? resolveLineName(
+          routes[detail.route_idx],
+          primaryLang,
+          detail?.route_name ?? t("follow.trainFallback"),
+        )
       : (detail?.route_name ?? t("follow.trainFallback"));
 
   const resolvedLineName = lineName ?? fallbackLineName;
