@@ -46,8 +46,10 @@ This feature introduces a 6DOF-inspired, smooth kinematic flyover engine enablin
 - **Requirement**:
   1. Maintain an active key press set (`Set<string>`) via global `keydown` and `keyup` listeners on `window`.
   2. Perform per-frame kinematic integration inside the render loop (`requestAnimationFrame`) using delta time (`Δt`).
-  3. Support acceleration (`a`), maximum velocity clamped by current zoom level ($v_{\text{max}} = f(\text{zoom})$), and exponential velocity damping ($v_{t+\Delta t} = v_t \cdot \text{damping}^{\Delta t}$) so releasing a key results in smooth, cinematic deceleration.
+  3. Support acceleration (`a`), maximum velocity clamped by current zoom level ($v_{\text{max}} = f(\text{zoom})$), and exponential velocity damping ($v_{t+\Delta t} = v_t \cdot \text{damping}^{\Delta t}$, where damping ∈ (0, 1) and default 0.92) so releasing a key results in smooth, cinematic deceleration.
   4. At low zoom ($z = 11$, citywide overview), camera translation speeds scale up to traverse kilometers per second; at high zoom ($z = 18$, track deck level), translation scales down for meter-level precision.
+  5. All per-frame kinematic state (velocity vector, active key set `Set<string>`, delta-time accumulator) lives **exclusively inside the `FlyoverControls` module closure** — it MUST NOT be written to React state or Zustand. This is non-negotiable (CONTRIBUTING.md line 76). The module communicates back to the application only through its `onFollowRelease` and `onYawOffset` callbacks.
+  6. Detect modifier keys (`Shift`, `Alt`, `Ctrl`) from the active `keydown` event's `shiftKey`, `altKey`, and `ctrlKey` boolean properties. Apply `turboMultiplier` (default 2.5) when Shift is held; apply `crawlMultiplier` (default 0.3) when Alt or Ctrl is held. Modifiers are evaluated per-frame; if both are held simultaneously, `crawlMultiplier` takes precedence (safety fallback).
 
 ### 3.2 Form Input & Accessibility Isolation (Conflict-Free Typing)
 - **Problem**: Users frequently type search queries into `StationSearch`, `StationCombobox`, or `RoutePlanner` (e.g. typing station names containing `w`, `a`, `s`, `d`, `q`, `e` such as *"Wongwian Yai"*, *"Siam"*, *"Asok"*, *"Queen Sirikit"*).
@@ -66,12 +68,12 @@ This feature introduces a 6DOF-inspired, smooth kinematic flyover engine enablin
 
 ### 3.3 Coordination with Follow-Camera State Machine
 - **Requirement**:
-  1. **Translational Keys (`W`, `A`, `S`, `D`, `Space`, `C`)**:
-     When the user presses any translational key while locked onto a moving train (`useAppStore.getState().following === true`), the flight engine calls `setFollowing(false)`. This mirrors the established UX contract where manual mouse panning relinquishes train tracking.
+  1. **Keys That Release Follow Mode (`W`, `A`, `S`, `D`, `Space`, `C`)**:
+     When the user presses any of these keys while locked onto a moving train (`useAppStore.getState().following === true`), the flight engine calls `onFollowRelease()` (which in turn calls `setFollowing(false)`) and then applies the corresponding camera motion. This mirrors the established UX contract where manual mouse panning relinquishes train tracking.
   2. **Rotational Keys (`Q`, `E`)**:
      When `following === true`, pressing `Q` or `E` must **NOT** disengage follow mode. Instead, it routes bearing deltas into `followCamera.addYawOffset(deltaBearing)`, allowing the user to smoothly orbit around the running train from the keyboard without breaking the follow lock.
   3. **Pitch Keys (`R`, `F`)**:
-     Modifies pitch smoothly within `[minPitch, maxPitch]` without interrupting train tracking.
+     Calls `map.setPitch(clamp(map.getPitch() + Δφ, map.getMinPitch(), map.getMaxPitch()))` directly without modifying follow-camera state. This does not interrupt train tracking.
 
 ### 3.4 Boundary & Safety Limits
 - **Requirement**:
@@ -98,10 +100,24 @@ export interface FlyoverOptions {
   turnRateDegPerSec?: number;
   /** Pitch rate in degrees per second (default: 45 deg/s) */
   pitchRateDegPerSec?: number;
-  /** Damping factor per second (default: 0.05) */
+  /**
+   * Exponential velocity retention factor per second (default: 0.92).
+   * Applied as `v *= damping^(dtMs/1000)` each frame. At 0.92 the camera
+   * coasts to a near-stop over ~2.5 s. Range (0, 1): lower = snappier stop,
+   * higher = longer coast. Do NOT set to 0.05 — that decays velocity to
+   * 5% in one second, producing an instant-stop, not cinematic deceleration.
+   */
   damping?: number;
-  /** Callback fired when translational motion disengages follow mode */
-  onManualPan?: () => void;
+  /** Velocity multiplier applied while `Shift` is held (default: 2.5) */
+  turboMultiplier?: number;
+  /** Velocity multiplier applied while `Alt` or `Ctrl` is held (default: 0.3) */
+  crawlMultiplier?: number;
+  /**
+   * Callback fired when any key that disengages follow mode is pressed
+   * (`W`, `A`, `S`, `D`, `Space`, `C`). Named generically because zoom
+   * keys (`Space`/`C`) also disengage follow, not only pan keys.
+   */
+  onFollowRelease?: () => void;
   /** Callback fired when rotational motion updates yaw during follow mode */
   onYawOffset?: (deltaDeg: number) => void;
 }
@@ -122,10 +138,11 @@ export interface FlyoverControls {
 
 1. **Unit Tests (`src/map/flyoverControls.test.ts`)**:
    - Verify `keydown` and `keyup` register and clear active keys in the internal state.
-   - Verify key strokes are completely ignored when `document.activeElement` is `HTMLInputElement` or `HTMLTextAreaElement`.
+   - Verify key strokes are completely ignored when `document.activeElement` is `HTMLInputElement`, `HTMLTextAreaElement`, or a `contenteditable` element (`isContentEditable === true`).
    - Verify `W`, `A`, `S`, `D` movements apply correct directional translations according to bearing angle $\theta$.
    - Verify `Q`, `E` apply correct rotational delta and invoke `onYawOffset` when following.
    - Verify `Shift` multiplier scales velocity by `2.5×`.
+   - Verify `Space` and `C` (zoom keys) call `onFollowRelease()` when `following === true`, matching the behaviour of translational keys.
    - Verify deceleration damping smoothly reduces velocity to zero when keys are released.
 2. **Integration Verification**:
    - Mount in `MapContainer.tsx`, test interaction in both idle and follow camera modes.

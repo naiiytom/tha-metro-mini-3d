@@ -187,6 +187,10 @@ The spec lists "Bincode or MessagePack" (and mentions Protobuf elsewhere). These
 | Sim loop | 60 FPS tick | Fixed-timestep sim + render-side interpolation | Medium |
 | Shadows | dynamic day/night shadows | Tight shadow frustum; quality toggle on mobile | Low |
 
+### 3A.10 Flyover keyboard controls (roadmap item 28)
+
+A self-contained `src/map/flyoverControls.ts` module provides 6DOF keyboard-driven camera navigation (WASD, QE, RF, Space/C). All per-frame kinematic state (velocity vector, active key set `Set<string>`, delta-time accumulator) lives **exclusively inside the module closure** — never in React or Zustand state (§3A.7 / CONTRIBUTING.md line 76). The module communicates back to `MapContainer` via two callbacks: `onFollowRelease` (disengages train tracking when translational/zoom keys are pressed) and `onYawOffset` (orbits around the followed train without breaking follow lock). Full requirements in [`docs/FLYOVER_CONTROLS_SPEC.md`](./FLYOVER_CONTROLS_SPEC.md).
+
 ---
 
 ## 4. Architectural & Functional Requirements
