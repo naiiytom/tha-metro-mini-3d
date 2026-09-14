@@ -31,7 +31,8 @@ Features to close parity with [nagix/mini-tokyo-3d](https://github.com/nagix/min
 | 23–24 | [Data Defect Fixes (Pink Spur, Dwells)](#reported-defects) | Data Integrity | Feed Normalization | ✅ Fixed |
 | 25 | [Support & Donation System](#25-support--donation-system--💖-github-sponsors-active-promptpay-deferred) | Community Payments | GitHub Sponsors Active | ✅ Active (GitHub Sponsors) |
 | 26 | [SEO, Structured Data & PWA Manifest](#26-seo-structured-data--web-app-manifest-suite) | SEO & Discoverability | Web Standards | 📋 Feature Parity Item |
-| 27 | [UI Suite: About, Share QR & Spotlight Tour](#27-ui-elements-about--privacy-panel-share-qr-and-guided-spotlight-tour) | UI Elements & Tour | Interactive Experience | 📋 Feature Parity Item |
+| 27 | [UI Elements: About, Share QR & Spotlight Tour](#27-ui-elements-about--privacy-panel-share-qr-and-guided-spotlight-tour) | UI Elements & Tour | Interactive Experience | 📋 Feature Parity Item |
+| 28 | [3D Map Flyover & WASD / QE Controls](#28-3d-map-flyover--wasd--qe-keyboard-navigation-controls) | Camera Controls | Gaming 6DOF | 📋 Spec Delivered |
 
 ---
 
