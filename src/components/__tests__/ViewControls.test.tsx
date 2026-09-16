@@ -87,5 +87,36 @@ describe("ViewControls fullscreen", () => {
     fireEvent.click(btn5x);
     expect(btn5x).toHaveAttribute("aria-checked", "true");
   });
+
+  it("toggles the keyboard shortcuts HUD card, and closes on Escape or click outside", () => {
+    render(<ViewControls />);
+    const toggleBtn = screen.getByTestId("toggle-flyover-hud");
+    expect(toggleBtn).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByTestId("flyover-hud-card")).toBeNull();
+
+    // Open HUD
+    fireEvent.click(toggleBtn);
+    expect(toggleBtn).toHaveAttribute("aria-expanded", "true");
+    const hudCard = screen.getByTestId("flyover-hud-card");
+    expect(hudCard).toBeTruthy();
+    expect(screen.getByText(/Flyover Navigation/i)).toBeTruthy();
+    expect(screen.getByText(/Fly \/ Strafe/i)).toBeTruthy();
+
+    // Press Escape to close
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByTestId("flyover-hud-card")).toBeNull();
+
+    // Reopen HUD and close with close button
+    fireEvent.click(toggleBtn);
+    const closeBtn = screen.getByRole("button", { name: /Close keyboard shortcuts/i });
+    fireEvent.click(closeBtn);
+    expect(screen.queryByTestId("flyover-hud-card")).toBeNull();
+
+    // Reopen and close via click outside
+    fireEvent.click(toggleBtn);
+    expect(screen.getByTestId("flyover-hud-card")).toBeTruthy();
+    fireEvent.mouseDown(document.body);
+    expect(screen.queryByTestId("flyover-hud-card")).toBeNull();
+  });
 });
 

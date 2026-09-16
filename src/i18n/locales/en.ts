@@ -135,6 +135,17 @@ export const en = {
   "view.trainScale3xHint": "3x scale — prominent visibility across the metropolitan area",
   "view.trainScale5xHint": "5x scale — maximum visibility for high altitudes and small screens",
 
+  // Flyover HUD & Keyboard Controls
+  "viewControls.flyover": "Keyboard flight",
+  "flyoverHud.title": "Flyover Navigation",
+  "flyoverHud.translation": "Fly / Strafe",
+  "flyoverHud.rotation": "Turn Yaw",
+  "flyoverHud.pitch": "Pitch Tilt",
+  "flyoverHud.zoom": "Altitude / Zoom",
+  "flyoverHud.turbo": "Turbo Boost",
+  "flyoverHud.crawl": "Precision Crawl",
+  "flyoverHud.close": "Close keyboard shortcuts",
+
   // Time Controls & Scrubber
   "time.engineError": "Engine error: {error}",
   "time.bangkok": "Bangkok",
@@ -161,6 +172,8 @@ export const en = {
 
   // About Tab
   "about.description": "Interactive, schedule-driven 3D visualization of Bangkok's urban rail network. Trains move along authentic geographic alignments and elevations based on published static GTFS timetables.",
+  "about.keyboardControls": "Keyboard Flyover Controls",
+  "about.keyboardControlsDesc": "Continuous 6DOF keyboard flight navigation over Bangkok's 3D rail viaducts and extruded buildings:",
   "about.networkScope": "Network Scope",
   "about.simulatedLines": "Simulated Lines:",
   "about.preRevenueLines": "Pre-Revenue (Track-Only):",

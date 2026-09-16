@@ -40,6 +40,38 @@ export function AboutTab() {
         </ul>
       </div>
 
+      <details className="group rounded-lg border border-edge p-2.5">
+        <summary className="flex cursor-pointer list-none items-center justify-between font-medium text-ink">
+          <span>⌨ {t("about.keyboardControls")}</span>
+          <span className="text-[10px] text-ink-muted transition-transform group-open:rotate-180">▼</span>
+        </summary>
+        <div className="mt-2 space-y-1.5 border-t border-edge pt-2 leading-relaxed">
+          <p className="text-[11px] text-ink-muted">{t("about.keyboardControlsDesc")}</p>
+          <ul className="space-y-1 text-[11px]">
+            <li className="flex justify-between">
+              <span className="font-mono font-semibold text-ink">W / A / S / D · ↑ ↓ ← →</span>
+              <span>{t("flyoverHud.translation")}</span>
+            </li>
+            <li className="flex justify-between">
+              <span className="font-mono font-semibold text-ink">Q / E</span>
+              <span>{t("flyoverHud.rotation")}</span>
+            </li>
+            <li className="flex justify-between">
+              <span className="font-mono font-semibold text-ink">R / F</span>
+              <span>{t("flyoverHud.pitch")}</span>
+            </li>
+            <li className="flex justify-between">
+              <span className="font-mono font-semibold text-ink">Z / C</span>
+              <span>{t("flyoverHud.zoom")}</span>
+            </li>
+            <li className="flex justify-between">
+              <span className="font-mono font-semibold text-ink">Shift / Alt</span>
+              <span>{t("flyoverHud.turbo")} / {t("flyoverHud.crawl")}</span>
+            </li>
+          </ul>
+        </div>
+      </details>
+
       <div>
         <h3 className="font-medium text-ink">{t("about.dataSources")}</h3>
         <ul className="mt-1.5 space-y-1 leading-relaxed">

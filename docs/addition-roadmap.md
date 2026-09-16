@@ -32,7 +32,7 @@ Features to close parity with [nagix/mini-tokyo-3d](https://github.com/nagix/min
 | 25 | [Support & Donation System](#25-support--donation-system--💖-github-sponsors-active-promptpay-deferred) | Community Payments | GitHub Sponsors Active | ✅ Active (GitHub Sponsors) |
 | 26 | [SEO, Structured Data & PWA Manifest](#26-seo-structured-data--web-app-manifest-suite) | SEO & Discoverability | Web Standards | 📋 Feature Parity Item |
 | 27 | [UI Elements: About, Share QR & Spotlight Tour](#27-ui-elements-about--privacy-panel-share-qr-and-guided-spotlight-tour) | UI Elements & Tour | Interactive Experience | 📋 Feature Parity Item |
-| 28 | [3D Map Flyover & WASD / QE Controls](#28-3d-map-flyover--wasd--qe-keyboard-navigation-controls) | Camera Controls | Gaming 6DOF | 📋 Spec Delivered |
+| 28 | [3D Map Flyover & WASD / QE Controls](#28-3d-map-flyover--wasd--qe-keyboard-navigation-controls) | Camera Controls | Gaming 6DOF | ✅ Delivered |
 
 ---
 
@@ -341,12 +341,13 @@ Concrete, already-scoped work that fell out of MVP 6. Constraints below were est
 - **Full 6DOF Flyover Experience:** Continuous keyboard flight navigation over Bangkok's transit viaducts and 3D buildings using standard gaming key bindings:
   - **Translational Flight (relative to current heading):** `W` / `↑` (Fly Forward), `S` / `↓` (Fly Backward), `A` / `←` (Strafe Left), `D` / `→` (Strafe Right).
   - **Rotational Flight:** `Q` (Yaw Left / Counter-Clockwise turn), `E` (Yaw Right / Clockwise turn), `R` (Pitch Up toward horizon), `F` (Pitch Down toward ground nadir).
-  - **Vertical Flight & Speed Modifiers:** `Space` (Elevate / Zoom Out), `C` (Descend / Zoom In), `Shift` (2.5× Turbo Sprint), `Alt` / `Ctrl` (0.3× Precision Crawl).
-- **Smooth Kinematics & Inertia Engine:** Per-frame velocity integration in the render loop with acceleration, zoom-dependent velocity clamping ($v = f(\text{zoom})$), and exponential velocity damping for silky cinematic deceleration on key release.
+  - **Vertical Altitude & Speed Modifiers:** `Z` (Zoom In / Descend), `C` (Zoom Out / Elevate), `Shift` (2.5× Turbo across all 4 axes), `Alt` (0.3× Precision Crawl across all 4 axes; `Space` retired and `Ctrl` excluded to prevent tab closure).
+- **Smooth Kinematics & Inertia Engine:** Per-frame velocity integration in the render loop with acceleration, zoom-dependent velocity clamping ($v(z) = v_{\text{base}} \cdot 2^{16-z}$), and exponential velocity damping ($0.92^{\Delta t}$) for silky cinematic deceleration on key release.
 - **Strict Form Focus Isolation:** Flight controls are 100% inhibited when any `<input>`, `<textarea>`, or `[contenteditable]` element is focused (e.g. typing station names in `StationSearch` or `RoutePlanner`), preventing inadvertent camera jumps while typing.
 - **Follow-Camera Coordination:**
-  - Pressing translational keys (`W`, `A`, `S`, `D`) smoothly releases follow mode (`setFollowing(false)`), handing full manual control back to the user.
-  - Pressing rotational keys (`Q`, `E`) adjusts the follow-camera yaw offset (`addYawOffset`), orbiting smoothly around the moving train without breaking the follow lock.
+  - Pressing translational keys (`W`, `A`, `S`, `D`, `↑`, `↓`, `←`, `→`) triggers follow breakout (`setFollowing(false)` and `follow.resetBearing()`), handing full manual control back to the user starting from zero velocity.
+  - Pressing rotational keys (`Q`, `E`) adjusts the follow-camera yaw offset (`followCamera.addYawOffset`), orbiting smoothly around the moving train without breaking the follow lock.
+  - Pitch keys (`R`, `F`) and zoom keys (`Z`, `C`) preserve follow lock while framing the train.
 - **Specification:** Detailed architecture in [`docs/FLYOVER_CONTROLS_SPEC.md`](./docs/FLYOVER_CONTROLS_SPEC.md).
 
 

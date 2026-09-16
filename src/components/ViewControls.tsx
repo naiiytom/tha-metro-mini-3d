@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { BASEMAP_STYLES } from "../map/basemapStyles";
 import { THEME_MODES } from "../map/themeMode";
 import { TRAIN_SCALES } from "../map/trainScale";
@@ -28,6 +28,9 @@ export function ViewControls() {
   const t = useT();
 
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showFlyoverHud, setShowFlyoverHud] = useState(false);
+  const hudToggleRef = useRef<HTMLButtonElement>(null);
+  const hudCardRef = useRef<HTMLDivElement>(null);
 
   // The DOM owns this state, not the store: Esc exits fullscreen without
   // going through our handler, so a store boolean would go stale.
@@ -37,6 +40,35 @@ export function ViewControls() {
     document.addEventListener("fullscreenchange", sync);
     return () => document.removeEventListener("fullscreenchange", sync);
   }, []);
+
+  useEffect(() => {
+    if (!showFlyoverHud) return;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setShowFlyoverHud(false);
+      }
+    };
+
+    const onClickOutside = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (
+        hudCardRef.current &&
+        !hudCardRef.current.contains(target) &&
+        hudToggleRef.current &&
+        !hudToggleRef.current.contains(target)
+      ) {
+        setShowFlyoverHud(false);
+      }
+    };
+
+    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("mousedown", onClickOutside);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("mousedown", onClickOutside);
+    };
+  }, [showFlyoverHud]);
 
   const toggleFullscreen = () => {
     if (document.fullscreenElement) {
@@ -144,6 +176,97 @@ export function ViewControls() {
         () => toggleFullscreen(),
         "toggle-fullscreen",
       )}
+      <div className="relative">
+        <button
+          ref={hudToggleRef}
+          type="button"
+          data-testid="toggle-flyover-hud"
+          aria-expanded={showFlyoverHud}
+          onClick={() => setShowFlyoverHud((v) => !v)}
+          title={t("viewControls.flyover")}
+          className="hidden w-full items-center justify-between rounded-md px-3 py-2.5 text-left text-sm text-ink-subtle transition-colors hover:bg-surface-sunken hover:text-ink md:flex md:px-1.5 md:py-1 md:text-xs"
+        >
+          <span className="flex items-center gap-1.5">
+            <span aria-hidden="true" className="text-sm leading-none">⌨</span>
+            <span>{t("viewControls.flyover")}</span>
+          </span>
+          <span className="rounded bg-surface-sunken px-1 font-mono text-[10px] text-ink-muted">
+            WASD
+          </span>
+        </button>
+
+        {showFlyoverHud && (
+          <div
+            ref={hudCardRef}
+            data-testid="flyover-hud-card"
+            role="dialog"
+            aria-label={t("flyoverHud.title")}
+            className="panel-glass pointer-events-auto fixed left-4 z-40 w-72 rounded-xl border border-edge p-3 shadow-xl shadow-ink/10 backdrop-blur-md md:left-[17.5rem] md:bottom-12"
+          >
+            <div className="flex items-center justify-between border-b border-edge pb-1.5">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-ink">
+                <span aria-hidden="true">⌨</span>
+                <span>{t("flyoverHud.title")}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowFlyoverHud(false)}
+                title={t("flyoverHud.close")}
+                aria-label={t("flyoverHud.close")}
+                className="flex h-5 w-5 items-center justify-center rounded text-ink-muted hover:bg-surface-sunken hover:text-ink"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="mt-2 space-y-1.5 text-[11px]">
+              <div className="flex items-center justify-between">
+                <span className="text-ink-muted">{t("flyoverHud.translation")}</span>
+                <span className="font-mono font-semibold text-ink">
+                  <kbd className="rounded border border-edge bg-surface-sunken px-1 py-0.5">W</kbd>{" "}
+                  <kbd className="rounded border border-edge bg-surface-sunken px-1 py-0.5">A</kbd>{" "}
+                  <kbd className="rounded border border-edge bg-surface-sunken px-1 py-0.5">S</kbd>{" "}
+                  <kbd className="rounded border border-edge bg-surface-sunken px-1 py-0.5">D</kbd> / ↑↓←→
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-ink-muted">{t("flyoverHud.rotation")}</span>
+                <span className="font-mono font-semibold text-ink">
+                  <kbd className="rounded border border-edge bg-surface-sunken px-1 py-0.5">Q</kbd>{" "}
+                  <kbd className="rounded border border-edge bg-surface-sunken px-1 py-0.5">E</kbd>
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-ink-muted">{t("flyoverHud.pitch")}</span>
+                <span className="font-mono font-semibold text-ink">
+                  <kbd className="rounded border border-edge bg-surface-sunken px-1 py-0.5">R</kbd>{" "}
+                  <kbd className="rounded border border-edge bg-surface-sunken px-1 py-0.5">F</kbd>
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-ink-muted">{t("flyoverHud.zoom")}</span>
+                <span className="font-mono font-semibold text-ink">
+                  <kbd className="rounded border border-edge bg-surface-sunken px-1 py-0.5">Z</kbd>{" "}
+                  <kbd className="rounded border border-edge bg-surface-sunken px-1 py-0.5">C</kbd>
+                </span>
+              </div>
+              <div className="border-t border-edge/60 pt-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-ink-muted">{t("flyoverHud.turbo")} (2.5×)</span>
+                  <span className="font-mono font-semibold text-ink">
+                    <kbd className="rounded border border-edge bg-surface-sunken px-1 py-0.5">Shift</kbd>
+                  </span>
+                </div>
+                <div className="mt-1 flex items-center justify-between">
+                  <span className="text-ink-muted">{t("flyoverHud.crawl")} (0.3×)</span>
+                  <span className="font-mono font-semibold text-ink">
+                    <kbd className="rounded border border-edge bg-surface-sunken px-1 py-0.5">Alt</kbd>
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
       <div className="mt-1 px-3 py-2 md:px-1.5 md:py-1">
         <div className="mb-1 text-sm text-ink-muted md:text-xs">{t("view.theme")}</div>
         <div
