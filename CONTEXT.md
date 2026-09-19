@@ -70,3 +70,19 @@ A user-specified yaw bearing delta maintained relative to the followed vehicle's
 dynamic heading.
 _Avoid_: camera rotation, heading override
 
+## Network and Stations
+
+### Station Hierarchy
+
+**Station hub**:
+A unified physical station complex grouping one or more station stops that share the same name or are connected by a pedestrian interchange walkway.
+_Avoid_: multi-station, station cluster, interchange station, complex
+
+**Station stop**:
+A single line-specific platform or calling point on a route's alignment, identified by its route and stop index.
+_Avoid_: platform stop, sub-station, station node
+
+**Station model**:
+A 3D representation of a station structure (procedural platform canopy or landmark architecture) situated in world space.
+_Avoid_: station marker, disc, building asset
+
