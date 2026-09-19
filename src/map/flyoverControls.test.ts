@@ -143,14 +143,16 @@ describe("installFlyoverControls", () => {
       input.remove();
     });
 
-    it("flushes active keys on focusin to an input", () => {
+    it("halts translational velocity and suppresses movement when focusing an input after moving", () => {
       const { map } = createMockMap();
       const controls = installFlyoverControls(map);
       activeControls = controls;
 
-      // Press 'W' while on canvas
+      // Press 'W' and move for at least one tick
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "w", bubbles: true }));
+      controls.tick(100);
       expect(controls.isFlying()).toBe(true);
+      const centerAfterMove = map.getCenter();
 
       // Now focus an input
       const input = document.createElement("input");
@@ -158,23 +160,35 @@ describe("installFlyoverControls", () => {
       input.focus();
       document.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
 
-      // Keys should be flushed
-      // Now a tick shouldn't accelerate forward
+      // Flight should be completely halted
+      expect(controls.isFlying()).toBe(false);
+
+      // Subsequent ticks produce no further center movement
       controls.tick(100);
+      expect(map.getCenter()).toEqual(centerAfterMove);
+      expect(controls.isFlying()).toBe(false);
+
       input.remove();
     });
 
-    it("flushes active keys on window blur", () => {
+    it("halts translational velocity and suppresses movement on window blur after moving", () => {
       const { map } = createMockMap();
       const controls = installFlyoverControls(map);
       activeControls = controls;
 
+      // Press 'W' and move for at least one tick
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "w", bubbles: true }));
+      controls.tick(100);
       expect(controls.isFlying()).toBe(true);
+      const centerAfterMove = map.getCenter();
 
+      // Window blur
       window.dispatchEvent(new Event("blur"));
-      // Next tick will be coasting deceleration, not active forward thrust
-      controls.tick(5000);
+      expect(controls.isFlying()).toBe(false);
+
+      // Subsequent ticks produce no further center movement
+      controls.tick(100);
+      expect(map.getCenter()).toEqual(centerAfterMove);
       expect(controls.isFlying()).toBe(false);
     });
 
@@ -556,6 +570,77 @@ describe("installFlyoverControls", () => {
         controls.tick(1000);
       }
       expect(controls.isFlying()).toBe(false);
+    });
+
+    it("decelerates and halts using default coast half-life without overriding damping", () => {
+      const { map } = createMockMap({ bearing: 0, zoom: 16 });
+      // Exercises default options: coastHalfLifeSec = 0.3s and stopThreshold = 0.05 m/s
+      const controls = installFlyoverControls(map, { baseSpeedMps: 80 });
+      activeControls = controls;
+
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "w", bubbles: true }));
+      controls.tick(1000); // reaches full speed 80 m/s
+
+      // Release key
+      window.dispatchEvent(new KeyboardEvent("keyup", { key: "w", bubbles: true }));
+
+      // Coasting tick: decays with default coast half-life (0.3s)
+      controls.tick(300);
+      expect(controls.isFlying()).toBe(true);
+
+      // Decays to a complete stop over ~2.5-3 seconds
+      controls.tick(3000);
+      expect(controls.isFlying()).toBe(false);
+    });
+  });
+
+  describe("Acceleration kinematics", () => {
+    it("ramps velocity up over multiple ticks rather than instantly reaching target speed", () => {
+      const { map } = createMockMap({ bearing: 0, zoom: 16 });
+      const controls = installFlyoverControls(map, { baseSpeedMps: 80, accelTimeSec: 0.5 });
+      activeControls = controls;
+
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "w", bubbles: true }));
+
+      // At t = 0.1s (100ms), velocity ramps to ~1/5 of target speed (16 m/s)
+      // Moving at 16 m/s for 100ms advances ~1.6m (far less than the unaccelerated 8m)
+      controls.tick(100);
+      const [x0, y0] = lngLatToLocal(ORIGIN_LNG_LAT[0], ORIGIN_LNG_LAT[1]);
+      const center1 = map.getCenter();
+      const [x1, y1] = lngLatToLocal(center1.lng, center1.lat);
+      const dist1 = Math.hypot(x1 - x0, y1 - y0);
+      expect(dist1).toBeCloseTo(1.6, 1);
+
+      // Next 100ms: velocity ramps to 32 m/s, delta distance moves ~3.2m
+      controls.tick(100);
+      const center2 = map.getCenter();
+      const [x2, y2] = lngLatToLocal(center2.lng, center2.lat);
+      const dist2 = Math.hypot(x2 - x1, y2 - y1);
+      expect(dist2).toBeCloseTo(3.2, 1);
+      expect(dist2).toBeGreaterThan(dist1);
+
+      // Subsequent ticks continue to accelerate until target speed is reached
+      controls.tick(300); // reaches full 80 m/s
+      const center3 = map.getCenter();
+      const [x3, y3] = lngLatToLocal(center3.lng, center3.lat);
+      const dist3 = Math.hypot(x3 - x2, y3 - y2);
+      expect(dist3).toBeGreaterThan(dist2);
+    });
+
+    it("respects accelTimeSec = 0 for instantaneous velocity response", () => {
+      const { map } = createMockMap({ bearing: 0, zoom: 16 });
+      const controls = installFlyoverControls(map, { baseSpeedMps: 80, accelTimeSec: 0 });
+      activeControls = controls;
+
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "w", bubbles: true }));
+      controls.tick(100);
+
+      const [x0, y0] = lngLatToLocal(ORIGIN_LNG_LAT[0], ORIGIN_LNG_LAT[1]);
+      const center1 = map.getCenter();
+      const [x1, y1] = lngLatToLocal(center1.lng, center1.lat);
+      const dist = Math.hypot(x1 - x0, y1 - y0);
+      // At 80 m/s * 0.1s = 8m instantaneous response
+      expect(dist).toBeCloseTo(8, 1);
     });
   });
 

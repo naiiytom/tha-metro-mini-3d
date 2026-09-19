@@ -47,7 +47,7 @@ This feature introduces a 6DOF-inspired, smooth kinematic flyover engine enablin
 - **Requirement**:
   1. Maintain an active key press set (`Set<string>`) via global `keydown` and `keyup` listeners on `window`.
   2. Perform per-frame kinematic integration inside the render loop (`requestAnimationFrame`) using delta time (`Δt`).
-  3. Support acceleration (`a`), maximum velocity clamped by current zoom level ($v_{\text{max}} = f(\text{zoom})$), and exponential velocity damping ($v_{t+\Delta t} = v_t \cdot \text{damping}^{\Delta t}$, where damping ∈ (0, 1) and default 0.92) so releasing a key results in smooth, cinematic deceleration.
+  3. Support acceleration (`a = targetSpeed / accelTimeSec`, default `accelTimeSec = 0.5s`), maximum velocity clamped by current zoom level ($v_{\text{max}} = f(\text{zoom})$), and exponential velocity damping via coast half-life ($v_{t+\Delta t} = v_t \cdot 0.5^{\Delta t / t_{1/2}}$, where default $t_{1/2} = 0.3\text{s}$ and stop threshold 0.05 m/s) so releasing a key results in smooth, cinematic deceleration to a halt over ~2.5–3s.
   4. At low zoom ($z = 11$, citywide overview), camera translation speeds scale up to traverse kilometers per second; at high zoom ($z = 18$, track deck level), translation scales down for meter-level precision: $v(z) = v_{\text{base}} \cdot 2^{16 - z}$.
   5. All per-frame kinematic state (velocity vector, active key set `Set<string>`, delta-time accumulator) lives **exclusively inside the `FlyoverControls` module closure** — it MUST NOT be written to React state or Zustand. This is non-negotiable (CONTRIBUTING.md line 76). The module communicates back to the application only through its `onFollowRelease`, `onYawOffset`, and `onPitchChange` callbacks.
   6. Detect modifier keys (`Shift`, `Alt`) from the active `keydown` event's `shiftKey` and `altKey` boolean properties. Apply `turboMultiplier` (default 2.5) when Shift is held; apply `crawlMultiplier` (default 0.3) when Alt is held across all 4 axes (pan, turn, tilt, zoom). `Ctrl` is ignored to prevent interfering with browser shortcuts like `Ctrl+W` / `Ctrl+R`. If both Shift and Alt are held simultaneously, `crawlMultiplier` takes precedence (safety fallback).
@@ -64,7 +64,7 @@ This feature introduces a 6DOF-inspired, smooth kinematic flyover engine enablin
        return tag === "INPUT" || tag === "TEXTAREA" || (el as HTMLElement).isContentEditable;
      }
      ```
-  2. If an input field receives focus while keys are held down, the active keys set must be flushed to prevent runaway phantom movement.
+  2. If an input field receives focus while keys are held down, or if the window blurs (e.g. Alt-Tab), the active keys set is flushed and translational velocity is immediately zeroed (`vx = 0, vy = 0`) to prevent runaway phantom movement and halt coasting drift.
   3. When an input field blurs, keyboard flight controls become available immediately.
 
 ### 3.3 Coordination with Follow-Camera State Machine
@@ -111,12 +111,29 @@ export interface FlyoverOptions {
   /** Zoom rate in steps per second (default: 1.2 steps/s) */
   zoomRateStepsPerSec?: number;
   /**
-   * Exponential velocity retention factor per second (default: 0.92).
-   * Applied as `v *= damping^(dtMs/1000)` each frame. At 0.92 the camera
-   * coasts to a near-stop over ~2.5 s. Range (0, 1): lower = snappier stop,
-   * higher = longer coast.
+   * Half-life for coasting deceleration in seconds (default: 0.3s).
+   * Velocity halves every `coastHalfLifeSec` seconds:
+   * `v *= Math.pow(0.5, dt / coastHalfLifeSec)`.
+   * With default 0.3s and stopThreshold 0.05 m/s, an 80 m/s flight coasts
+   * to a smooth near-stop over ~2.5s and halts completely by ~3s.
+   */
+  coastHalfLifeSec?: number;
+  /**
+   * Optional custom exponential velocity retention factor per second.
+   * If provided, overrides coastHalfLifeSec: `v *= Math.pow(damping, dt)`.
+   * Range (0, 1): lower = snappier stop, higher = longer coast.
    */
   damping?: number;
+  /** Velocity threshold in m/s below which translational flight halts (default: 0.05 m/s) */
+  stopThresholdMps?: number;
+  /**
+   * Time in seconds to accelerate from rest to maximum zoom-scaled velocity (default: 0.5s).
+   * Accelerates smoothly toward target velocity: `a = targetSpeed / accelTimeSec`.
+   * Set to 0 for instantaneous velocity response.
+   */
+  accelTimeSec?: number;
+  /** Optional absolute acceleration in m/s²; overrides accelTimeSec if provided */
+  acceleration?: number;
   /** Velocity multiplier applied while `Shift` is held (default: 2.5) */
   turboMultiplier?: number;
   /** Velocity multiplier applied while `Alt` is held (default: 0.3) */
@@ -127,17 +144,21 @@ export interface FlyoverOptions {
    */
   onFollowRelease?: () => void;
   /** Callback fired when rotational motion updates yaw during follow mode */
-  onYawOffset?: (deltaDeg: number) => void;
+  onYawOffset?: (deltaDeg: number) => boolean | void;
   /** Callback fired when pitch changes, allowing map3D sync */
   onPitchChange?: (pitchDeg: number) => void;
+  /** Check if the camera is currently locked in follow mode */
+  isFollowing?: () => boolean;
 }
 
 export interface FlyoverControls {
   /** Update kinematics per animation frame; called inside MapContainer's rAF loop */
   tick: (dtMs: number) => void;
+  /** Immediately halt all flight motion, clearing active keys and velocity */
+  stop: () => void;
   /** Clean up event listeners on unmount */
   dispose: () => void;
-  /** Check if flyover is actively moving the camera */
+  /** Check if flyover is actively moving the camera or coasting */
   isFlying: () => boolean;
 }
 ```

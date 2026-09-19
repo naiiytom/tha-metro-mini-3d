@@ -11,11 +11,34 @@ export interface FlyoverOptions {
   /** Zoom rate in steps per second (default: 1.2 steps/s) */
   zoomRateStepsPerSec?: number;
   /**
-   * Exponential velocity retention factor per second (default: 0.92).
-   * Applied as `v *= damping^(dtMs / 1000)` each frame.
+   * Half-life for coasting deceleration in seconds (default: 0.3s).
+   * Velocity halves every `coastHalfLifeSec` seconds:
+   * `v *= Math.pow(0.5, dt / coastHalfLifeSec)`.
+   * With default 0.3s and stopThreshold 0.05 m/s, an 80 m/s flight coasts
+   * to a smooth near-stop over ~2.5s and halts completely by ~3s.
+   */
+  coastHalfLifeSec?: number;
+  /**
+   * Optional custom exponential velocity retention factor per second.
+   * If provided, overrides coastHalfLifeSec: `v *= Math.pow(damping, dt)`.
    * Range (0, 1): lower = snappier stop, higher = longer coast.
    */
   damping?: number;
+  /**
+   * Velocity threshold in m/s below which translational flight halts (default: 0.05 m/s).
+   */
+  stopThresholdMps?: number;
+  /**
+   * Time in seconds to accelerate from rest to maximum zoom-scaled velocity (default: 0.5s).
+   * Accelerates smoothly toward target velocity: `a = targetSpeed / accelTimeSec`.
+   * Set to 0 for instantaneous velocity response.
+   */
+  accelTimeSec?: number;
+  /**
+   * Optional absolute acceleration in m/s².
+   * If provided, overrides accelTimeSec.
+   */
+  acceleration?: number;
   /** Velocity multiplier applied while `Shift` is held (default: 2.5) */
   turboMultiplier?: number;
   /** Velocity multiplier applied while `Alt` is held (default: 0.3) */
@@ -57,7 +80,9 @@ const BBOX = {
 
 const MIN_ZOOM = 10.0;
 const MAX_ZOOM = 19.0;
-const STOP_THRESHOLD = 0.001;
+const DEFAULT_STOP_THRESHOLD = 0.05;
+const DEFAULT_COAST_HALF_LIFE_SEC = 0.3;
+const DEFAULT_ACCEL_TIME_SEC = 0.5;
 
 type FlightAction =
   | "forward"
@@ -172,9 +197,11 @@ export function installFlyoverControls(
   const turnRateDegPerSec = options.turnRateDegPerSec ?? 90;
   const pitchRateDegPerSec = options.pitchRateDegPerSec ?? 45;
   const zoomRateStepsPerSec = options.zoomRateStepsPerSec ?? 1.2;
-  const damping = options.damping ?? 0.92;
   const turboMultiplier = options.turboMultiplier ?? 2.5;
   const crawlMultiplier = options.crawlMultiplier ?? 0.3;
+  const stopThreshold = options.stopThresholdMps ?? DEFAULT_STOP_THRESHOLD;
+  const accelTimeSec = options.accelTimeSec ?? DEFAULT_ACCEL_TIME_SEC;
+  const coastHalfLifeSec = options.coastHalfLifeSec ?? DEFAULT_COAST_HALF_LIFE_SEC;
 
   const activeActions = new Set<FlightAction>();
   let shiftDown = false;
@@ -188,6 +215,12 @@ export function installFlyoverControls(
     activeActions.clear();
     shiftDown = false;
     altDown = false;
+  };
+
+  const stop = () => {
+    flushKeys();
+    vx = 0;
+    vy = 0;
   };
 
   const onKeyDown = (e: KeyboardEvent) => {
@@ -246,12 +279,12 @@ export function installFlyoverControls(
 
   const onFocusIn = () => {
     if (isInputActive()) {
-      flushKeys();
+      stop();
     }
   };
 
   const onBlur = () => {
-    flushKeys();
+    stop();
   };
 
   window.addEventListener("keydown", onKeyDown, true);
@@ -261,6 +294,15 @@ export function installFlyoverControls(
 
   const tick = (dtMs: number) => {
     if (dtMs <= 0 || !Number.isFinite(dtMs)) return;
+
+    // Suppress flight entirely and halt velocity when typing in form inputs
+    if (isInputActive()) {
+      if (vx !== 0 || vy !== 0 || activeActions.size > 0) {
+        stop();
+      }
+      return;
+    }
+
     const dt = dtMs / 1000;
 
     // Alt precision crawl takes precedence over Shift turbo boost
@@ -317,14 +359,40 @@ export function installFlyoverControls(
       const speedMps = baseSpeedMps * Math.pow(2, 16 - currentZoom);
       const targetSpeed = speedMps * multiplier;
 
-      vx = dirX * targetSpeed;
-      vy = dirY * targetSpeed;
+      const targetVx = dirX * targetSpeed;
+      const targetVy = dirY * targetSpeed;
+
+      // Accelerate smoothly toward target velocity
+      const diffX = targetVx - vx;
+      const diffY = targetVy - vy;
+      const diffSpeed = Math.hypot(diffX, diffY);
+
+      let maxAccel: number;
+      if (options.acceleration !== undefined) {
+        maxAccel = options.acceleration;
+      } else if (accelTimeSec > 0) {
+        maxAccel = targetSpeed / accelTimeSec;
+      } else {
+        maxAccel = Number.POSITIVE_INFINITY;
+      }
+
+      const maxDeltaV = maxAccel * dt;
+      if (diffSpeed === 0 || diffSpeed <= maxDeltaV || !Number.isFinite(maxAccel)) {
+        vx = targetVx;
+        vy = targetVy;
+      } else {
+        vx += (diffX / diffSpeed) * maxDeltaV;
+        vy += (diffY / diffSpeed) * maxDeltaV;
+      }
     } else {
       // Exponential velocity decay when translational keys are released
-      const decay = Math.pow(damping, dt);
+      const decay =
+        options.damping !== undefined
+          ? Math.pow(options.damping, dt)
+          : Math.pow(0.5, dt / coastHalfLifeSec);
       vx *= decay;
       vy *= decay;
-      if (Math.hypot(vx, vy) < STOP_THRESHOLD) {
+      if (Math.hypot(vx, vy) < stopThreshold) {
         vx = 0;
         vy = 0;
       }
@@ -417,13 +485,7 @@ export function installFlyoverControls(
   };
 
   const isFlying = (): boolean => {
-    return activeActions.size > 0 || Math.hypot(vx, vy) > STOP_THRESHOLD;
-  };
-
-  const stop = () => {
-    flushKeys();
-    vx = 0;
-    vy = 0;
+    return activeActions.size > 0 || Math.hypot(vx, vy) > stopThreshold;
   };
 
   const dispose = () => {
@@ -431,9 +493,7 @@ export function installFlyoverControls(
     window.removeEventListener("keyup", onKeyUp, true);
     window.removeEventListener("blur", onBlur);
     document.removeEventListener("focusin", onFocusIn);
-    flushKeys();
-    vx = 0;
-    vy = 0;
+    stop();
   };
 
   return {
