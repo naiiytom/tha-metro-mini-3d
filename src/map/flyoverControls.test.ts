@@ -19,6 +19,9 @@ function createMockMap(overrides: Partial<{
   const minPitch = overrides.minPitch ?? 0;
   const maxPitch = overrides.maxPitch ?? 60;
 
+  const canvas = document.createElement("canvas");
+  const eventListeners: Record<string, ((...args: unknown[]) => void)[]> = {};
+
   const jumps: {
     center?: [number, number];
     bearing?: number;
@@ -27,6 +30,21 @@ function createMockMap(overrides: Partial<{
   }[] = [];
 
   const map = {
+    getCanvas: () => canvas,
+    on: vi.fn((event: string, fn: (...args: unknown[]) => void) => {
+      eventListeners[event] = eventListeners[event] || [];
+      eventListeners[event].push(fn);
+    }),
+    off: vi.fn((event: string, fn: (...args: unknown[]) => void) => {
+      if (eventListeners[event]) {
+        eventListeners[event] = eventListeners[event].filter((l) => l !== fn);
+      }
+    }),
+    emitMapEvent: (event: string, ...args: unknown[]) => {
+      for (const fn of eventListeners[event] || []) {
+        fn(...args);
+      }
+    },
     getBearing: () => bearing,
     getPitch: () => pitch,
     getZoom: () => zoom,
@@ -45,9 +63,9 @@ function createMockMap(overrides: Partial<{
       if (opts.zoom !== undefined) zoom = opts.zoom;
       if (opts.center !== undefined) center = { lng: opts.center[0], lat: opts.center[1] };
     }),
-  } as unknown as MapLibreMap;
+  } as unknown as MapLibreMap & { emitMapEvent: (event: string, ...args: unknown[]) => void };
 
-  return { map, jumps, getBearing: () => bearing, getPitch: () => pitch, getZoom: () => zoom, getCenter: () => center };
+  return { map, canvas, jumps, getBearing: () => bearing, getPitch: () => pitch, getZoom: () => zoom, getCenter: () => center };
 }
 
 describe("isInputActive", () => {
@@ -187,6 +205,45 @@ describe("installFlyoverControls", () => {
       expect(controls.isFlying()).toBe(false);
 
       // Subsequent ticks produce no further center movement
+      controls.tick(100);
+      expect(map.getCenter()).toEqual(centerAfterMove);
+      expect(controls.isFlying()).toBe(false);
+    });
+
+    it("halts translational velocity and flushes active keys when pointerdown on canvas (mouse drag start)", () => {
+      const { map, canvas } = createMockMap();
+      const controls = installFlyoverControls(map);
+      activeControls = controls;
+
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "w", bubbles: true }));
+      controls.tick(100);
+      expect(controls.isFlying()).toBe(true);
+      const centerAfterMove = map.getCenter();
+
+      // Mouse press on canvas to begin dragging
+      canvas.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+      expect(controls.isFlying()).toBe(false);
+
+      // Subsequent ticks produce no further center movement
+      controls.tick(100);
+      expect(map.getCenter()).toEqual(centerAfterMove);
+      expect(controls.isFlying()).toBe(false);
+    });
+
+    it("halts translational velocity and flushes active keys on map dragstart", () => {
+      const { map } = createMockMap();
+      const controls = installFlyoverControls(map);
+      activeControls = controls;
+
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "w", bubbles: true }));
+      controls.tick(100);
+      expect(controls.isFlying()).toBe(true);
+      const centerAfterMove = map.getCenter();
+
+      // MapLibre fires dragstart when drag starts
+      map.emitMapEvent("dragstart");
+      expect(controls.isFlying()).toBe(false);
+
       controls.tick(100);
       expect(map.getCenter()).toEqual(centerAfterMove);
       expect(controls.isFlying()).toBe(false);
@@ -584,12 +641,12 @@ describe("installFlyoverControls", () => {
       // Release key
       window.dispatchEvent(new KeyboardEvent("keyup", { key: "w", bubbles: true }));
 
-      // Coasting tick: decays with default coast half-life (0.3s)
+      // Coasting tick: decays with default coast half-life (0.5s)
       controls.tick(300);
       expect(controls.isFlying()).toBe(true);
 
-      // Decays to a complete stop over ~2.5-3 seconds
-      controls.tick(3000);
+      // Decays to a complete stop over ~5 seconds
+      controls.tick(6000);
       expect(controls.isFlying()).toBe(false);
     });
   });

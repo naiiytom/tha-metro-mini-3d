@@ -132,13 +132,6 @@ export function MapContainer() {
     // end of the style.load handler.
     let disposed = false;
     const follow = new FollowCamera();
-    const controls = installCameraControls(map, {
-      onOrbit: (bearingDelta) => {
-        if (!useAppStore.getState().following) return false;
-        follow.addYawOffset(bearingDelta);
-        return true;
-      },
-    });
     let isManualPitching = false;
     const flyover = installFlyoverControls(map, {
       isFollowing: () => useAppStore.getState().following,
@@ -161,6 +154,16 @@ export function MapContainer() {
           useAppStore.getState().setMap3D(is3D);
           isManualPitching = false;
         }
+      },
+    });
+    const controls = installCameraControls(map, {
+      onOrbitStart: () => {
+        flyover.stop();
+      },
+      onOrbit: (bearingDelta) => {
+        if (!useAppStore.getState().following) return false;
+        follow.addYawOffset(bearingDelta);
+        return true;
       },
     });
     // On-map label tracking whichever train is selected — see its own doc
@@ -700,10 +703,18 @@ export function MapContainer() {
     // mouse orbit only; a touch user following a train still loses follow
     // mode on the very next drag, same as before that fix.
     const onDragStart = () => {
+      flyover.stop();
       if (controls.isOrbiting()) return;
-      if (useAppStore.getState().following) useAppStore.getState().setFollowing(false);
+      if (useAppStore.getState().following) {
+        useAppStore.getState().setFollowing(false);
+        follow.resetBearing();
+      }
+    };
+    const onDrag = () => {
+      flyover.stop();
     };
     map.on("dragstart", onDragStart);
+    map.on("drag", onDrag);
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
@@ -836,6 +847,7 @@ export function MapContainer() {
       map.off("mousemove", onMouseMove);
       map.getCanvas().style.cursor = "";
       map.off("dragstart", onDragStart);
+      map.off("drag", onDrag);
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("recenter-follow-camera", onRecenterCamera);
       activeSimClient.current = null;

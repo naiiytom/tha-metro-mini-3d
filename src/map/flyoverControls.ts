@@ -2,7 +2,7 @@ import type { Map as MapLibreMap } from "maplibre-gl";
 import { lngLatToLocal, localToLngLat } from "./coordinates";
 
 export interface FlyoverOptions {
-  /** Base translation speed in meters per second at z16 (default: 80 m/s) */
+  /** Base translation speed in meters per second at z16 (default: 160 m/s) */
   baseSpeedMps?: number;
   /** Turn rate in degrees per second (default: 90 deg/s) */
   turnRateDegPerSec?: number;
@@ -11,11 +11,11 @@ export interface FlyoverOptions {
   /** Zoom rate in steps per second (default: 1.2 steps/s) */
   zoomRateStepsPerSec?: number;
   /**
-   * Half-life for coasting deceleration in seconds (default: 0.3s).
+   * Half-life for coasting deceleration in seconds (default: 0.5s).
    * Velocity halves every `coastHalfLifeSec` seconds:
    * `v *= Math.pow(0.5, dt / coastHalfLifeSec)`.
-   * With default 0.3s and stopThreshold 0.05 m/s, an 80 m/s flight coasts
-   * to a smooth near-stop over ~2.5s and halts completely by ~3s.
+   * With default 0.5s and stopThreshold 0.05 m/s, an 160 m/s flight coasts
+   * smoothly to a halt over ~4-5s, traversing a generous and cinematic distance.
    */
   coastHalfLifeSec?: number;
   /**
@@ -29,7 +29,7 @@ export interface FlyoverOptions {
    */
   stopThresholdMps?: number;
   /**
-   * Time in seconds to accelerate from rest to maximum zoom-scaled velocity (default: 0.5s).
+   * Time in seconds to accelerate from rest to maximum zoom-scaled velocity (default: 0.25s).
    * Accelerates smoothly toward target velocity: `a = targetSpeed / accelTimeSec`.
    * Set to 0 for instantaneous velocity response.
    */
@@ -80,9 +80,10 @@ const BBOX = {
 
 const MIN_ZOOM = 10.0;
 const MAX_ZOOM = 19.0;
+const DEFAULT_BASE_SPEED_MPS = 160;
 const DEFAULT_STOP_THRESHOLD = 0.05;
-const DEFAULT_COAST_HALF_LIFE_SEC = 0.3;
-const DEFAULT_ACCEL_TIME_SEC = 0.5;
+const DEFAULT_COAST_HALF_LIFE_SEC = 0.5;
+const DEFAULT_ACCEL_TIME_SEC = 0.25;
 
 type FlightAction =
   | "forward"
@@ -193,7 +194,7 @@ export function installFlyoverControls(
   map: MapLibreMap,
   options: FlyoverOptions = {},
 ): FlyoverControls {
-  const baseSpeedMps = options.baseSpeedMps ?? 80;
+  const baseSpeedMps = options.baseSpeedMps ?? DEFAULT_BASE_SPEED_MPS;
   const turnRateDegPerSec = options.turnRateDegPerSec ?? 90;
   const pitchRateDegPerSec = options.pitchRateDegPerSec ?? 45;
   const zoomRateStepsPerSec = options.zoomRateStepsPerSec ?? 1.2;
@@ -287,10 +288,28 @@ export function installFlyoverControls(
     stop();
   };
 
+  const canvas = typeof map.getCanvas === "function" ? map.getCanvas() : null;
+  const onCanvasPointerDown = () => {
+    // Intercept mouse/pointer interaction on canvas: immediately halt in-progress
+    // flyover velocity and active keys so mouse dragging (dragPan or orbit) takes
+    // immediate and exclusive control without fighting residual coasting.
+    stop();
+  };
+
+  const onMapDragStart = () => {
+    stop();
+  };
+
   window.addEventListener("keydown", onKeyDown, true);
   window.addEventListener("keyup", onKeyUp, true);
   window.addEventListener("blur", onBlur);
   document.addEventListener("focusin", onFocusIn);
+  if (canvas) {
+    canvas.addEventListener("pointerdown", onCanvasPointerDown);
+  }
+  if (typeof map.on === "function") {
+    map.on("dragstart", onMapDragStart);
+  }
 
   const tick = (dtMs: number) => {
     if (dtMs <= 0 || !Number.isFinite(dtMs)) return;
@@ -493,6 +512,12 @@ export function installFlyoverControls(
     window.removeEventListener("keyup", onKeyUp, true);
     window.removeEventListener("blur", onBlur);
     document.removeEventListener("focusin", onFocusIn);
+    if (canvas) {
+      canvas.removeEventListener("pointerdown", onCanvasPointerDown);
+    }
+    if (typeof map.off === "function") {
+      map.off("dragstart", onMapDragStart);
+    }
     stop();
   };
 

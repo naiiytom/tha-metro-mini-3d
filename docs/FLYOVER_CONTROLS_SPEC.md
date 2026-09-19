@@ -47,10 +47,11 @@ This feature introduces a 6DOF-inspired, smooth kinematic flyover engine enablin
 - **Requirement**:
   1. Maintain an active key press set (`Set<string>`) via global `keydown` and `keyup` listeners on `window`.
   2. Perform per-frame kinematic integration inside the render loop (`requestAnimationFrame`) using delta time (`Δt`).
-  3. Support acceleration (`a = targetSpeed / accelTimeSec`, default `accelTimeSec = 0.5s`), maximum velocity clamped by current zoom level ($v_{\text{max}} = f(\text{zoom})$), and exponential velocity damping via coast half-life ($v_{t+\Delta t} = v_t \cdot 0.5^{\Delta t / t_{1/2}}$, where default $t_{1/2} = 0.3\text{s}$ and stop threshold 0.05 m/s) so releasing a key results in smooth, cinematic deceleration to a halt over ~2.5–3s.
-  4. At low zoom ($z = 11$, citywide overview), camera translation speeds scale up to traverse kilometers per second; at high zoom ($z = 18$, track deck level), translation scales down for meter-level precision: $v(z) = v_{\text{base}} \cdot 2^{16 - z}$.
-  5. All per-frame kinematic state (velocity vector, active key set `Set<string>`, delta-time accumulator) lives **exclusively inside the `FlyoverControls` module closure** — it MUST NOT be written to React state or Zustand. This is non-negotiable (CONTRIBUTING.md line 76). The module communicates back to the application only through its `onFollowRelease`, `onYawOffset`, and `onPitchChange` callbacks.
-  6. Detect modifier keys (`Shift`, `Alt`) from the active `keydown` event's `shiftKey` and `altKey` boolean properties. Apply `turboMultiplier` (default 2.5) when Shift is held; apply `crawlMultiplier` (default 0.3) when Alt is held across all 4 axes (pan, turn, tilt, zoom). `Ctrl` is ignored to prevent interfering with browser shortcuts like `Ctrl+W` / `Ctrl+R`. If both Shift and Alt are held simultaneously, `crawlMultiplier` takes precedence (safety fallback).
+   3. Support acceleration (`a = targetSpeed / accelTimeSec`, default `accelTimeSec = 0.25s`), maximum velocity clamped by current zoom level ($v_{\text{max}} = f(\text{zoom})$), and exponential velocity damping via coast half-life ($v_{t+\Delta t} = v_t \cdot 0.5^{\Delta t / t_{1/2}}$, where default $t_{1/2} = 0.5\text{s}$ and stop threshold 0.05 m/s) so releasing a key results in smooth, cinematic deceleration to a halt over ~4–5s.
+   4. At low zoom ($z = 11$, citywide overview), camera translation speeds scale up to traverse kilometers per second; at high zoom ($z = 18$, track deck level), translation scales down for meter-level precision: $v(z) = v_{\text{base}} \cdot 2^{16 - z}$ (with default $v_{\text{base}} = 160\text{ m/s}$).
+   5. All per-frame kinematic state (velocity vector, active key set `Set<string>`, delta-time accumulator) lives **exclusively inside the `FlyoverControls` module closure** — it MUST NOT be written to React state or Zustand. This is non-negotiable (CONTRIBUTING.md line 76). The module communicates back to the application only through its `onFollowRelease`, `onYawOffset`, and `onPitchChange` callbacks.
+   6. Detect modifier keys (`Shift`, `Alt`) from the active `keydown` event's `shiftKey` and `altKey` boolean properties. Apply `turboMultiplier` (default 2.5) when Shift is held; apply `crawlMultiplier` (default 0.3) when Alt is held across all 4 axes (pan, turn, tilt, zoom). `Ctrl` is ignored to prevent interfering with browser shortcuts like `Ctrl+W` / `Ctrl+R`. If both Shift and Alt are held simultaneously, `crawlMultiplier` takes precedence (safety fallback).
+   7. **Mouse Drag Interception**: When the user initiates a mouse drag or clicks the map canvas (`pointerdown` on canvas, `dragstart`/`drag` on map, or `onOrbitStart` in `CameraControls`), any ongoing flyover motion and coasting deceleration immediately halts (`flyover.stop()`). This prevents residual `map.jumpTo()` frame updates from interrupting MapLibre's gesture tracking threshold (6px drag distance) and ensures instant, conflict-free mouse panning and orbit gestures.
 
 ### 3.2 Form Input & Accessibility Isolation (Conflict-Free Typing)
 - **Problem**: Users frequently type search queries into `StationSearch`, `StationCombobox`, or `RoutePlanner` (e.g. typing station names containing `w`, `a`, `s`, `d`, `q`, `e`, `z`, `c` such as *"Wongwian Yai"*, *"Siam"*, *"Asok"*, *"Queen Sirikit"*, *"Chit Lom"*).
@@ -102,7 +103,7 @@ A self-contained module `src/map/flyoverControls.ts` implementing the following 
 
 ```ts
 export interface FlyoverOptions {
-  /** Base translation speed in meters per second at z16 (default: 80 m/s) */
+  /** Base translation speed in meters per second at z16 (default: 160 m/s) */
   baseSpeedMps?: number;
   /** Turn rate in degrees per second (default: 90 deg/s) */
   turnRateDegPerSec?: number;
@@ -111,11 +112,11 @@ export interface FlyoverOptions {
   /** Zoom rate in steps per second (default: 1.2 steps/s) */
   zoomRateStepsPerSec?: number;
   /**
-   * Half-life for coasting deceleration in seconds (default: 0.3s).
+   * Half-life for coasting deceleration in seconds (default: 0.5s).
    * Velocity halves every `coastHalfLifeSec` seconds:
    * `v *= Math.pow(0.5, dt / coastHalfLifeSec)`.
-   * With default 0.3s and stopThreshold 0.05 m/s, an 80 m/s flight coasts
-   * to a smooth near-stop over ~2.5s and halts completely by ~3s.
+   * With default 0.5s and stopThreshold 0.05 m/s, a 160 m/s flight coasts
+   * to a smooth near-stop over ~4s and halts completely by ~5s.
    */
   coastHalfLifeSec?: number;
   /**
@@ -127,7 +128,7 @@ export interface FlyoverOptions {
   /** Velocity threshold in m/s below which translational flight halts (default: 0.05 m/s) */
   stopThresholdMps?: number;
   /**
-   * Time in seconds to accelerate from rest to maximum zoom-scaled velocity (default: 0.5s).
+   * Time in seconds to accelerate from rest to maximum zoom-scaled velocity (default: 0.25s).
    * Accelerates smoothly toward target velocity: `a = targetSpeed / accelTimeSec`.
    * Set to 0 for instantaneous velocity response.
    */
