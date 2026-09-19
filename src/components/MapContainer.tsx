@@ -12,6 +12,7 @@ import { NetworkLayer } from "../map/ThreeLayer";
 import { decideAutoUnderground, initialAutoState } from "../map/autoUnderground";
 import { styleUrl } from "../map/basemapStyles";
 import { installCameraControls } from "../map/cameraControls";
+import { installFlyoverControls } from "../map/flyoverControls";
 import { FollowCamera } from "../map/followCamera";
 import { pickAt } from "../map/selection";
 import { highlightSpans } from "../map/routeHighlight";
@@ -131,7 +132,34 @@ export function MapContainer() {
     // end of the style.load handler.
     let disposed = false;
     const follow = new FollowCamera();
+    let isManualPitching = false;
+    const flyover = installFlyoverControls(map, {
+      isFollowing: () => useAppStore.getState().following,
+      onFollowRelease: () => {
+        const store = useAppStore.getState();
+        if (store.following) {
+          store.setFollowing(false);
+          follow.resetBearing();
+        }
+      },
+      onYawOffset: (deltaDeg) => {
+        if (!useAppStore.getState().following) return false;
+        follow.addYawOffset(deltaDeg);
+        return true;
+      },
+      onPitchChange: (pitchDeg) => {
+        const is3D = pitchDeg >= 10;
+        if (useAppStore.getState().map3D !== is3D) {
+          isManualPitching = true;
+          useAppStore.getState().setMap3D(is3D);
+          isManualPitching = false;
+        }
+      },
+    });
     const controls = installCameraControls(map, {
+      onOrbitStart: () => {
+        flyover.stop();
+      },
       onOrbit: (bearingDelta) => {
         if (!useAppStore.getState().following) return false;
         follow.addYawOffset(bearingDelta);
@@ -506,10 +534,14 @@ export function MapContainer() {
       // MapLibre only repaints on demand — keep frames coming while the
       // engine is running.
       let lastEcoFrame = 0;
+      let lastRafTime = performance.now();
       const loop = () => {
         const s = useAppStore.getState();
         if (s.engineStatus === "ready") {
           const now = performance.now();
+          const dtMs = Math.min(Math.max(now - lastRafTime, 0), 200);
+          lastRafTime = now;
+          flyover.tick(dtMs);
           // Eco mode still runs the rAF callback every frame (that is how it
           // stays alive to notice being switched off) but only does the
           // actual paint work at ECO_TICK_MS — the roadmap-item-2 power save.
@@ -517,7 +549,9 @@ export function MapContainer() {
           if (paint) {
             lastEcoFrame = now;
             updateSun(now);
-            follow.apply(map);
+            if (s.following) {
+              follow.apply(map);
+            }
             {
               const c = map.getCenter();
               const [e, n] = lngLatToLocal(c.lng, c.lat);
@@ -565,6 +599,7 @@ export function MapContainer() {
         cancelAnimationFrame(rafId);
         if (tooltipTimer !== null) clearInterval(tooltipTimer);
         unsubscribeTooltipSelection?.();
+        flyover.dispose();
         sim?.dispose();
         if (activeSimClient.current === sim) activeSimClient.current = null;
       }
@@ -668,10 +703,18 @@ export function MapContainer() {
     // mouse orbit only; a touch user following a train still loses follow
     // mode on the very next drag, same as before that fix.
     const onDragStart = () => {
+      flyover.stop();
       if (controls.isOrbiting()) return;
-      if (useAppStore.getState().following) useAppStore.getState().setFollowing(false);
+      if (useAppStore.getState().following) {
+        useAppStore.getState().setFollowing(false);
+        follow.resetBearing();
+      }
+    };
+    const onDrag = () => {
+      flyover.stop();
     };
     map.on("dragstart", onDragStart);
+    map.on("drag", onDrag);
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
@@ -692,6 +735,9 @@ export function MapContainer() {
         // resetBearing() only — bridge contract §3.2 requires center/bearing/pitch to stay
         // where they are on breakout to avoid a visual snap. reset() would zero the
         // smoothed bearing, causing a jump; resetBearing() clears the accumulator only.
+        follow.resetBearing();
+      } else if (state.following && !prev.following) {
+        flyover.stop();
         follow.resetBearing();
       } else if (state.following && state.selectedRunIdx !== prev.selectedRunIdx) {
         follow.resetBearing();
@@ -733,6 +779,7 @@ export function MapContainer() {
     let isEasingMap3D = false;
     const unsubscribeMap3D = useAppStore.subscribe((state, prev) => {
       if (state.map3D !== prev.map3D) {
+        if (isManualPitching) return;
         isEasingMap3D = true;
         map.easeTo({
           pitch: state.map3D ? 55 : 0,
@@ -749,7 +796,9 @@ export function MapContainer() {
       const currentPitch = map.getPitch();
       const is3D = currentPitch >= 10;
       if (useAppStore.getState().map3D !== is3D) {
+        isManualPitching = true;
         useAppStore.getState().setMap3D(is3D);
+        isManualPitching = false;
       }
     };
     map.on("pitchend", onMapPitchEnd);
@@ -783,6 +832,7 @@ export function MapContainer() {
       cancelAnimationFrame(rafId);
       cancelAnimationFrame(hoverRafId);
       controls.dispose();
+      flyover.dispose();
       unsubscribeFollow();
       unsubscribeFlyTo();
       unsubscribeSheetDetentSync();
@@ -797,6 +847,7 @@ export function MapContainer() {
       map.off("mousemove", onMouseMove);
       map.getCanvas().style.cursor = "";
       map.off("dragstart", onDragStart);
+      map.off("drag", onDrag);
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("recenter-follow-camera", onRecenterCamera);
       activeSimClient.current = null;

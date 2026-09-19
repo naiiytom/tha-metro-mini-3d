@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useAppStore } from "../../stores/useAppStore";
 import { ViewControls } from "../ViewControls";
 
 describe("ViewControls fullscreen", () => {
@@ -86,6 +87,82 @@ describe("ViewControls fullscreen", () => {
 
     fireEvent.click(btn5x);
     expect(btn5x).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("toggles the keyboard shortcuts HUD card, and closes on Escape or click outside", () => {
+    render(<ViewControls />);
+    const toggleBtn = screen.getByTestId("toggle-flyover-hud");
+    expect(toggleBtn).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByTestId("flyover-hud-card")).toBeNull();
+
+    // Open HUD
+    fireEvent.click(toggleBtn);
+    expect(toggleBtn).toHaveAttribute("aria-expanded", "true");
+    const hudCard = screen.getByTestId("flyover-hud-card");
+    expect(hudCard).toBeTruthy();
+    expect(screen.getByText(/Flyover Navigation/i)).toBeTruthy();
+    expect(screen.getByText(/Fly \/ Strafe/i)).toBeTruthy();
+
+    // Press Escape to close
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByTestId("flyover-hud-card")).toBeNull();
+
+    // Reopen HUD and close with close button
+    fireEvent.click(toggleBtn);
+    const closeBtn = screen.getByRole("button", { name: /Close keyboard shortcuts/i });
+    fireEvent.click(closeBtn);
+    expect(screen.queryByTestId("flyover-hud-card")).toBeNull();
+
+    // Reopen and close via click outside
+    fireEvent.click(toggleBtn);
+    expect(screen.getByTestId("flyover-hud-card")).toBeTruthy();
+    fireEvent.mouseDown(document.body);
+    expect(screen.queryByTestId("flyover-hud-card")).toBeNull();
+  });
+
+  it("consumes Escape to close HUD without clearing metro selection, and refocuses toggle button", () => {
+    useAppStore.getState().selectRun(42);
+    expect(useAppStore.getState().selectedRunIdx).toBe(42);
+
+    // Mimic MapContainer's global Escape handler on window (bubble phase)
+    const mapContainerEscape = vi.fn((e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        useAppStore.getState().selectRun(null);
+        useAppStore.getState().selectStation(null);
+      }
+    });
+    window.addEventListener("keydown", mapContainerEscape);
+
+    try {
+      render(<ViewControls />);
+      const toggleBtn = screen.getByTestId("toggle-flyover-hud");
+
+      // Open HUD
+      fireEvent.click(toggleBtn);
+      expect(screen.getByTestId("flyover-hud-card")).toBeTruthy();
+
+      // Press Escape while HUD is open
+      fireEvent.keyDown(document.body, { key: "Escape" });
+
+      // HUD closed
+      expect(screen.queryByTestId("flyover-hud-card")).toBeNull();
+
+      // Escape was consumed; global handler was NOT invoked
+      expect(mapContainerEscape).not.toHaveBeenCalled();
+
+      // Selection was preserved
+      expect(useAppStore.getState().selectedRunIdx).toBe(42);
+
+      // Focus returned to toggle button
+      expect(document.activeElement).toBe(toggleBtn);
+
+      // Now press Escape again with HUD closed: global handler fires and clears selection
+      fireEvent.keyDown(document.body, { key: "Escape" });
+      expect(mapContainerEscape).toHaveBeenCalledTimes(1);
+      expect(useAppStore.getState().selectedRunIdx).toBeNull();
+    } finally {
+      window.removeEventListener("keydown", mapContainerEscape);
+    }
   });
 });
 

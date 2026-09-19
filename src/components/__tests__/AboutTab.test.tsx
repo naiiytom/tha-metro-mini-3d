@@ -72,5 +72,12 @@ describe("AboutTab", () => {
     expect(sponsorLink).toHaveAttribute("href", "https://github.com/sponsors/naiiytom");
     expect(screen.getByText(/PromptPay \/ Thai QR Payment/i)).toBeTruthy();
   });
+
+  it("renders keyboard flyover controls documentation section", () => {
+    render(<AboutTab />);
+    expect(screen.getByText(/Keyboard Flyover Controls/i)).toBeTruthy();
+    expect(screen.getByText(/W \/ A \/ S \/ D/i)).toBeTruthy();
+    expect(screen.getByText(/Fly \/ Strafe/i)).toBeTruthy();
+  });
 });
 

@@ -107,6 +107,17 @@ describe("installCameraControls", () => {
     expect(jumps[0]).toEqual({ pitch: 55, bearing: 108 });
   });
 
+  it("fires onOrbitStart callback when orbit gesture starts", () => {
+    const { map, emit } = createMockMap();
+    const onOrbitStart = vi.fn();
+    const controls = installCameraControls(map, { onOrbitStart });
+
+    emit("pointerdown", { button: 2, pointerId: 5, clientX: 50, clientY: 50, preventDefault: vi.fn() });
+    expect(onOrbitStart).toHaveBeenCalledTimes(1);
+
+    controls.dispose();
+  });
+
   it("removes event listeners on dispose", () => {
     const { map, listeners } = createMockMap();
     const controls = installCameraControls(map);

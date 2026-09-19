@@ -138,6 +138,17 @@ export const th: Record<TranslationKey, string> = {
   "view.trainScale3xHint": "ขนาด 3 เท่า — มองเห็นเด่นชัดทั่วพื้นที่มหานคร",
   "view.trainScale5xHint": "ขนาด 5 เท่า — มองเห็นชัดเจนสูงสุดสำหรับมุมมองมุมสูงและหน้าจอขนาดเล็ก",
 
+  // Flyover HUD & Keyboard Controls
+  "viewControls.flyover": "การบินด้วยคีย์บอร์ด",
+  "flyoverHud.title": "การบินสำรวจ 3 มิติ",
+  "flyoverHud.translation": "บิน / เคลื่อนที่",
+  "flyoverHud.rotation": "หมุนทิศทาง",
+  "flyoverHud.pitch": "ก้มเงยกล้อง",
+  "flyoverHud.zoom": "ระดับความสูง / ซูม",
+  "flyoverHud.turbo": "เร่งความเร็ว",
+  "flyoverHud.crawl": "เคลื่อนที่ช้าพิเศษ",
+  "flyoverHud.close": "ปิดคีย์ลัด",
+
   // Time Controls & Scrubber
   "time.engineError": "ข้อผิดพลาดระบบจำลอง: {error}",
   "time.bangkok": "กรุงเทพฯ",
@@ -164,6 +175,8 @@ export const th: Record<TranslationKey, string> = {
 
   // About Tab
   "about.description": "ระบบจำลองภาพเคลื่อนไหว 3 มิติแบบโต้ตอบของโครงข่ายรถไฟฟ้าในกรุงเทพฯ ตามตารางเวลาจริง ขบวนรถไฟเคลื่อนที่ตามแนวเส้นทางและระดับความสูงจริงทางภูมิศาสตร์ โดยอ้างอิงข้อมูลตารางเวลาเดินรถมาตรฐาน GTFS ที่เผยแพร่เป็นสาธารณะ",
+  "about.keyboardControls": "การควบคุมมุมกล้องด้วยคีย์บอร์ด",
+  "about.keyboardControlsDesc": "การบินสำรวจ 3 มิติตามแนวเส้นทางรางและอาคารในกรุงเทพฯ ด้วยคีย์บอร์ด:",
   "about.networkScope": "ขอบเขตโครงข่าย",
   "about.simulatedLines": "สายที่จำลองเดินรถ:",
   "about.preRevenueLines": "โครงการในอนาคต (เฉพาะราง):",

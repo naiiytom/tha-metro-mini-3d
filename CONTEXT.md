@@ -49,3 +49,24 @@ estimated Pink run times, flat transfer allowance). A disclosure is only
 delivered if it is complete in every shipped primary language; dropping it in
 any shipped language counts as dropping the disclosure.
 _Avoid_: disclaimer, banner
+
+## Camera and Navigation
+
+### Interaction modes
+
+**Flyover navigation**:
+Continuous 6DOF-inspired keyboard flight (translation, bearing yaw, pitch tilt,
+zoom altitude) evaluated per-frame outside of React.
+_Avoid_: keyboard controls, WASD mode
+
+**Follow breakout**:
+The transition where manual camera interaction (mouse drag or translational
+flight key) relinquishes train-tracking lock while preserving current camera
+center and bearing.
+_Avoid_: unfollow, cancel follow, exit follow
+
+**Orbit offset**:
+A user-specified yaw bearing delta maintained relative to the followed vehicle's
+dynamic heading.
+_Avoid_: camera rotation, heading override
+

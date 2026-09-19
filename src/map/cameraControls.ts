@@ -7,6 +7,10 @@ export interface CameraControlOptions {
    * a follow camera offset), preventing MapLibre's bearing from being updated directly.
    */
   onOrbit?: (bearingDeltaDeg: number, pitchDeltaDeg: number) => boolean;
+  /**
+   * Called when an orbit drag gesture begins (pointerdown with middle/right/ctrl+left button).
+   */
+  onOrbitStart?: () => void;
 }
 
 export interface CameraControls {
@@ -69,6 +73,7 @@ export function installCameraControls(
 
   const onPointerDown = (e: PointerEvent) => {
     if (pointerId !== null || !isOrbitDrag(e)) return;
+    options.onOrbitStart?.();
     // Middle-click otherwise triggers Windows/Linux autoscroll over the canvas.
     e.preventDefault();
     pointerId = e.pointerId;
