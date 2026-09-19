@@ -248,9 +248,10 @@ export function installFlyoverControls(
 
     if (isTranslationalAction(action)) {
       if (!activeActions.has(action)) {
-        // First press of a translational key releases follow lock and resets coasting velocity
-        vx = 0;
-        vy = 0;
+        if (options.isFollowing?.()) {
+          vx = 0;
+          vy = 0;
+        }
         options.onFollowRelease?.();
       }
     }

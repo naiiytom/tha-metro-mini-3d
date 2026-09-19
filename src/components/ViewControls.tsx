@@ -46,7 +46,10 @@ export function ViewControls() {
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
         setShowFlyoverHud(false);
+        hudToggleRef.current?.focus();
       }
     };
 
@@ -62,10 +65,10 @@ export function ViewControls() {
       }
     };
 
-    document.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keydown", onKeyDown, true);
     document.addEventListener("mousedown", onClickOutside);
     return () => {
-      document.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keydown", onKeyDown, true);
       document.removeEventListener("mousedown", onClickOutside);
     };
   }, [showFlyoverHud]);

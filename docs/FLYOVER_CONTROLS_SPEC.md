@@ -173,9 +173,26 @@ export interface FlyoverControls {
    - Verify key strokes are completely ignored when `document.activeElement` is `HTMLInputElement`, `HTMLTextAreaElement`, or a `contenteditable` element (`isContentEditable === true`).
    - Verify `W`, `A`, `S`, `D` movements apply correct directional translations according to bearing angle $\theta$.
    - Verify `Q`, `E` apply correct rotational delta and invoke `onYawOffset` when following.
-   - Verify `Shift` multiplier scales velocity by `2.5×`.
+   - Verify `Shift` multiplier scales velocity by `2.5×` and `Alt` crawls by `0.3×`.
    - Verify zoom keys (`Z`, `C`) and pitch keys (`R`, `F`) preserve follow lock, while translational keys (`W`, `A`, `S`, `D`, arrow keys) trigger `onFollowRelease()`.
    - Verify deceleration damping smoothly reduces velocity to zero when keys are released.
-2. **Integration Verification**:
-   - Mount in `MapContainer.tsx`, test interaction in both idle and follow camera modes.
-   - Verify zero dropped frames during continuous high-speed flyover across dense Bangkok 3D building extrusions.
+   - Verify translational axis addition and removal (`W → W+D → W`) preserves velocity and blends direction without braking to zero.
+   - Verify canvas pointerdown and map dragstart halt in-progress flyover velocity.
+2. **UI & Keyboard UX Tests (`src/components/__tests__/ViewControls.test.tsx`)**:
+   - Verify keyboard shortcuts HUD card toggles on button click and dismisses via click outside or close button.
+   - Verify pressing `Escape` while HUD is open consumes the event, preserves active train/station selections in `useAppStore`, and returns DOM focus to the HUD toggle button.
+3. **Integration Verification (`src/map/flyoverIntegration.test.ts`)**:
+   - Verify full coordination between `flyoverControls`, `FollowCamera`, `cameraControls`, and `useAppStore`:
+     - Follow breakout: WASD keypress clears `following` in store, calls `follow.resetBearing()`, and translates from rest.
+     - Follow yaw offset: `Q`/`E` routes angular delta into `follow.addYawOffset()` without releasing `following`.
+     - Drag takeover: canvas `pointerdown` or `onOrbitStart` halts flyover motion.
+     - 2D/3D synchronization: `R`/`F` pitch changes crossing 10° threshold update `useAppStore.map3D`.
+     - Form input isolation: typing in `<input>` elements suppresses all flight movement.
+4. **Manual Browser Acceptance Checklist**:
+   - [ ] Click on a running train to enter follow mode; press `W` to verify smooth breakout from the train's position.
+   - [ ] Enter follow mode and press `Q`/`E` to verify camera smoothly orbits around the moving train without unlocking.
+   - [ ] Hold `W`, then hold `D` simultaneously; verify seamless diagonal flight without speed drop or stutter.
+   - [ ] While flying or coasting, click/drag the map with mouse; verify instantaneous handoff to native map panning.
+   - [ ] Press `R` from flat 2D; verify the 3D toggle button in ViewControls highlights when crossing 10° pitch.
+   - [ ] Click the station search input and type station names containing `w`, `a`, `s`, `d`; verify zero map movement.
+   - [ ] Select a train, open the `⌨` HUD cheat sheet, press `Escape`; verify HUD closes, focus returns to toggle button, and selected train remains selected.

@@ -588,6 +588,68 @@ describe("installFlyoverControls", () => {
       expect(y1 - y0).toBeCloseTo(80 / Math.SQRT2, 1);
     });
 
+    it("preserves flight velocity when transitioning W -> W+D -> W without braking to zero", () => {
+      const { map } = createMockMap({ bearing: 0, zoom: 16 });
+      const controls = installFlyoverControls(map, { baseSpeedMps: 100, accelTimeSec: 0 });
+      activeControls = controls;
+
+      // 1. Fly forward (W)
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "w", bubbles: true }));
+      controls.tick(100);
+      const c1 = map.getCenter();
+      const [x1, y1] = lngLatToLocal(c1.lng, c1.lat);
+      expect(x1).toBeCloseTo(0, 1);
+      expect(y1).toBeCloseTo(10, 1); // 100 m/s * 0.1s = 10m North
+
+      // 2. Add right strafe (D) while W is still held (W -> W+D transition)
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "d", bubbles: true }));
+      controls.tick(100);
+      const c2 = map.getCenter();
+      const [x2, y2] = lngLatToLocal(c2.lng, c2.lat);
+      const dx1 = x2 - x1;
+      const dy1 = y2 - y1;
+      // Velocity must NOT have reset to 0; continues smoothly along diagonal
+      expect(dx1).toBeCloseTo(10 / Math.SQRT2, 1);
+      expect(dy1).toBeCloseTo(10 / Math.SQRT2, 1);
+
+      // 3. Release right strafe (D) while W remains held (W+D -> W transition)
+      window.dispatchEvent(new KeyboardEvent("keyup", { key: "d", bubbles: true }));
+      controls.tick(100);
+      const c3 = map.getCenter();
+      const [x3, y3] = lngLatToLocal(c3.lng, c3.lat);
+      const dx2 = x3 - x2;
+      const dy2 = y3 - y2;
+      // Returns smoothly to pure North translation
+      expect(dx2).toBeCloseTo(0, 1);
+      expect(dy2).toBeCloseTo(10, 1);
+    });
+
+    it("resets velocity to zero on translational keypress when breaking out of follow mode", () => {
+      const { map } = createMockMap({ bearing: 0, zoom: 16 });
+      let following = true;
+      const onFollowRelease = vi.fn(() => {
+        following = false;
+      });
+      const controls = installFlyoverControls(map, {
+        baseSpeedMps: 100,
+        accelTimeSec: 0,
+        isFollowing: () => following,
+        onFollowRelease,
+      });
+      activeControls = controls;
+
+      // Pressing W breaks follow mode and starts flight from rest (0 m/s) at current position
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "w", bubbles: true }));
+      expect(onFollowRelease).toHaveBeenCalledTimes(1);
+
+      // Initial tick moves forward from 0
+      controls.tick(100);
+      const c1 = map.getCenter();
+      const [x1, y1] = lngLatToLocal(c1.lng, c1.lat);
+      expect(x1).toBeCloseTo(0, 1);
+      expect(y1).toBeCloseTo(10, 1);
+    });
+
     it("ignores non-positive or non-finite dtMs in tick", () => {
       const { map } = createMockMap();
       const controls = installFlyoverControls(map);
