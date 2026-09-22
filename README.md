@@ -1,28 +1,35 @@
+<p align="center">
+  <img src="docs/media/logo.svg" width="420" alt="Bangkok Metro Mini 3D logo">
+</p>
+
 # Greater Bangkok Metro Mini 3D
 
-> Interactive, web-based 3D visualization of Bangkok's rail transit network — trains moving on schedule along authentic geography, elevations, and timetables.
+<p align="center">
+  An interactive, schedule-driven 3D map of Greater Bangkok's rail network.
+</p>
 
-**Status:** 🚀 **Active & Production-Ready** — Simulating Greater Bangkok's 14 urban rail lines (12 simulated, 2 pre-revenue track-only), 198 stations, 9,609 daily scheduled runs with real-time Bangkok clock interpolation. **Repo:** [`tha-metro-mini-3d`](https://github.com/naiiytom/tha-metro-mini-3d)
+<p align="center">
+  <a href="#getting-started">Get started</a> · <a href="#features">Features</a> · <a href="#coverage">Coverage</a> · <a href="./docs/SRS.md">Technical brief</a>
+</p>
 
----
+Greater Bangkok Metro Mini 3D places Bangkok's metro and rail lines above a vector basemap, then moves trains along their published static GTFS timetables. Explore the scheduled network in real time, scrub the clock, plan a trip, or follow a train through the city.
 
-## What it is
+> **Not a live tracker.** Positions show where services are scheduled to be, interpolated from published arrival and departure times.
 
-Greater Bangkok Metro Mini 3D renders the Bangkok Metropolitan Region's metro/rail lines as 3D track over a vector map and animates trains along them using published **static GTFS** timetables. Vehicle positions are computed by interpolating scheduled arrival/departure times — so you can watch the *scheduled* network at any moment, scrub through time, and follow individual trains.
+## At a glance
 
-> **Schedule-driven, not live.** Static timetables are interpolated to visualize where trains *should* be according to published operator schedules.
+| | |
+|---|---|
+| Network | 14 registered urban rail lines |
+| Simulation | 12 operational lines, 9,609 daily scheduled runs |
+| Stations | 198 |
+| Stack | React, TypeScript, MapLibre, Three.js, Rust/Wasm |
 
-Full requirements live in [`docs/SRS.md`](./docs/SRS.md). For planned features, see [`docs/addition-roadmap.md`](./docs/addition-roadmap.md).
-
-## Demo & Screenshots
-
-### Live Demo Animations
+## See it in motion
 
 | 3D Network Overview & Route Search | Zoomed-in Follow Camera & Orbit |
 |---|---|
 | ![3D Network Overview](docs/media/metro_3d_demo.gif) | ![Follow Camera & Orbit](docs/media/follow_train_demo.gif) |
-
-### Camera Angles
 
 | Siam Station Closeup | Sukhumvit Elevated Track | System Overview |
 |---|---|---|

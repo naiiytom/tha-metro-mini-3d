@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 160" role="img" aria-labelledby="title desc">
+  <title id="title">Greater Bangkok Metro Mini 3D</title>
+  <desc id="desc">A colourful elevated rail loop above the project name.</desc>
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#0ea5e9"/>
+      <stop offset="1" stop-color="#2563eb"/>
+    </linearGradient>
+    <linearGradient id="train" x1="0" y1="0" x2="1" y2="0">
+      <stop stop-color="#f8fafc"/>
+      <stop offset="1" stop-color="#cbd5e1"/>
+    </linearGradient>
+  </defs>
+  <path d="M64 68c17-36 60-52 101-38 31 10 49 34 75 36 31 3 52-25 88-19 36 6 63 35 57 65" fill="none" stroke="url(#sky)" stroke-linecap="round" stroke-width="18"/>
+  <path d="M64 68c17-36 60-52 101-38 31 10 49 34 75 36 31 3 52-25 88-19 36 6 63 35 57 65" fill="none" stroke="#fbbf24" stroke-dasharray="3 28" stroke-linecap="round" stroke-width="4"/>
+  <path d="M276 47h80c9 0 16 7 16 16v24c0 9-7 16-16 16h-80c-9 0-16-7-16-16V63c0-9 7-16 16-16Z" fill="url(#train)" stroke="#0f172a" stroke-width="5"/>
+  <path d="M278 61h24v28h-24zM310 61h24v28h-24zM342 61h16v28h-16z" fill="#0f4c81"/>
+  <path d="M266 101h100" stroke="#0f172a" stroke-linecap="round" stroke-width="5"/>
+  <circle cx="281" cy="105" r="7" fill="#0f172a"/><circle cx="350" cy="105" r="7" fill="#0f172a"/>
+  <text x="240" y="132" fill="#0f172a" font-family="Arial, sans-serif" font-size="27" font-weight="700" text-anchor="middle">BANGKOK METRO</text>
+  <text x="240" y="153" fill="#475569" font-family="Arial, sans-serif" font-size="14" font-weight="700" letter-spacing="3" text-anchor="middle">MINI 3D</text>
+</svg>
