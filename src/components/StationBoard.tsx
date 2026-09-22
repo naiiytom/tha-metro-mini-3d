@@ -68,6 +68,9 @@ export function StationBoard() {
   if (!selectedStation) return null;
 
   const entries = boards?.flatMap((board) => board.entries).sort((a, b) => a.departure_sec - b.departure_sec) ?? [];
+  const hubRoutes = hub?.routeIndices ?? (selectedStation ? [selectedStation.routeIdx] : []);
+  const hasSyntheticSchedule = hubRoutes.some((routeIdx) => routes[routeIdx]?.syntheticSchedule != null);
+  const hasEstimatedRunTimes = hubRoutes.some((routeIdx) => routes[routeIdx]?.estimatedRunTimes != null);
 
   const { primaryName, subtitle } = hub
     ? { primaryName: primaryLang === "th" && hub.nameTh ? hub.nameTh : hub.nameEn, subtitle: primaryLang === "th" ? hub.nameEn : hub.nameTh }
@@ -121,7 +124,7 @@ export function StationBoard() {
         </p>
         {/* Every departure below is synthesized, not published — say so
          * before the user reads a single time (see SYNTHETIC_SCHEDULE_NOTE). */}
-        {routes[selectedStation.routeIdx]?.syntheticSchedule != null && (
+        {hasSyntheticSchedule && (
           <p
             data-testid="synthetic-schedule-note"
             className="mx-2 mb-1 rounded bg-note-bg px-2 py-1 text-[10px] leading-snug text-note-ink"
@@ -133,7 +136,7 @@ export function StationBoard() {
          * sits on the translucent panel-glass surface, so this note needs the
          * same dark-on-light treatment, not the white-on-white this
          * originally shipped with. */}
-        {routes[selectedStation.routeIdx]?.estimatedRunTimes != null && (
+        {hasEstimatedRunTimes && (
           <p
             data-testid="estimated-run-times-note"
             className="mx-2 mb-1 rounded bg-note-bg px-2 py-1 text-[10px] leading-snug text-note-ink"

@@ -135,6 +135,7 @@ export class StationBillboardManager {
   private readonly badgeKeys: string[] = [];
   private lastStations: StationInfo[] | null = null;
   private hubs: StationHub[] = [];
+  private stationByStop = new Map<string, StationInfo>();
   private routeLengths: Map<number, number> = new Map();
   private onSelect: StationSelectCallback | null = null;
 
@@ -154,7 +155,7 @@ export class StationBillboardManager {
 
       // Stable child DOM — never recreated between frames.
       const dot = document.createElement("span");
-      dot.className = "h-2 w-2 rounded-full shrink-0";
+      dot.className = "flex shrink-0 gap-0.5";
 
       const name = document.createElement("span");
       name.className = "truncate max-w-28 text-ink font-semibold";
@@ -227,6 +228,10 @@ export class StationBillboardManager {
     if (this.lastStations !== stations) {
       this.lastStations = stations;
       this.hubs = buildStationHubs(stations, routes);
+      this.stationByStop = new Map(stations.map((station) => [
+        `${station.route_idx}:${station.station_idx}`,
+        station,
+      ]));
       this.routeLengths.clear();
       for (const s of stations) {
         const cur = this.routeLengths.get(s.route_idx) ?? 0;
@@ -236,9 +241,15 @@ export class StationBillboardManager {
     const routeLengths = this.routeLengths;
 
     for (const hub of this.hubs) {
-      const primaryStop = hub.stops.find((stop) => !hiddenRoutes.includes(stop.routeIdx));
+      let primaryStop: StationHub["stops"][number] | undefined;
+      for (const stop of hub.stops) {
+        if (!hiddenRoutes.includes(stop.routeIdx)) {
+          primaryStop = stop;
+          break;
+        }
+      }
       if (!primaryStop) continue;
-      const station = stations.find((s) => s.route_idx === primaryStop.routeIdx && s.station_idx === primaryStop.stationIdx);
+      const station = this.stationByStop.get(`${primaryStop.routeIdx}:${primaryStop.stationIdx}`);
       if (!station) continue;
       const isSelected = selectedStation !== null && hub.stops.some(
         (stop) => stop.routeIdx === selectedStation.routeIdx && stop.stationIdx === selectedStation.stationIdx,
@@ -294,8 +305,8 @@ export class StationBillboardManager {
         )}px, 0) translate(-50%, -100%)`;
 
         // Write routing data to attributes for the stable click listener.
-        el.dataset.routeIdx = String(hub?.stops[0]?.routeIdx ?? s.route_idx);
-        el.dataset.stationIdx = String(hub?.stops[0]?.stationIdx ?? s.station_idx);
+        el.dataset.routeIdx = String(s.route_idx);
+        el.dataset.stationIdx = String(s.station_idx);
 
         const badgeKey = `${hub?.id ?? `${s.route_idx}:${s.station_idx}`}:${primaryLang}:${lineColor}`;
         if (this.badgeKeys[i] !== badgeKey) {
@@ -304,8 +315,12 @@ export class StationBillboardManager {
           const primaryName = hub ? (primaryLang === "th" && hub.nameTh ? hub.nameTh : hub.nameEn) : bilingual.primaryName;
           const subtitle = hub ? (primaryLang === "th" ? hub.nameEn : hub.nameTh) : bilingual.subtitle;
           const colors = (hub?.routeIndices ?? [s.route_idx]).map((routeIdx) => routes[routeIdx]?.color ?? "#64748b");
-          this.dotSpans[i].style.backgroundColor = colors[0];
-          this.dotSpans[i].style.boxShadow = colors.slice(1).map((color, index) => `${(index + 1) * 5}px 0 0 ${color}`).join(", ");
+          this.dotSpans[i].replaceChildren(...colors.map((color) => {
+            const routeDot = document.createElement("span");
+            routeDot.className = "h-2 w-2 rounded-full";
+            routeDot.style.backgroundColor = color;
+            return routeDot;
+          }));
           this.nameSpans[i].textContent = primaryName;
           if (subtitle) {
             this.subtitleSpans[i].textContent = subtitle;
