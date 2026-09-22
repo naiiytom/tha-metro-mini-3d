@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/media/logo.svg" width="420" alt="Bangkok Metro Mini 3D logo">
+  <img src="docs/media/logo.png" width="640" alt="Greater Bangkok Metro Mini 3D logo">
 </p>
 
 # Greater Bangkok Metro Mini 3D
