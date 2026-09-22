@@ -1,13 +1,16 @@
-﻿import type { StationInfo } from "../sim/protocol";
+import type { StationInfo } from "../sim/protocol";
 import type { LineGeometry } from "../types";
+import type { StationHub } from "../sim/protocol";
+import { buildStationHubs } from "../stations/stationHubs";
 import { projectLocal, type ViewProjection } from "./screenProject";
 import type { PrimaryLanguage } from "../stores/useAppStore";
-import { formatBilingualStation } from "../utils/stationTypography";
+import { formatBilingualHub, formatBilingualStation } from "../utils/stationTypography";
 
 export type StationTier = 1 | 2 | 3;
 
 export interface BillboardCandidate {
   station: StationInfo;
+  hub?: StationHub;
   screenX: number;
   screenY: number;
   tier: StationTier;
@@ -131,6 +134,8 @@ export class StationBillboardManager {
   /** Per-slot cached badge key — avoids redundant text/color writes. */
   private readonly badgeKeys: string[] = [];
   private lastStations: StationInfo[] | null = null;
+  private hubs: StationHub[] = [];
+  private stationByStop = new Map<string, StationInfo>();
   private routeLengths: Map<number, number> = new Map();
   private onSelect: StationSelectCallback | null = null;
 
@@ -150,7 +155,13 @@ export class StationBillboardManager {
 
       // Stable child DOM — never recreated between frames.
       const dot = document.createElement("span");
-      dot.className = "h-2 w-2 rounded-full shrink-0";
+      dot.className = "flex shrink-0 gap-0.5";
+      for (let d = 0; d < 8; d++) {
+        const dotChild = document.createElement("span");
+        dotChild.className = "h-2 w-2 rounded-full";
+        dotChild.style.display = "none";
+        dot.appendChild(dotChild);
+      }
 
       const name = document.createElement("span");
       name.className = "truncate max-w-28 text-ink font-semibold";
@@ -222,6 +233,11 @@ export class StationBillboardManager {
     // Pre-determine line lengths to identify termini (cached across frames)
     if (this.lastStations !== stations) {
       this.lastStations = stations;
+      this.hubs = buildStationHubs(stations);
+      this.stationByStop = new Map(stations.map((station) => [
+        `${station.route_idx}:${station.station_idx}`,
+        station,
+      ]));
       this.routeLengths.clear();
       for (const s of stations) {
         const cur = this.routeLengths.get(s.route_idx) ?? 0;
@@ -230,21 +246,30 @@ export class StationBillboardManager {
     }
     const routeLengths = this.routeLengths;
 
-    for (const station of stations) {
-      if (hiddenRoutes.includes(station.route_idx)) continue;
-
-      const isSelected =
-        selectedStation !== null &&
-        selectedStation.routeIdx === station.route_idx &&
-        selectedStation.stationIdx === station.station_idx;
-
+    for (const hub of this.hubs) {
+      let primaryStop: StationHub["stops"][number] | undefined;
+      for (const stop of hub.stops) {
+        if (!hiddenRoutes.includes(stop.routeIdx)) {
+          primaryStop = stop;
+          break;
+        }
+      }
+      if (!primaryStop) continue;
+      const station = this.stationByStop.get(`${primaryStop.routeIdx}:${primaryStop.stationIdx}`);
+      if (!station) continue;
+      const isSelected = selectedStation !== null && hub.stops.some(
+        (stop) => stop.routeIdx === selectedStation.routeIdx && stop.stationIdx === selectedStation.stationIdx,
+      );
       const maxIdx = routeLengths.get(station.route_idx) ?? 1;
       const isTerminus = station.station_idx === 0 || station.station_idx === maxIdx - 1;
-      const tier = classifyStationTier(station, isTerminus);
+      const tier = hub.stops.length > 1 ? 1 : classifyStationTier(station, isTerminus);
 
       if (!isStationVisibleAtZoom(tier, zoom, isSelected)) continue;
 
-      const screenPt = projectLocal(view, station.x, station.y, station.z);
+      const projX = hub ? hub.x : station.x;
+      const projY = hub ? hub.y : station.y;
+      const projZ = hub ? hub.z : station.z;
+      const screenPt = projectLocal(view, projX, projY, projZ);
       if (!screenPt) continue;
 
       // Skip offscreen
@@ -259,6 +284,7 @@ export class StationBillboardManager {
 
       candidates.push({
         station,
+        hub,
         screenX: screenPt.x,
         screenY: screenPt.y,
         tier,
@@ -275,10 +301,9 @@ export class StationBillboardManager {
       if (i < visible.length) {
         const item = visible[i];
         const s = item.station;
-        const route = routes[s.route_idx];
-        const lineColor = route?.color ?? "#64748b";
+        const hub = item.hub;
 
-        const isUnderground = s.z < 0;
+        const isUnderground = (hub ? hub.z : s.z) < 0;
         const opacity = isUnderground && !undergroundMode ? "0.65" : "1.0";
 
         el.style.display = "flex";
@@ -291,11 +316,26 @@ export class StationBillboardManager {
         el.dataset.routeIdx = String(s.route_idx);
         el.dataset.stationIdx = String(s.station_idx);
 
-        const badgeKey = `${s.route_idx}:${s.station_idx}:${primaryLang}:${s.code}:${lineColor}`;
+        const colors = (hub?.routeIndices ?? [s.route_idx])
+          .filter((routeIdx) => !hiddenRoutes.includes(routeIdx))
+          .map((routeIdx) => routes[routeIdx]?.color ?? "#64748b");
+        const badgeKey = `${hub?.id ?? `${s.route_idx}:${s.station_idx}`}:${primaryLang}:${colors.join(",")}`;
         if (this.badgeKeys[i] !== badgeKey) {
           this.badgeKeys[i] = badgeKey;
-          const { primaryName, subtitle } = formatBilingualStation(s, primaryLang);
-          this.dotSpans[i].style.backgroundColor = lineColor;
+          const { primaryName, subtitle } = hub
+            ? formatBilingualHub(hub, primaryLang)
+            : formatBilingualStation(s, primaryLang);
+          const dotContainer = this.dotSpans[i];
+          const dotCount = Math.min(colors.length, dotContainer.children.length);
+          for (let c = 0; c < dotContainer.children.length; c++) {
+            const child = dotContainer.children[c] as HTMLElement;
+            if (c < dotCount) {
+              child.style.display = "";
+              child.style.backgroundColor = colors[c];
+            } else {
+              child.style.display = "none";
+            }
+          }
           this.nameSpans[i].textContent = primaryName;
           if (subtitle) {
             this.subtitleSpans[i].textContent = subtitle;

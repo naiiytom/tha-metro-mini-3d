@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { lngLatToLocal } from "../../map/coordinates";
+import { lngLatToLocal, localToLngLat } from "../../map/coordinates";
+import { findStationHub } from "../../stations/stationHubs";
 import { formatDistance, geoErrorMessage, nearestStation } from "../../search/stationSearch";
 import { useAppStore } from "../../stores/useAppStore";
 import { formatBilingualStation, resolveLineName } from "../../utils/stationTypography";
@@ -60,9 +61,10 @@ export function StationsTab() {
     return nearestStation(geo.userLocal, visibleStations);
   }, [geo, visibleStations]);
 
-  const goToStation = (routeIdx: number, stationIdx: number, lng: number, lat: number) => {
+  const goToStation = (routeIdx: number, stationIdx: number, x: number, y: number) => {
     selectStation({ routeIdx, stationIdx });
-    requestFlyTo({ lng, lat });
+    const hub = findStationHub(stations, routeIdx, stationIdx);
+    requestFlyTo(localToLngLat(hub ? hub.x : x, hub ? hub.y : y));
   };
 
   const nearestBilingual = useMemo(
@@ -76,6 +78,7 @@ export function StationsTab() {
         label={t("stations.findStation")}
         stations={visibleStations}
         routes={routes}
+        unifyHubs
         onPick={(s) => {
           if (!s) return;
           goToStation(s.route_idx, s.station_idx, s.x, s.y);

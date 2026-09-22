@@ -1,16 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import type { StationBoard as StationBoardData, StationInfo } from "../sim/protocol";
+import type { StationBoard as StationBoardData } from "../sim/protocol";
 import { activeSimClient } from "../sim/SimClient";
+import { findStationHub } from "../stations/stationHubs";
 import { formatCountdown, formatServiceSec } from "../sim/time";
 import { useAppStore } from "../stores/useAppStore";
-import { formatBilingualStation, resolveLineName } from "../utils/stationTypography";
+import { formatBilingualHub, formatBilingualStation, resolveLineName } from "../utils/stationTypography";
 import { useT } from "../i18n";
 
 /** `${route_idx}:${station_idx}` — the natural key for cross-route station lookup. */
-function stationKey(routeIdx: number, stationIdx: number): string {
-  return `${routeIdx}:${stationIdx}`;
-}
-
 /**
  * Live timetable drawer for the selected station (F4.3): the next scheduled
  * calls, soonest first, straight from the engine's own schedule so it can
@@ -19,8 +16,7 @@ function stationKey(routeIdx: number, stationIdx: number): string {
  * Polled at 1 Hz — cache-derived data, never on the frame path (§3A.7).
  * Clicking a row selects that train, handing off to the inspector.
  */
-
-const POLL_MS = 1000;
+const POLL_MS = 1000;
 const LIMIT = 10;
 
 export function StationBoard() {
@@ -31,14 +27,20 @@ export function StationBoard() {
   const stations = useAppStore((s) => s.stations);
   const primaryLang = useAppStore((s) => s.primaryLang);
   const t = useT();
-  const [board, setBoard] = useState<StationBoardData | null>(null);
+  const [boards, setBoards] = useState<StationBoardData[] | null>(null);
 
-  const routeIdx = selectedStation?.routeIdx;
-  const stationIdx = selectedStation?.stationIdx;
+  const hub = useMemo(
+    () => (selectedStation ? findStationHub(stations, selectedStation.routeIdx, selectedStation.stationIdx) : null),
+    [stations, selectedStation],
+  );
+  const boardStops = useMemo(
+    () => hub?.stops ?? (selectedStation ? [{ routeIdx: selectedStation.routeIdx, stationIdx: selectedStation.stationIdx }] : []),
+    [hub, selectedStation],
+  );
 
   useEffect(() => {
-    if (routeIdx === undefined || stationIdx === undefined) {
-      setBoard(null);
+    if (boardStops.length === 0) {
+      setBoards(null);
       return;
     }
     let cancelled = false;
@@ -46,13 +48,10 @@ export function StationBoard() {
       const client = activeSimClient.current;
       if (!client) return;
       try {
-        const b = await client.getStationBoard(
-          routeIdx,
-          stationIdx,
-          client.getSimNow(),
-          LIMIT,
-        );
-        if (!cancelled) setBoard(b);
+        const result = await Promise.all(boardStops.map((stop) =>
+          client.getStationBoard(stop.routeIdx, stop.stationIdx, client.getSimNow(), LIMIT),
+        ));
+        if (!cancelled) setBoards(result.filter((board): board is StationBoardData => board !== null));
       } catch {
         // Worker torn down mid-flight; re-queried on the next selection.
       }
@@ -63,20 +62,19 @@ export function StationBoard() {
       cancelled = true;
       clearInterval(id);
     };
-  }, [routeIdx, stationIdx]);
-
-  const stationByKey = useMemo(() => {
-    const map = new Map<string, StationInfo>();
-    for (const s of stations) map.set(stationKey(s.route_idx, s.station_idx), s);
-    return map;
-  }, [stations]);
+  }, [boardStops]);
 
   if (!selectedStation) return null;
 
-  const info = stationByKey.get(stationKey(selectedStation.routeIdx, selectedStation.stationIdx));
+  const entries = boards?.flatMap((board) => board.entries).sort((a, b) => a.departure_sec - b.departure_sec) ?? [];
+  const hubRoutes = hub?.routeIndices ?? (selectedStation ? [selectedStation.routeIdx] : []);
+  const hasSyntheticSchedule = hubRoutes.some((routeIdx) => routes[routeIdx]?.syntheticSchedule != null);
+  const hasEstimatedRunTimes = hubRoutes.some((routeIdx) => routes[routeIdx]?.estimatedRunTimes != null);
 
-  const { primaryName, subtitle } = board
-    ? formatBilingualStation(board, primaryLang)
+  const { primaryName, subtitle } = hub
+    ? formatBilingualHub(hub, primaryLang)
+    : boards?.[0]
+    ? formatBilingualStation(boards[0], primaryLang)
     : { primaryName: t("board.stationFallback"), subtitle: "" };
 
   return (
@@ -100,19 +98,19 @@ export function StationBoard() {
         </button>
       </div>
 
-      {info && info.interchanges.length > 0 && (
+      {hub && hub.stops.length > 1 && (
         <div className="flex flex-wrap items-center gap-1 px-4 pb-2">
           <span className="text-[10px] uppercase tracking-wide text-ink-muted">{t("board.interchange")}</span>
-          {info.interchanges.map((ix) => (
+          {hub.routeIndices.map((routeIdx) => (
             <span
-              key={`${ix.route_idx}-${ix.station_idx}`}
+              key={routeIdx}
               className="rounded-full px-1.5 py-0.5 text-[10px] font-medium text-white"
-              style={{ background: routes[ix.route_idx]?.color ?? "#64748b" }}
+              style={{ background: routes[routeIdx]?.color ?? "#64748b" }}
             >
               {resolveLineName(
-                routes[ix.route_idx],
+                routes[routeIdx],
                 primaryLang,
-                t("board.routeFallback", { index: ix.route_idx }),
+                t("board.routeFallback", { index: routeIdx }),
               )}
             </span>
           ))}
@@ -125,7 +123,7 @@ export function StationBoard() {
         </p>
         {/* Every departure below is synthesized, not published — say so
          * before the user reads a single time (see SYNTHETIC_SCHEDULE_NOTE). */}
-        {routes[selectedStation.routeIdx]?.syntheticSchedule != null && (
+        {hasSyntheticSchedule && (
           <p
             data-testid="synthetic-schedule-note"
             className="mx-2 mb-1 rounded bg-note-bg px-2 py-1 text-[10px] leading-snug text-note-ink"
@@ -137,7 +135,7 @@ export function StationBoard() {
          * sits on the translucent panel-glass surface, so this note needs the
          * same dark-on-light treatment, not the white-on-white this
          * originally shipped with. */}
-        {routes[selectedStation.routeIdx]?.estimatedRunTimes != null && (
+        {hasEstimatedRunTimes && (
           <p
             data-testid="estimated-run-times-note"
             className="mx-2 mb-1 rounded bg-note-bg px-2 py-1 text-[10px] leading-snug text-note-ink"
@@ -145,15 +143,15 @@ export function StationBoard() {
             {t("notes.estimatedRunTimes")}
           </p>
         )}
-        {!board ? (
+        {!boards ? (
           <p className="px-2 py-2 text-xs text-ink-muted">{t("board.loading")}</p>
-        ) : board.entries.length === 0 ? (
+        ) : entries.length === 0 ? (
           <p className="px-2 py-2 text-xs text-ink-muted">
             {t("board.noFurtherServices")}
           </p>
         ) : (
           <ul className="space-y-0.5">
-            {board.entries.map((e) => (
+            {entries.map((e) => (
               <li key={`${e.run_idx}-${e.arrival_sec}`}>
                 <button
                   type="button"
@@ -161,6 +159,11 @@ export function StationBoard() {
                   className="flex w-full items-baseline justify-between gap-2 rounded-md px-3 py-2.5 text-left text-sm text-ink-muted transition-colors hover:bg-surface-sunken md:px-2 md:py-1.5 md:text-xs"
                 >
                   <span className="min-w-0 flex-1 truncate">
+                    <span
+                      className="mr-1 inline-block h-2 w-2 rounded-full"
+                      aria-label={resolveLineName(routes[e.route_idx], primaryLang, t("board.routeFallback", { index: e.route_idx }))}
+                      style={{ background: routes[e.route_idx]?.color ?? "#64748b" }}
+                    />
                     <span className="font-medium text-ink">
                       {primaryLang === "th" && e.headsign_th ? e.headsign_th : (e.headsign || e.destination)}
                     </span>

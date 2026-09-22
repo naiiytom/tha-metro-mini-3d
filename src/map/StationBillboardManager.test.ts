@@ -1,9 +1,11 @@
-﻿import { describe, expect, it } from "vitest";
+// @vitest-environment jsdom
+import { describe, expect, it } from "vitest";
 import {
   classifyStationTier,
   isStationVisibleAtZoom,
   checkAABBCollision,
   declutterBillboards,
+  StationBillboardManager,
   type BillboardCandidate,
 } from "./StationBillboardManager";
 import type { StationInfo } from "../sim/protocol";
@@ -155,6 +157,77 @@ describe("StationBillboardManager LOD & Decluttering", () => {
       const result = declutterBillboards([c1, c2Selected]);
       expect(result).toHaveLength(1);
       expect(result[0].station.name_en).toBe("Chit Lom");
+    });
+  });
+
+  describe("StationBillboardManager DOM and route filtering", () => {
+    it("preallocates 8 dot elements in constructor for each pool slot", () => {
+      const container = document.createElement("div");
+      new StationBillboardManager(container);
+      const billboardContainer = container.children[0] as HTMLElement;
+      expect(billboardContainer.children).toHaveLength(40);
+
+      const firstBadge = billboardContainer.children[0] as HTMLElement;
+      const dotContainer = firstBadge.children[0] as HTMLElement;
+      expect(dotContainer.children).toHaveLength(8);
+      for (let i = 0; i < 8; i++) {
+        expect((dotContainer.children[i] as HTMLElement).style.display).toBe("none");
+      }
+    });
+
+    it("filters out hiddenRoutes from billboard color dots on interchange hubs", () => {
+      const container = document.createElement("div");
+      const manager = new StationBillboardManager(container);
+
+      const matrix = new Float64Array(16);
+      matrix[15] = 1;
+      const view = { matrix, widthPx: 800, heightPx: 600 };
+
+      const stations: StationInfo[] = [
+        mockStation({
+          route_idx: 0,
+          station_idx: 0,
+          code: "E4",
+          name_en: "Asok",
+          name_th: "อโศก",
+          interchanges: [{ route_idx: 1, station_idx: 0 }],
+        }),
+        mockStation({
+          route_idx: 1,
+          station_idx: 0,
+          code: "BL22",
+          name_en: "Sukhumvit",
+          name_th: "สุขุมวิท",
+          interchanges: [{ route_idx: 0, station_idx: 0 }],
+        }),
+      ];
+
+      const routes = [
+        { id: "bts-sukhumvit", name: "Sukhumvit", color: "#10b981", stations: [] } as any,
+        { id: "mrt-blue", name: "Blue", color: "#2563eb", stations: [] } as any,
+      ];
+
+      // Update with route 1 (MRT Blue) hidden
+      manager.apply(
+        view,
+        15,
+        { uiHidden: false, hiddenRoutes: [1], selectedStation: null, undergroundMode: false },
+        stations,
+        routes,
+        "en",
+      );
+
+      const billboardContainer = container.children[0] as HTMLElement;
+      const firstBadge = billboardContainer.children[0] as HTMLElement;
+      expect(firstBadge.style.display).toBe("flex");
+      const dotContainer = firstBadge.children[0] as HTMLElement;
+
+      // First dot (Sukhumvit Line #10b981) should be visible
+      expect((dotContainer.children[0] as HTMLElement).style.display).toBe("");
+      expect((dotContainer.children[0] as HTMLElement).style.backgroundColor).toBe("rgb(16, 185, 129)");
+
+      // Second dot (MRT Blue Line) should be hidden because route 1 is in hiddenRoutes
+      expect((dotContainer.children[1] as HTMLElement).style.display).toBe("none");
     });
   });
 });

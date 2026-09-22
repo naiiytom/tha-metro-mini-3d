@@ -6,6 +6,7 @@ import type { ClockParams } from "../sim/SimClient";
 import type { LineGeometry } from "../types";
 import { type TrainScale, loadTrainScale, saveTrainScale } from "../map/trainScale";
 import { resolveInitialLanguage, savePrimaryLang } from "../i18n/persistence";
+import { findStationHub } from "../stations/stationHubs";
 
 /**
  * UI-facing state only (SRS §3A.7): per-frame render/kinematic state must
@@ -66,6 +67,8 @@ interface AppState {
   selectedRunIdx: number | null;
   /** Selected station, as the indices the engine's board query takes. */
   selectedStation: { routeIdx: number; stationIdx: number } | null;
+  /** Selected station hub; station selection remains the engine-query key. */
+  selectedHubId: string | null;
   /** Third-person camera locked to the selected train (F3.2). */
   following: boolean;
 
@@ -181,7 +184,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       activeTab: tab,
       searchOpen: tab === "stations",
       routePlannerOpen: tab === "route",
-      ...(tab !== null ? { selectedRunIdx: null, selectedStation: null, following: false } : {}),
+      ...(tab !== null ? { selectedRunIdx: null, selectedStation: null, selectedHubId: null, following: false } : {}),
       ...(tab !== "route" && s.routePlan ? { routePlan: null } : {}),
     })),
   toggleTab: (tab) => {
@@ -196,6 +199,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   selectedRunIdx: null,
   selectedStation: null,
+  selectedHubId: null,
   following: false,
 
   selectRun: (runIdx) =>
@@ -205,6 +209,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         : {
             selectedRunIdx: runIdx,
             selectedStation: null,
+            selectedHubId: null,
             searchOpen: false,
             routePlannerOpen: false,
             routePlan: null,
@@ -213,9 +218,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   selectStation: (station) =>
     set(
       station === null
-        ? { selectedStation: null }
+        ? { selectedStation: null, selectedHubId: null }
         : {
             selectedStation: station,
+            selectedHubId: findStationHub(get().stations, station.routeIdx, station.stationIdx)?.id ?? null,
             selectedRunIdx: null,
             following: false,
             searchOpen: false,
@@ -227,6 +233,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({
       selectedRunIdx: null,
       selectedStation: null,
+      selectedHubId: null,
       following: false,
     }),
   setFollowing: (following) => set({ following }),
@@ -278,6 +285,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       ...(open
         ? {
             selectedStation: null,
+            selectedHubId: null,
             selectedRunIdx: null,
             following: false,
             routePlannerOpen: false,
@@ -295,6 +303,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         ? {
             searchOpen: false,
             selectedStation: null,
+            selectedHubId: null,
             selectedRunIdx: null,
             following: false,
           }

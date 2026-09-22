@@ -34,10 +34,11 @@ import {
   reconcileStationAltitude,
 } from "../map/coordinates";
 import { SimClient, activeSimClient } from "../sim/SimClient";
-import { DEFAULT_TICK_MS, ECO_TICK_MS, LANE_RUN_IDX, LANE_Z, VEHICLE_STRIDE } from "../sim/protocol";
+import { DEFAULT_TICK_MS, ECO_TICK_MS, LANE_RUN_IDX, LANE_Z, VEHICLE_STRIDE, type StationInfo } from "../sim/protocol";
 import { formatCountdown } from "../sim/time";
 import { translate } from "../i18n";
 import { useAppStore } from "../stores/useAppStore";
+import { findStationHub } from "../stations/stationHubs";
 import network from "../data/network.json";
 import type { NetworkData } from "../types";
 
@@ -338,6 +339,26 @@ export function MapContainer() {
         layer?.setRouteHighlight(highlightSpans(state.routePlan, state.hiddenRoutes));
         map.triggerRepaint();
       }
+      if (state.selectedStation !== prev.selectedStation || state.selectedHubId !== prev.selectedHubId) {
+        if (!state.selectedStation) {
+          layer?.setStationHighlight(null);
+        } else {
+          const hub = findStationHub(state.stations, state.selectedStation.routeIdx, state.selectedStation.stationIdx);
+          if (hub && hub.stops.length > 0) {
+            const stops = hub.stops
+              .map((stop) => state.stations.find((st) => st.route_idx === stop.routeIdx && st.station_idx === stop.stationIdx))
+              .filter((st): st is StationInfo => Boolean(st))
+              .map((st) => ({ x: st.x, y: st.y, z: st.z }));
+            layer?.setStationHighlight(stops.length > 0 ? stops : null);
+          } else {
+            const station = state.stations.find(
+              (st) => st.route_idx === state.selectedStation!.routeIdx && st.station_idx === state.selectedStation!.stationIdx,
+            );
+            layer?.setStationHighlight(station ? [{ x: station.x, y: station.y, z: station.z }] : null);
+          }
+        }
+        map.triggerRepaint();
+      }
       if (state.map3D !== prev.map3D) {
         binding?.applyMap3D(state.map3D);
         layer?.setMap3D(state.map3D);
@@ -389,6 +410,21 @@ export function MapContainer() {
       {
         const s = useAppStore.getState();
         layer.setRouteHighlight(highlightSpans(s.routePlan, s.hiddenRoutes));
+        if (s.selectedStation) {
+          const hub = findStationHub(s.stations, s.selectedStation.routeIdx, s.selectedStation.stationIdx);
+          if (hub && hub.stops.length > 0) {
+            const stops = hub.stops
+              .map((stop) => s.stations.find((st) => st.route_idx === stop.routeIdx && st.station_idx === stop.stationIdx))
+              .filter((st): st is StationInfo => Boolean(st))
+              .map((st) => ({ x: st.x, y: st.y, z: st.z }));
+            layer.setStationHighlight(stops.length > 0 ? stops : null);
+          } else {
+            const station = s.stations.find(
+              (st) => st.route_idx === s.selectedStation!.routeIdx && st.station_idx === s.selectedStation!.stationIdx,
+            );
+            layer.setStationHighlight(station ? [{ x: station.x, y: station.y, z: station.z }] : null);
+          }
+        }
       }
 
       if (simInitialised) {
