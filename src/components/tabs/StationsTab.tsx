@@ -76,6 +76,7 @@ export function StationsTab() {
         label={t("stations.findStation")}
         stations={visibleStations}
         routes={routes}
+        unifyHubs
         onPick={(s) => {
           if (!s) return;
           goToStation(s.route_idx, s.station_idx, s.x, s.y);

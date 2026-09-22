@@ -120,6 +120,27 @@ export interface StationInfo {
   interchanges: InterchangeRef[];
 }
 
+/** A route-level stop included in a unified physical station complex. */
+export interface StationHubStopRef {
+  routeIdx: number;
+  stationIdx: number;
+  code: string;
+  nameEn: string;
+  nameTh: string;
+}
+
+/** A physical station complex, potentially served by several routes. */
+export interface StationHub {
+  id: string;
+  nameEn: string;
+  nameTh: string;
+  x: number;
+  y: number;
+  z: number;
+  routeIndices: number[];
+  stops: StationHubStopRef[];
+}
+
 // ---- Route search (roadmap item 8) -----------------------------------------
 // NOTE the camelCase keys below. Every other §7 shape mirrors serde's
 // snake_case verbatim; these deliberately do not, because a route plan is

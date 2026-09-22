@@ -1,5 +1,7 @@
 ﻿import type { StationInfo } from "../sim/protocol";
 import type { LineGeometry } from "../types";
+import type { StationHub } from "../sim/protocol";
+import { buildStationHubs } from "../stations/stationHubs";
 import { projectLocal, type ViewProjection } from "./screenProject";
 import type { PrimaryLanguage } from "../stores/useAppStore";
 import { formatBilingualStation } from "../utils/stationTypography";
@@ -8,6 +10,7 @@ export type StationTier = 1 | 2 | 3;
 
 export interface BillboardCandidate {
   station: StationInfo;
+  hub?: StationHub;
   screenX: number;
   screenY: number;
   tier: StationTier;
@@ -131,6 +134,7 @@ export class StationBillboardManager {
   /** Per-slot cached badge key — avoids redundant text/color writes. */
   private readonly badgeKeys: string[] = [];
   private lastStations: StationInfo[] | null = null;
+  private hubs: StationHub[] = [];
   private routeLengths: Map<number, number> = new Map();
   private onSelect: StationSelectCallback | null = null;
 
@@ -222,6 +226,7 @@ export class StationBillboardManager {
     // Pre-determine line lengths to identify termini (cached across frames)
     if (this.lastStations !== stations) {
       this.lastStations = stations;
+      this.hubs = buildStationHubs(stations, routes);
       this.routeLengths.clear();
       for (const s of stations) {
         const cur = this.routeLengths.get(s.route_idx) ?? 0;
@@ -230,17 +235,17 @@ export class StationBillboardManager {
     }
     const routeLengths = this.routeLengths;
 
-    for (const station of stations) {
-      if (hiddenRoutes.includes(station.route_idx)) continue;
-
-      const isSelected =
-        selectedStation !== null &&
-        selectedStation.routeIdx === station.route_idx &&
-        selectedStation.stationIdx === station.station_idx;
-
+    for (const hub of this.hubs) {
+      const primaryStop = hub.stops.find((stop) => !hiddenRoutes.includes(stop.routeIdx));
+      if (!primaryStop) continue;
+      const station = stations.find((s) => s.route_idx === primaryStop.routeIdx && s.station_idx === primaryStop.stationIdx);
+      if (!station) continue;
+      const isSelected = selectedStation !== null && hub.stops.some(
+        (stop) => stop.routeIdx === selectedStation.routeIdx && stop.stationIdx === selectedStation.stationIdx,
+      );
       const maxIdx = routeLengths.get(station.route_idx) ?? 1;
       const isTerminus = station.station_idx === 0 || station.station_idx === maxIdx - 1;
-      const tier = classifyStationTier(station, isTerminus);
+      const tier = hub.stops.length > 1 ? 1 : classifyStationTier(station, isTerminus);
 
       if (!isStationVisibleAtZoom(tier, zoom, isSelected)) continue;
 
@@ -259,6 +264,7 @@ export class StationBillboardManager {
 
       candidates.push({
         station,
+        hub,
         screenX: screenPt.x,
         screenY: screenPt.y,
         tier,
@@ -275,8 +281,8 @@ export class StationBillboardManager {
       if (i < visible.length) {
         const item = visible[i];
         const s = item.station;
-        const route = routes[s.route_idx];
-        const lineColor = route?.color ?? "#64748b";
+        const hub = item.hub;
+        const lineColor = routes[s.route_idx]?.color ?? "#64748b";
 
         const isUnderground = s.z < 0;
         const opacity = isUnderground && !undergroundMode ? "0.65" : "1.0";
@@ -288,14 +294,18 @@ export class StationBillboardManager {
         )}px, 0) translate(-50%, -100%)`;
 
         // Write routing data to attributes for the stable click listener.
-        el.dataset.routeIdx = String(s.route_idx);
-        el.dataset.stationIdx = String(s.station_idx);
+        el.dataset.routeIdx = String(hub?.stops[0]?.routeIdx ?? s.route_idx);
+        el.dataset.stationIdx = String(hub?.stops[0]?.stationIdx ?? s.station_idx);
 
-        const badgeKey = `${s.route_idx}:${s.station_idx}:${primaryLang}:${s.code}:${lineColor}`;
+        const badgeKey = `${hub?.id ?? `${s.route_idx}:${s.station_idx}`}:${primaryLang}:${lineColor}`;
         if (this.badgeKeys[i] !== badgeKey) {
           this.badgeKeys[i] = badgeKey;
-          const { primaryName, subtitle } = formatBilingualStation(s, primaryLang);
-          this.dotSpans[i].style.backgroundColor = lineColor;
+          const bilingual = formatBilingualStation(s, primaryLang);
+          const primaryName = hub ? (primaryLang === "th" && hub.nameTh ? hub.nameTh : hub.nameEn) : bilingual.primaryName;
+          const subtitle = hub ? (primaryLang === "th" ? hub.nameEn : hub.nameTh) : bilingual.subtitle;
+          const colors = (hub?.routeIndices ?? [s.route_idx]).map((routeIdx) => routes[routeIdx]?.color ?? "#64748b");
+          this.dotSpans[i].style.backgroundColor = colors[0];
+          this.dotSpans[i].style.boxShadow = colors.slice(1).map((color, index) => `${(index + 1) * 5}px 0 0 ${color}`).join(", ");
           this.nameSpans[i].textContent = primaryName;
           if (subtitle) {
             this.subtitleSpans[i].textContent = subtitle;

@@ -6,6 +6,7 @@ import { formatBilingualStation, resolveLineName } from "../utils/stationTypogra
 import { useT } from "../i18n";
 import type { StationInfo } from "../sim/protocol";
 import type { LineGeometry } from "../types";
+import { buildStationHubs } from "../stations/stationHubs";
 
 export function StationCombobox({
   label,
@@ -14,6 +15,7 @@ export function StationCombobox({
   onPick,
   placeholder,
   autoFocus = false,
+  unifyHubs = false,
 }: {
   label: string;
   stations: StationInfo[];
@@ -21,12 +23,28 @@ export function StationCombobox({
   onPick: (s: StationInfo | null) => void;
   placeholder?: string;
   autoFocus?: boolean;
+  /** Search surfaces show one physical complex; route planning retains stops. */
+  unifyHubs?: boolean;
 }) {
   const t = useT();
   const primaryLang = useAppStore((s) => s.primaryLang);
   const resolvedPlaceholder = placeholder ?? t("stations.searchPlaceholder");
   const listId = useId();
-  const options = useMemo(() => stationOptions(stations, ""), [stations]);
+  const optionStations = useMemo(() => {
+    if (!unifyHubs) return stations;
+    return buildStationHubs(stations, routes).flatMap((hub) => {
+      const primary = stations.find((station) => station.route_idx === hub.stops[0].routeIdx && station.station_idx === hub.stops[0].stationIdx);
+      return primary ? [{ ...primary, name_en: hub.nameEn, name_th: hub.nameTh }] : [];
+    });
+  }, [stations, routes, unifyHubs]);
+  const hubRouteIndices = useMemo(() => {
+    if (!unifyHubs) return new Map<string, number[]>();
+    return new Map(buildStationHubs(stations, routes).map((hub) => [
+      `${hub.stops[0].routeIdx}:${hub.stops[0].stationIdx}`,
+      hub.routeIndices,
+    ]));
+  }, [stations, routes, unifyHubs]);
+  const options = useMemo(() => stationOptions(optionStations, ""), [optionStations]);
 
   const [state, rawDispatch] = useReducer(
     (s: ComboState, e: ComboEvent) => comboReducer(s, e, currentCount(s, e)),
@@ -35,12 +53,12 @@ export function StationCombobox({
 
   function currentCount(s: ComboState, e: ComboEvent): number {
     const query = e.type === "input" ? e.query : s.query;
-    return stationOptions(stations, query).length;
+    return stationOptions(optionStations, query).length;
   }
 
   const visible = useMemo(
-    () => (state.query.trim() === "" ? options : stationOptions(stations, state.query)),
-    [options, stations, state.query],
+    () => (state.query.trim() === "" ? options : stationOptions(optionStations, state.query)),
+    [options, optionStations, state.query],
   );
   const groups = useMemo(() => groupByRoute(visible), [visible]);
   // The render loop below walks `groups` (grouped-by-route order), not
@@ -58,8 +76,8 @@ export function StationCombobox({
   // there's nothing to disclose there. `totalMatches` lets the truncated
   // case say so instead of silently looking complete.
   const totalMatches = useMemo(
-    () => (state.query.trim() === "" ? visible.length : countMatches(stations, state.query)),
-    [stations, state.query, visible.length],
+    () => (state.query.trim() === "" ? visible.length : countMatches(optionStations, state.query)),
+    [optionStations, state.query, visible.length],
   );
   const truncated = totalMatches > visible.length;
 
@@ -154,6 +172,7 @@ export function StationCombobox({
                     flatIndex += 1;
                     const index = flatIndex;
                     const { primaryName, subtitle } = formatBilingualStation(s, primaryLang);
+                    const routeIndices = hubRouteIndices.get(`${s.route_idx}:${s.station_idx}`) ?? [s.route_idx];
 
                     return (
                       <li key={`${s.route_idx}-${s.station_idx}`} role="presentation">
@@ -176,10 +195,11 @@ export function StationCombobox({
                             state.activeIndex === index ? "bg-surface-sunken" : ""
                           }`}
                         >
-                          <span
-                            className="inline-block h-2 w-4 shrink-0 rounded-sm"
-                            style={{ background: routes[s.route_idx]?.color ?? "#64748b" }}
-                          />
+                          <span className="flex shrink-0 gap-0.5" aria-label={t("stations.interchangeTitle")}>
+                            {routeIndices.map((routeIdx) => (
+                              <span key={routeIdx} className="inline-block h-2 w-2 rounded-full" style={{ background: routes[routeIdx]?.color ?? "#64748b" }} />
+                            ))}
+                          </span>
                           <span className="min-w-0 flex-1 truncate">
                             <span className="font-semibold text-ink">{primaryName}</span>
                             {subtitle && <span className="ml-1.5 text-[11px] text-ink-subtle">{subtitle}</span>}
