@@ -42,6 +42,25 @@ export function formatBilingualStation(
   };
 }
 
+export interface HubNameSource {
+  nameEn: string;
+  nameTh: string;
+}
+
+/**
+ * Resolves dual-line bilingual station hub typography given a hub record
+ * and the user's preferred primary language ('en' or 'th').
+ */
+export function formatBilingualHub(
+  hub: HubNameSource,
+  primaryLang: PrimaryLanguage = "en",
+): FormattedStationTypography {
+  return formatBilingualStation(
+    { name_en: hub.nameEn, name_th: hub.nameTh },
+    primaryLang,
+  );
+}
+
 export interface LineNameSource {
   name?: string;
   nameTh?: string;

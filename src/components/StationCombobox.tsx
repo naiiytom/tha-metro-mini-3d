@@ -2,11 +2,11 @@ import { useEffect, useId, useMemo, useReducer, useRef, type KeyboardEvent } fro
 import { countMatches, groupByRoute, stationOptions } from "../search/stationSearch";
 import { INITIAL_COMBO, comboReducer, type ComboEvent, type ComboState } from "../search/comboboxState";
 import { useAppStore } from "../stores/useAppStore";
-import { formatBilingualStation, resolveLineName } from "../utils/stationTypography";
+import { formatBilingualHub, formatBilingualStation, resolveLineName } from "../utils/stationTypography";
 import { useT } from "../i18n";
 import type { StationInfo } from "../sim/protocol";
 import type { LineGeometry } from "../types";
-import { buildStationHubs } from "../stations/stationHubs";
+import { buildStationHubs, type StationHub } from "../stations/stationHubs";
 
 export function StationCombobox({
   label,
@@ -15,6 +15,7 @@ export function StationCombobox({
   onPick,
   placeholder,
   autoFocus = false,
+  /** Search surfaces show unified station hubs; route planning retains stops. */
   unifyHubs = false,
 }: {
   label: string;
@@ -23,28 +24,51 @@ export function StationCombobox({
   onPick: (s: StationInfo | null) => void;
   placeholder?: string;
   autoFocus?: boolean;
-  /** Search surfaces show one physical complex; route planning retains stops. */
   unifyHubs?: boolean;
 }) {
   const t = useT();
   const primaryLang = useAppStore((s) => s.primaryLang);
   const resolvedPlaceholder = placeholder ?? t("stations.searchPlaceholder");
   const listId = useId();
-  const optionStations = useMemo(() => {
-    if (!unifyHubs) return stations;
-    return buildStationHubs(stations, routes).flatMap((hub) => {
-      const primary = stations.find((station) => station.route_idx === hub.stops[0].routeIdx && station.station_idx === hub.stops[0].stationIdx);
-      return primary ? [{ ...primary, name_en: hub.nameEn, name_th: hub.nameTh }] : [];
+
+  const { hubByStopKey, browseStations, searchStations } = useMemo(() => {
+    if (!unifyHubs) {
+      return {
+        hubByStopKey: new Map<string, StationHub>(),
+        browseStations: stations,
+        searchStations: stations,
+      };
+    }
+    const hubs = buildStationHubs(stations);
+    const byStop = new Map<string, StationHub>();
+    for (const hub of hubs) {
+      for (const stop of hub.stops) {
+        byStop.set(`${stop.routeIdx}:${stop.stationIdx}`, hub);
+      }
+    }
+    // Route browsing keeps all stops under their respective routes with compound hub names:
+    const browse = stations.map((s) => {
+      const hub = byStop.get(`${s.route_idx}:${s.station_idx}`);
+      return hub ? { ...s, name_en: hub.nameEn, name_th: hub.nameTh } : s;
     });
-  }, [stations, routes, unifyHubs]);
-  const hubRouteIndices = useMemo(() => {
-    if (!unifyHubs) return new Map<string, number[]>();
-    return new Map(buildStationHubs(stations, routes).map((hub) => [
-      `${hub.stops[0].routeIdx}:${hub.stops[0].stationIdx}`,
-      hub.routeIndices,
-    ]));
-  }, [stations, routes, unifyHubs]);
-  const options = useMemo(() => stationOptions(optionStations, ""), [optionStations]);
+    // Typed query search returns distinct hubs to avoid duplicate rows:
+    const seenHubs = new Set<string>();
+    const search: StationInfo[] = [];
+    for (const s of stations) {
+      const hub = byStop.get(`${s.route_idx}:${s.station_idx}`);
+      if (hub) {
+        if (!seenHubs.has(hub.id)) {
+          seenHubs.add(hub.id);
+          search.push({ ...s, name_en: hub.nameEn, name_th: hub.nameTh });
+        }
+      } else {
+        search.push(s);
+      }
+    }
+    return { hubByStopKey: byStop, browseStations: browse, searchStations: search };
+  }, [stations, unifyHubs]);
+
+  const options = useMemo(() => stationOptions(browseStations, ""), [browseStations]);
 
   const [state, rawDispatch] = useReducer(
     (s: ComboState, e: ComboEvent) => comboReducer(s, e, currentCount(s, e)),
@@ -53,12 +77,12 @@ export function StationCombobox({
 
   function currentCount(s: ComboState, e: ComboEvent): number {
     const query = e.type === "input" ? e.query : s.query;
-    return stationOptions(optionStations, query).length;
+    return query.trim() === "" ? options.length : stationOptions(searchStations, query).length;
   }
 
   const visible = useMemo(
-    () => (state.query.trim() === "" ? options : stationOptions(optionStations, state.query)),
-    [options, optionStations, state.query],
+    () => (state.query.trim() === "" ? options : stationOptions(searchStations, state.query)),
+    [options, searchStations, state.query],
   );
   const groups = useMemo(() => groupByRoute(visible), [visible]);
   // The render loop below walks `groups` (grouped-by-route order), not
@@ -76,8 +100,8 @@ export function StationCombobox({
   // there's nothing to disclose there. `totalMatches` lets the truncated
   // case say so instead of silently looking complete.
   const totalMatches = useMemo(
-    () => (state.query.trim() === "" ? visible.length : countMatches(optionStations, state.query)),
-    [optionStations, state.query, visible.length],
+    () => (state.query.trim() === "" ? visible.length : countMatches(searchStations, state.query)),
+    [searchStations, state.query, visible.length],
   );
   const truncated = totalMatches > visible.length;
 
@@ -171,8 +195,11 @@ export function StationCombobox({
                   {group.stations.map((s) => {
                     flatIndex += 1;
                     const index = flatIndex;
-                    const { primaryName, subtitle } = formatBilingualStation(s, primaryLang);
-                    const routeIndices = hubRouteIndices.get(`${s.route_idx}:${s.station_idx}`) ?? [s.route_idx];
+                    const hub = hubByStopKey.get(`${s.route_idx}:${s.station_idx}`);
+                    const { primaryName, subtitle } = hub
+                      ? formatBilingualHub(hub, primaryLang)
+                      : formatBilingualStation(s, primaryLang);
+                    const routeIndices = hub?.routeIndices ?? [s.route_idx];
 
                     return (
                       <li key={`${s.route_idx}-${s.station_idx}`} role="presentation">

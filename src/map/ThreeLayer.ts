@@ -82,6 +82,8 @@ export class NetworkLayer implements CustomLayerInterface {
    *  network geometry. */
   private highlightGroup: THREE.Group | null = null;
   private highlightMaterials: LineMaterial[] = [];
+  private stationHighlightGroup: THREE.Group | null = null;
+  private stationHighlightMaterial: THREE.MeshBasicMaterial | null = null;
 
   /**
    * The mercator->clip matrix from the most recent render, copied (not
@@ -433,6 +435,51 @@ export class NetworkLayer implements CustomLayerInterface {
     this.highlightMaterials = [];
   }
 
+  /**
+   * Highlights 3D disc markers for all stops within the selected station hub.
+   * Passing null or an empty array clears the highlight.
+   */
+  setStationHighlight(stops: { x: number; y: number; z: number }[] | null): void {
+    this.clearStationHighlight();
+    if (!this.scene || !stops || stops.length === 0) return;
+
+    const group = new THREE.Group();
+    group.name = "station-selection-highlight";
+    const geo = new THREE.CylinderGeometry(18, 18, 3.2, 32);
+    geo.rotateX(Math.PI / 2);
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0xfde047,
+      transparent: true,
+      opacity: 0.85,
+      depthWrite: false,
+    });
+    this.stationHighlightMaterial = mat;
+
+    for (const stop of stops) {
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(stop.x, stop.y, stop.z + 0.5);
+      group.add(mesh);
+    }
+    this.scene.add(group);
+    this.stationHighlightGroup = group;
+  }
+
+  private clearStationHighlight(): void {
+    if (this.stationHighlightGroup) {
+      this.scene?.remove(this.stationHighlightGroup);
+      this.stationHighlightGroup.traverse((obj) => {
+        if (obj instanceof THREE.Mesh) {
+          obj.geometry.dispose();
+        }
+      });
+      this.stationHighlightGroup = null;
+    }
+    if (this.stationHighlightMaterial) {
+      this.stationHighlightMaterial.dispose();
+      this.stationHighlightMaterial = null;
+    }
+  }
+
   render(_gl: WebGL2RenderingContext, options: CustomRenderMethodInput): void {
     if (!this.renderer || !this.scene) return;
     this.beforeRender?.();
@@ -452,6 +499,7 @@ export class NetworkLayer implements CustomLayerInterface {
 
   onRemove(): void {
     this.clearRouteHighlight();
+    this.clearStationHighlight();
     this.scene?.traverse((obj) => {
       if (obj instanceof THREE.Mesh) {
         obj.geometry.dispose();

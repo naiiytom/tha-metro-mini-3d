@@ -1,10 +1,10 @@
-﻿import type { StationInfo } from "../sim/protocol";
+import type { StationInfo } from "../sim/protocol";
 import type { LineGeometry } from "../types";
 import type { StationHub } from "../sim/protocol";
 import { buildStationHubs } from "../stations/stationHubs";
 import { projectLocal, type ViewProjection } from "./screenProject";
 import type { PrimaryLanguage } from "../stores/useAppStore";
-import { formatBilingualStation } from "../utils/stationTypography";
+import { formatBilingualHub, formatBilingualStation } from "../utils/stationTypography";
 
 export type StationTier = 1 | 2 | 3;
 
@@ -227,7 +227,7 @@ export class StationBillboardManager {
     // Pre-determine line lengths to identify termini (cached across frames)
     if (this.lastStations !== stations) {
       this.lastStations = stations;
-      this.hubs = buildStationHubs(stations, routes);
+      this.hubs = buildStationHubs(stations);
       this.stationByStop = new Map(stations.map((station) => [
         `${station.route_idx}:${station.station_idx}`,
         station,
@@ -260,7 +260,10 @@ export class StationBillboardManager {
 
       if (!isStationVisibleAtZoom(tier, zoom, isSelected)) continue;
 
-      const screenPt = projectLocal(view, station.x, station.y, station.z);
+      const projX = hub ? hub.x : station.x;
+      const projY = hub ? hub.y : station.y;
+      const projZ = hub ? hub.z : station.z;
+      const screenPt = projectLocal(view, projX, projY, projZ);
       if (!screenPt) continue;
 
       // Skip offscreen
@@ -293,9 +296,8 @@ export class StationBillboardManager {
         const item = visible[i];
         const s = item.station;
         const hub = item.hub;
-        const lineColor = routes[s.route_idx]?.color ?? "#64748b";
 
-        const isUnderground = s.z < 0;
+        const isUnderground = (hub ? hub.z : s.z) < 0;
         const opacity = isUnderground && !undergroundMode ? "0.65" : "1.0";
 
         el.style.display = "flex";
@@ -308,19 +310,28 @@ export class StationBillboardManager {
         el.dataset.routeIdx = String(s.route_idx);
         el.dataset.stationIdx = String(s.station_idx);
 
-        const badgeKey = `${hub?.id ?? `${s.route_idx}:${s.station_idx}`}:${primaryLang}:${lineColor}`;
+        const colors = (hub?.routeIndices ?? [s.route_idx]).map((routeIdx) => routes[routeIdx]?.color ?? "#64748b");
+        const badgeKey = `${hub?.id ?? `${s.route_idx}:${s.station_idx}`}:${primaryLang}:${colors.join(",")}`;
         if (this.badgeKeys[i] !== badgeKey) {
           this.badgeKeys[i] = badgeKey;
-          const bilingual = formatBilingualStation(s, primaryLang);
-          const primaryName = hub ? (primaryLang === "th" && hub.nameTh ? hub.nameTh : hub.nameEn) : bilingual.primaryName;
-          const subtitle = hub ? (primaryLang === "th" ? hub.nameEn : hub.nameTh) : bilingual.subtitle;
-          const colors = (hub?.routeIndices ?? [s.route_idx]).map((routeIdx) => routes[routeIdx]?.color ?? "#64748b");
-          this.dotSpans[i].replaceChildren(...colors.map((color) => {
-            const routeDot = document.createElement("span");
-            routeDot.className = "h-2 w-2 rounded-full";
-            routeDot.style.backgroundColor = color;
-            return routeDot;
-          }));
+          const { primaryName, subtitle } = hub
+            ? formatBilingualHub(hub, primaryLang)
+            : formatBilingualStation(s, primaryLang);
+          const dotContainer = this.dotSpans[i];
+          while (dotContainer.children.length < colors.length) {
+            const dot = document.createElement("span");
+            dot.className = "h-2 w-2 rounded-full";
+            dotContainer.appendChild(dot);
+          }
+          for (let c = 0; c < dotContainer.children.length; c++) {
+            const child = dotContainer.children[c] as HTMLElement;
+            if (c < colors.length) {
+              child.style.display = "";
+              child.style.backgroundColor = colors[c];
+            } else {
+              child.style.display = "none";
+            }
+          }
           this.nameSpans[i].textContent = primaryName;
           if (subtitle) {
             this.subtitleSpans[i].textContent = subtitle;

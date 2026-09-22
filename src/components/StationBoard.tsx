@@ -4,7 +4,7 @@ import { activeSimClient } from "../sim/SimClient";
 import { findStationHub } from "../stations/stationHubs";
 import { formatCountdown, formatServiceSec } from "../sim/time";
 import { useAppStore } from "../stores/useAppStore";
-import { formatBilingualStation, resolveLineName } from "../utils/stationTypography";
+import { formatBilingualHub, formatBilingualStation, resolveLineName } from "../utils/stationTypography";
 import { useT } from "../i18n";
 
 /** `${route_idx}:${station_idx}` — the natural key for cross-route station lookup. */
@@ -16,8 +16,7 @@ import { useT } from "../i18n";
  * Polled at 1 Hz — cache-derived data, never on the frame path (§3A.7).
  * Clicking a row selects that train, handing off to the inspector.
  */
-
-const POLL_MS = 1000;
+const POLL_MS = 1000;
 const LIMIT = 10;
 
 export function StationBoard() {
@@ -31,8 +30,8 @@ export function StationBoard() {
   const [boards, setBoards] = useState<StationBoardData[] | null>(null);
 
   const hub = useMemo(
-    () => selectedStation ? findStationHub(stations, routes, selectedStation.routeIdx, selectedStation.stationIdx) : null,
-    [stations, routes, selectedStation],
+    () => (selectedStation ? findStationHub(stations, selectedStation.routeIdx, selectedStation.stationIdx) : null),
+    [stations, selectedStation],
   );
   const boardStops = useMemo(
     () => hub?.stops ?? (selectedStation ? [{ routeIdx: selectedStation.routeIdx, stationIdx: selectedStation.stationIdx }] : []),
@@ -73,7 +72,7 @@ export function StationBoard() {
   const hasEstimatedRunTimes = hubRoutes.some((routeIdx) => routes[routeIdx]?.estimatedRunTimes != null);
 
   const { primaryName, subtitle } = hub
-    ? { primaryName: primaryLang === "th" && hub.nameTh ? hub.nameTh : hub.nameEn, subtitle: primaryLang === "th" ? hub.nameEn : hub.nameTh }
+    ? formatBilingualHub(hub, primaryLang)
     : boards?.[0]
     ? formatBilingualStation(boards[0], primaryLang)
     : { primaryName: t("board.stationFallback"), subtitle: "" };

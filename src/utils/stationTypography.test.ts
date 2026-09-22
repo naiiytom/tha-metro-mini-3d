@@ -1,5 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { formatBilingualStation, resolveLineName } from "./stationTypography";
+import { formatBilingualHub, formatBilingualStation, resolveLineName } from "./stationTypography";
+
+describe("formatBilingualHub", () => {
+  const hub = { nameEn: "Asok / Sukhumvit", nameTh: "อโศก / สุขุมวิท" };
+
+  it("formats compound English as primary and compound Thai as subtitle in 'en' mode", () => {
+    const res = formatBilingualHub(hub, "en");
+    expect(res.primaryName).toBe("Asok / Sukhumvit");
+    expect(res.secondaryName).toBe("อโศก / สุขุมวิท");
+    expect(res.subtitle).toBe("อโศก / สุขุมวิท");
+  });
+
+  it("formats compound Thai as primary and compound English as subtitle in 'th' mode", () => {
+    const res = formatBilingualHub(hub, "th");
+    expect(res.primaryName).toBe("อโศก / สุขุมวิท");
+    expect(res.secondaryName).toBe("Asok / Sukhumvit");
+    expect(res.subtitle).toBe("Asok / Sukhumvit");
+  });
+});
 
 describe("formatBilingualStation", () => {
   it("formats English as primary and Thai + code as subtitle when primaryLang is 'en'", () => {

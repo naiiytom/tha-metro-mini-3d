@@ -1,10 +1,11 @@
-import type { StationHub, StationInfo } from "../sim/protocol";
-import type { LineGeometry } from "../types";
+import type { StationHub, StationHubStopRef, StationInfo } from "../sim/protocol";
+
+export type { StationHub, StationHubStopRef };
 
 const stopKey = (routeIdx: number, stationIdx: number) => `${routeIdx}:${stationIdx}`;
 
-function normalizedName(name: string): string {
-  return name.trim().toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+export function normalizedName(name: string): string {
+  return name.trim().toLocaleLowerCase().replace(/[^\p{L}\p{N}\p{M}]+/gu, " ").trim();
 }
 
 function hubName(stops: StationInfo[], field: "name_en" | "name_th"): string {
@@ -18,12 +19,10 @@ function hubName(stops: StationInfo[], field: "name_en" | "name_th"): string {
 }
 
 /**
- * Creates physical station complexes from the cache's directed interchange
- * graph and from names shared by independently-modelled operators. `routes`
- * is deliberately accepted here because hubs are a network-level projection;
- * route metadata is consumed by presentation layers for colour chips.
+ * Creates station hubs from the cache's directed interchange
+ * graph and from names shared by independently-modelled operators.
  */
-export function buildStationHubs(stations: StationInfo[], _routes: LineGeometry[]): StationHub[] {
+export function buildStationHubs(stations: StationInfo[]): StationHub[] {
   const parent = stations.map((_, index) => index);
   const indexByStop = new Map(stations.map((station, index) => [stopKey(station.route_idx, station.station_idx), index]));
   const find = (index: number): number => {
@@ -45,12 +44,22 @@ export function buildStationHubs(stations: StationInfo[], _routes: LineGeometry[
       if (other !== undefined) join(index, other);
     }
   }
-  const firstByName = new Map<string, number>();
+
+  const firstByNameEn = new Map<string, number>();
   for (const [index, station] of stations.entries()) {
     const name = normalizedName(station.name_en);
     if (!name) continue;
-    const first = firstByName.get(name);
-    if (first === undefined) firstByName.set(name, index);
+    const first = firstByNameEn.get(name);
+    if (first === undefined) firstByNameEn.set(name, index);
+    else join(first, index);
+  }
+
+  const firstByNameTh = new Map<string, number>();
+  for (const [index, station] of stations.entries()) {
+    const name = normalizedName(station.name_th);
+    if (!name) continue;
+    const first = firstByNameTh.get(name);
+    if (first === undefined) firstByNameTh.set(name, index);
     else join(first, index);
   }
 
@@ -80,6 +89,6 @@ export function buildStationHubs(stations: StationInfo[], _routes: LineGeometry[
   }).sort((a, b) => a.id.localeCompare(b.id));
 }
 
-export function findStationHub(stations: StationInfo[], routes: LineGeometry[], routeIdx: number, stationIdx: number): StationHub | null {
-  return buildStationHubs(stations, routes).find((hub) => hub.stops.some((stop) => stop.routeIdx === routeIdx && stop.stationIdx === stationIdx)) ?? null;
+export function findStationHub(stations: StationInfo[], routeIdx: number, stationIdx: number): StationHub | null {
+  return buildStationHubs(stations).find((hub) => hub.stops.some((stop) => stop.routeIdx === routeIdx && stop.stationIdx === stationIdx)) ?? null;
 }

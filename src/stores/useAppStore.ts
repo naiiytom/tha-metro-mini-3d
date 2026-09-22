@@ -6,7 +6,7 @@ import type { ClockParams } from "../sim/SimClient";
 import type { LineGeometry } from "../types";
 import { type TrainScale, loadTrainScale, saveTrainScale } from "../map/trainScale";
 import { resolveInitialLanguage, savePrimaryLang } from "../i18n/persistence";
-import { findStationHub } from "../stations/stationHubs";
+import { buildStationHubs, findStationHub } from "../stations/stationHubs";
 
 /**
  * UI-facing state only (SRS §3A.7): per-frame render/kinematic state must
@@ -67,13 +67,14 @@ interface AppState {
   selectedRunIdx: number | null;
   /** Selected station, as the indices the engine's board query takes. */
   selectedStation: { routeIdx: number; stationIdx: number } | null;
-  /** Selected physical complex; station selection remains the engine-query key. */
+  /** Selected station hub; station selection remains the engine-query key. */
   selectedHubId: string | null;
   /** Third-person camera locked to the selected train (F3.2). */
   following: boolean;
 
   selectRun: (runIdx: number | null) => void;
   selectStation: (station: { routeIdx: number; stationIdx: number } | null) => void;
+  selectHub: (hubId: string | null) => void;
   clearSelection: () => void;
   setFollowing: (following: boolean) => void;
 
@@ -221,7 +222,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         ? { selectedStation: null, selectedHubId: null }
         : {
             selectedStation: station,
-            selectedHubId: findStationHub(get().stations, get().routes, station.routeIdx, station.stationIdx)?.id ?? null,
+            selectedHubId: findStationHub(get().stations, station.routeIdx, station.stationIdx)?.id ?? null,
             selectedRunIdx: null,
             following: false,
             searchOpen: false,
@@ -229,6 +230,24 @@ export const useAppStore = create<AppState>((set, get) => ({
             routePlan: null,
           },
     ),
+  selectHub: (hubId) => {
+    if (hubId === null) {
+      set({ selectedHubId: null, selectedStation: null });
+      return;
+    }
+    const hub = buildStationHubs(get().stations).find((h) => h.id === hubId);
+    if (!hub || hub.stops.length === 0) return;
+    const primaryStop = hub.stops[0];
+    set({
+      selectedHubId: hub.id,
+      selectedStation: { routeIdx: primaryStop.routeIdx, stationIdx: primaryStop.stationIdx },
+      selectedRunIdx: null,
+      following: false,
+      searchOpen: false,
+      routePlannerOpen: false,
+      routePlan: null,
+    });
+  },
   clearSelection: () =>
     set({
       selectedRunIdx: null,

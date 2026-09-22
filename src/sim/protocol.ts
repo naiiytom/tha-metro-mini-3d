@@ -120,7 +120,7 @@ export interface StationInfo {
   interchanges: InterchangeRef[];
 }
 
-/** A route-level stop included in a unified physical station complex. */
+/** A route-level stop included in a unified station hub. */
 export interface StationHubStopRef {
   routeIdx: number;
   stationIdx: number;
@@ -129,7 +129,7 @@ export interface StationHubStopRef {
   nameTh: string;
 }
 
-/** A physical station complex, potentially served by several routes. */
+/** A station hub, potentially served by several routes. */
 export interface StationHub {
   id: string;
   nameEn: string;
