@@ -436,7 +436,7 @@ export class NetworkLayer implements CustomLayerInterface {
   }
 
   /**
-   * Highlights 3D disc markers for all stops within the selected station hub.
+   * Highlights station models for all stops within the selected station hub.
    * Passing null or an empty array clears the highlight.
    */
   setStationHighlight(stops: { x: number; y: number; z: number }[] | null): void {

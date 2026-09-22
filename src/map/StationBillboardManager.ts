@@ -156,6 +156,12 @@ export class StationBillboardManager {
       // Stable child DOM — never recreated between frames.
       const dot = document.createElement("span");
       dot.className = "flex shrink-0 gap-0.5";
+      for (let d = 0; d < 8; d++) {
+        const dotChild = document.createElement("span");
+        dotChild.className = "h-2 w-2 rounded-full";
+        dotChild.style.display = "none";
+        dot.appendChild(dotChild);
+      }
 
       const name = document.createElement("span");
       name.className = "truncate max-w-28 text-ink font-semibold";
@@ -310,7 +316,9 @@ export class StationBillboardManager {
         el.dataset.routeIdx = String(s.route_idx);
         el.dataset.stationIdx = String(s.station_idx);
 
-        const colors = (hub?.routeIndices ?? [s.route_idx]).map((routeIdx) => routes[routeIdx]?.color ?? "#64748b");
+        const colors = (hub?.routeIndices ?? [s.route_idx])
+          .filter((routeIdx) => !hiddenRoutes.includes(routeIdx))
+          .map((routeIdx) => routes[routeIdx]?.color ?? "#64748b");
         const badgeKey = `${hub?.id ?? `${s.route_idx}:${s.station_idx}`}:${primaryLang}:${colors.join(",")}`;
         if (this.badgeKeys[i] !== badgeKey) {
           this.badgeKeys[i] = badgeKey;
@@ -318,14 +326,10 @@ export class StationBillboardManager {
             ? formatBilingualHub(hub, primaryLang)
             : formatBilingualStation(s, primaryLang);
           const dotContainer = this.dotSpans[i];
-          while (dotContainer.children.length < colors.length) {
-            const dot = document.createElement("span");
-            dot.className = "h-2 w-2 rounded-full";
-            dotContainer.appendChild(dot);
-          }
+          const dotCount = Math.min(colors.length, dotContainer.children.length);
           for (let c = 0; c < dotContainer.children.length; c++) {
             const child = dotContainer.children[c] as HTMLElement;
-            if (c < colors.length) {
+            if (c < dotCount) {
               child.style.display = "";
               child.style.backgroundColor = colors[c];
             } else {

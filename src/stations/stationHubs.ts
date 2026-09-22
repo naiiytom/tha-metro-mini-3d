@@ -18,11 +18,19 @@ function hubName(stops: StationInfo[], field: "name_en" | "name_th"): string {
   return [...names.values()].join(" / ");
 }
 
+let cachedStations: StationInfo[] | null = null;
+let cachedHubs: StationHub[] = [];
+let cachedStopToHub = new Map<string, StationHub>();
+
 /**
  * Creates station hubs from the cache's directed interchange
  * graph and from names shared by independently-modelled operators.
  */
 export function buildStationHubs(stations: StationInfo[]): StationHub[] {
+  if (stations === cachedStations) {
+    return cachedHubs;
+  }
+
   const parent = stations.map((_, index) => index);
   const indexByStop = new Map(stations.map((station, index) => [stopKey(station.route_idx, station.station_idx), index]));
   const find = (index: number): number => {
@@ -71,7 +79,7 @@ export function buildStationHubs(stations: StationInfo[]): StationHub[] {
     groups.set(root, group);
   }
 
-  return [...groups.values()].map((unsorted) => {
+  const hubs = [...groups.values()].map((unsorted) => {
     const stops = [...unsorted].sort((a, b) => a.route_idx - b.route_idx || a.station_idx - b.station_idx);
     const nameEn = hubName(stops, "name_en");
     const nameTh = hubName(stops, "name_th");
@@ -87,8 +95,20 @@ export function buildStationHubs(stations: StationInfo[]): StationHub[] {
       stops: stops.map((stop) => ({ routeIdx: stop.route_idx, stationIdx: stop.station_idx, code: stop.code, nameEn: stop.name_en, nameTh: stop.name_th })),
     };
   }).sort((a, b) => a.id.localeCompare(b.id));
+
+  cachedStations = stations;
+  cachedHubs = hubs;
+  cachedStopToHub = new Map();
+  for (const hub of hubs) {
+    for (const stop of hub.stops) {
+      cachedStopToHub.set(stopKey(stop.routeIdx, stop.stationIdx), hub);
+    }
+  }
+
+  return hubs;
 }
 
 export function findStationHub(stations: StationInfo[], routeIdx: number, stationIdx: number): StationHub | null {
-  return buildStationHubs(stations).find((hub) => hub.stops.some((stop) => stop.routeIdx === routeIdx && stop.stationIdx === stationIdx)) ?? null;
+  buildStationHubs(stations);
+  return cachedStopToHub.get(stopKey(routeIdx, stationIdx)) ?? null;
 }

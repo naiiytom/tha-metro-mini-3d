@@ -1,4 +1,4 @@
-import type { StationHub, StationInfo } from "../sim/protocol";
+import type { StationInfo } from "../sim/protocol";
 
 const MAX_RESULTS = 8;
 
@@ -22,22 +22,6 @@ export function filterStations(
   return stations
     .filter((s) => matchesQuery(s, q))
     .sort((a, b) => a.name_en.localeCompare(b.name_en))
-    .slice(0, limit);
-}
-
-/**
- * Filter station hubs by query string across both English and Thai names.
- */
-export function filterStationHubs(
-  hubs: StationHub[],
-  query: string,
-  limit = MAX_RESULTS,
-): StationHub[] {
-  const q = query.trim().toLowerCase();
-  if (!q) return [];
-  return hubs
-    .filter((h) => h.nameEn.toLowerCase().includes(q) || h.nameTh.toLowerCase().includes(q))
-    .sort((a, b) => a.nameEn.localeCompare(b.nameEn))
     .slice(0, limit);
 }
 

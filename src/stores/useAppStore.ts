@@ -6,7 +6,7 @@ import type { ClockParams } from "../sim/SimClient";
 import type { LineGeometry } from "../types";
 import { type TrainScale, loadTrainScale, saveTrainScale } from "../map/trainScale";
 import { resolveInitialLanguage, savePrimaryLang } from "../i18n/persistence";
-import { buildStationHubs, findStationHub } from "../stations/stationHubs";
+import { findStationHub } from "../stations/stationHubs";
 
 /**
  * UI-facing state only (SRS §3A.7): per-frame render/kinematic state must
@@ -74,7 +74,6 @@ interface AppState {
 
   selectRun: (runIdx: number | null) => void;
   selectStation: (station: { routeIdx: number; stationIdx: number } | null) => void;
-  selectHub: (hubId: string | null) => void;
   clearSelection: () => void;
   setFollowing: (following: boolean) => void;
 
@@ -230,24 +229,6 @@ export const useAppStore = create<AppState>((set, get) => ({
             routePlan: null,
           },
     ),
-  selectHub: (hubId) => {
-    if (hubId === null) {
-      set({ selectedHubId: null, selectedStation: null });
-      return;
-    }
-    const hub = buildStationHubs(get().stations).find((h) => h.id === hubId);
-    if (!hub || hub.stops.length === 0) return;
-    const primaryStop = hub.stops[0];
-    set({
-      selectedHubId: hub.id,
-      selectedStation: { routeIdx: primaryStop.routeIdx, stationIdx: primaryStop.stationIdx },
-      selectedRunIdx: null,
-      following: false,
-      searchOpen: false,
-      routePlannerOpen: false,
-      routePlan: null,
-    });
-  },
   clearSelection: () =>
     set({
       selectedRunIdx: null,

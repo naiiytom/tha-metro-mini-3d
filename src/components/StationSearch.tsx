@@ -3,6 +3,7 @@ import { lngLatToLocal, localToLngLat } from "../map/coordinates";
 import { formatDistance, geoErrorMessage, nearestStation } from "../search/stationSearch";
 import { useAppStore } from "../stores/useAppStore";
 import { formatBilingualStation } from "../utils/stationTypography";
+import { findStationHub } from "../stations/stationHubs";
 import { useT } from "../i18n";
 import { StationCombobox } from "./StationCombobox";
 
@@ -79,7 +80,8 @@ export function StationSearch() {
 
   const goToStation = (routeIdx: number, stationIdx: number, x: number, y: number) => {
     selectStation({ routeIdx, stationIdx });
-    requestFlyTo(localToLngLat(x, y));
+    const hub = findStationHub(stations, routeIdx, stationIdx);
+    requestFlyTo(localToLngLat(hub ? hub.x : x, hub ? hub.y : y));
     setSearchOpen(false);
   };
 
