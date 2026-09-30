@@ -24,7 +24,7 @@ import { effectiveElevationDeg } from "../map/themeMode";
 import { effectiveTheme } from "../map/effectiveTheme";
 import { resolveStock, type StockSpec } from "../map/rollingStock";
 import { loadStockGeometry } from "../map/glbStock";
-import { loadStationModel } from "../map/glbStation";
+import { disposeStationModel, loadStationModel } from "../map/glbStation";
 import { computeStationTangentHeading } from "../map/stationGeometry";
 import { STATION_MODELS } from "../../tools/lines.config.mjs";
 import { VehicleManager } from "../map/VehicleManager";
@@ -245,7 +245,11 @@ export function MapContainer() {
       for (const override of STATION_MODELS) {
         loadStationModel(override)
           .then((model) => {
-            if (disposed || currentLayer !== layer || !model) return;
+            if (!model) return;
+            if (disposed || currentLayer !== layer) {
+              disposeStationModel(model);
+              return;
+            }
             currentLayer.addLandmarkModel(model, override);
             map.triggerRepaint();
           })

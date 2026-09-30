@@ -87,9 +87,22 @@ describe("procedural geometry generators", () => {
     expect(box.max.z).toBeCloseTo(dims.canopyHeightM + 0.4);
   });
 
-  it("creates trim rails and column geometry", () => {
-    const trim = createTrimGeometry(dims);
-    expect(trim).toBeDefined();
+  it("creates trim rails aligned with arch eaves for elevated and ceiling for underground", () => {
+    const elevatedTrim = createTrimGeometry(dims, "elevated");
+    elevatedTrim.computeBoundingBox();
+    const elevatedBox = elevatedTrim.boundingBox!;
+    const canopyWidth = dims.widthM + dims.canopyOverhangM * 2;
+    const radius = canopyWidth * 0.75;
+    const thetaHalf = Math.asin(Math.min((canopyWidth / 2) / radius, 0.95));
+    const expectedElevatedZ = dims.canopyHeightM - radius + radius * Math.cos(thetaHalf);
+    // Center of rail is at expectedElevatedZ, rail thickness is 0.6 (-0.3 to +0.3)
+    expect(elevatedBox.max.z).toBeCloseTo(expectedElevatedZ + 0.3);
+
+    const undergroundTrim = createTrimGeometry(dims, "underground");
+    undergroundTrim.computeBoundingBox();
+    const ugBox = undergroundTrim.boundingBox!;
+    expect(ugBox.max.z).toBeCloseTo(dims.canopyHeightM);
+
     const col = createColumnGeometry();
     expect(col).toBeDefined();
   });
@@ -131,14 +144,23 @@ describe("buildStationGeometry", () => {
     expect(mat.userData.liveryHex).toBe(new THREE.Color("#7CB342").getHex());
   });
 
-  it("suppresses specified station IDs from procedural generation", () => {
-    const l = makeLine();
-    const suppressed = new Set(["S1"]);
-    const group = buildStationGeometry(l, suppressed);
+  it("suppresses specified station IDs, hub IDs, and station names from procedural generation", () => {
+    const l = makeLine({
+      stations: [
+        { id: "S1", name: "Siam", nameTh: "สยาม", code: "CEN", position: [100.535, 13.74, 15], hubId: "hub:siam" },
+        { id: "S2", name: "Silom", nameTh: "สีลม", code: "BL26", position: [100.545, 13.74, -18] },
+      ],
+    });
 
-    // Only S2 (underground) should be generated
-    expect(group.children).toHaveLength(4);
-    expect(group.children.every((c) => c.userData.structure === "underground")).toBe(true);
+    // Suppress by hubId
+    const groupHub = buildStationGeometry(l, new Set(["hub:siam"]));
+    expect(groupHub.children).toHaveLength(4);
+    expect(groupHub.children.every((c) => c.userData.structure === "underground")).toBe(true);
+
+    // Suppress by station name
+    const groupName = buildStationGeometry(l, new Set(["Siam"]));
+    expect(groupName.children).toHaveLength(4);
+    expect(groupName.children.every((c) => c.userData.structure === "underground")).toBe(true);
   });
 
   it("returns empty group for line with no stations", () => {
@@ -229,6 +251,38 @@ describe("suppressStationInMeshGroup", () => {
     const platforms = group.getObjectByName("station-platforms") as THREE.InstancedMesh;
 
     suppressStationInMeshGroup(group, new Set(["hub:siam"]));
+
+    const m = new THREE.Matrix4();
+    platforms.getMatrixAt(0, m);
+    expect(m.getMaxScaleOnAxis()).toBe(0);
+  });
+
+  it("suppresses member stop instances when station name is targeted", () => {
+    const l = makeLine({
+      stations: [
+        { id: 101, name: "Siam", nameTh: "สยาม", code: "", position: [100.535, 13.74, 15] },
+      ],
+    });
+    const group = buildStationGeometry(l);
+    const platforms = group.getObjectByName("station-platforms") as THREE.InstancedMesh;
+
+    suppressStationInMeshGroup(group, new Set(["Siam"]));
+
+    const m = new THREE.Matrix4();
+    platforms.getMatrixAt(0, m);
+    expect(m.getMaxScaleOnAxis()).toBe(0);
+  });
+
+  it("suppresses member stop instances when stringified numeric ID is targeted", () => {
+    const l = makeLine({
+      stations: [
+        { id: 12345, name: "Siam", nameTh: "สยาม", code: "", position: [100.535, 13.74, 15] },
+      ],
+    });
+    const group = buildStationGeometry(l);
+    const platforms = group.getObjectByName("station-platforms") as THREE.InstancedMesh;
+
+    suppressStationInMeshGroup(group, new Set(["12345"]));
 
     const m = new THREE.Matrix4();
     platforms.getMatrixAt(0, m);

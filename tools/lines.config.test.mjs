@@ -389,9 +389,10 @@ describe("STATION_MODELS override registry", () => {
     expect(() => assertStationModelsValid(dups)).toThrow(/Duplicate station model override id 'hub:siam'/);
   });
 
-  it("validates scale, headingOffsetDeg, and altitudeOffsetM types", () => {
+  it("validates scale, headingOffsetDeg, headingDeg, and altitudeOffsetM types", () => {
     expect(() => assertStationModelsValid([{ id: "A", glbUrl: "/a.glb", scale: [1, 0] }])).toThrow(/3-element positive/);
     expect(() => assertStationModelsValid([{ id: "A", glbUrl: "/a.glb", headingOffsetDeg: "north" }])).toThrow(/finite number/);
+    expect(() => assertStationModelsValid([{ id: "A", glbUrl: "/a.glb", headingDeg: "north" }])).toThrow(/finite number/);
     expect(() => assertStationModelsValid([{ id: "A", glbUrl: "/a.glb", altitudeOffsetM: NaN }])).toThrow(/finite number/);
   });
 });

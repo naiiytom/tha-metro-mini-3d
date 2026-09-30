@@ -57,6 +57,19 @@ describe("loadStationModel", () => {
     expect(mesh.receiveShadow).toBe(true);
   });
 
+  it("supports headingDeg alias for headingOffsetDeg", async () => {
+    const mockScene = new THREE.Group();
+    const mockLoader = vi.fn().mockResolvedValue(mockScene);
+    const override: StationModelOverride = {
+      id: "hub:siam",
+      glbUrl: "/models/siam.glb",
+      headingDeg: 180,
+    };
+
+    await loadStationModel(override, mockLoader);
+    expect(mockScene.rotation.z).toBeCloseTo(Math.PI);
+  });
+
   it("handles loader failures gracefully by logging a warning and returning null", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const failingLoader = vi.fn().mockRejectedValue(new Error("Network 404"));
@@ -92,6 +105,11 @@ describe("findStationOverride", () => {
     expect(match?.id).toBe("hub:asok-sukhumvit");
   });
 
+  it("finds override by station name when code and hubId do not match", () => {
+    const match = findStationOverride("", "", overrides, "Asok");
+    expect(match?.id).toBe("hub:asok-sukhumvit");
+  });
+
   it("returns null when neither matches", () => {
     expect(findStationOverride("E4", "hub:asok", overrides)).toBeNull();
   });
@@ -113,6 +131,21 @@ describe("collectSuppressedStationIds", () => {
     expect(suppressed.has("CEN")).toBe(true);
     expect(suppressed.has("stop-2")).toBe(false);
     expect(suppressed.has("stop-3")).toBe(false);
+  });
+
+  it("suppresses stop when station name matches landmark hub id", () => {
+    const stations = [
+      { id: "stop-1", code: "", name: "Siam" },
+      { id: "stop-2", code: "", name: "Chit Lom" },
+    ];
+    const overrides: StationModelOverride[] = [
+      { id: "hub:siam", glbUrl: "/siam.glb" },
+    ];
+
+    const suppressed = collectSuppressedStationIds(stations, overrides);
+    expect(suppressed.has("stop-1")).toBe(true);
+    expect(suppressed.has("Siam")).toBe(true);
+    expect(suppressed.has("stop-2")).toBe(false);
   });
 
   it("suppresses stop when stop code itself is overridden", () => {
@@ -337,5 +370,64 @@ describe("ThreeLayer landmark station integration", () => {
     layer.setMap3D(true);
     expect(canopies.visible).toBe(true);
     expect(pillars.visible).toBe(true);
+  });
+
+  it("assigns hubId dynamically and matches hub:siam when stations have no pre-set hubId", () => {
+    // Mimic real network.json where hubId is undefined and code is empty for Siam
+    const net = createMockNetwork();
+    delete net.lines[0].stations[0].hubId;
+    net.lines[0].stations[0].code = "";
+
+    const layer = new NetworkLayer(net);
+    const mockMap = { getCanvas: () => ({}) } as unknown as import("maplibre-gl").Map;
+    const mockGl = {} as unknown as WebGL2RenderingContext;
+    layer.onAdd(mockMap, mockGl);
+
+    const modelGroup = new THREE.Group();
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(5, 5, 5), new THREE.MeshStandardMaterial());
+    modelGroup.add(mesh);
+
+    layer.addLandmarkModel(modelGroup, { id: "hub:siam", glbUrl: "/siam.glb" });
+
+    // Model was successfully placed at Siam rather than staying at (0, 0, 0)
+    expect(modelGroup.position.x).not.toBe(0);
+    expect(modelGroup.position.z).toBeCloseTo(16.5);
+  });
+
+  it("warns when override id matches no station in network", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const net = createMockNetwork();
+    const layer = new NetworkLayer(net);
+    const mockMap = { getCanvas: () => ({}) } as unknown as import("maplibre-gl").Map;
+    const mockGl = {} as unknown as WebGL2RenderingContext;
+    layer.onAdd(mockMap, mockGl);
+
+    const modelGroup = new THREE.Group();
+    layer.addLandmarkModel(modelGroup, { id: "non-existent-stop", glbUrl: "/none.glb" });
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("[station model] no station found matching override id 'non-existent-stop'"),
+    );
+    warnSpy.mockRestore();
+  });
+
+  it("deduplicates shared materials across multiple meshes in landmark model", () => {
+    const net = createMockNetwork();
+    const layer = new NetworkLayer(net);
+    const mockMap = { getCanvas: () => ({}) } as unknown as import("maplibre-gl").Map;
+    const mockGl = {} as unknown as WebGL2RenderingContext;
+    layer.onAdd(mockMap, mockGl);
+
+    const sharedMat = new THREE.MeshStandardMaterial({ color: 0x334455 });
+    const modelGroup = new THREE.Group();
+    modelGroup.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), sharedMat));
+    modelGroup.add(new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), sharedMat));
+    modelGroup.userData.overrideId = "CEN";
+
+    layer.addLandmarkModel(modelGroup);
+
+    const litMaterials = (layer as unknown as { litMaterials: THREE.Material[] }).litMaterials;
+    const occurrences = litMaterials.filter((m) => m === sharedMat).length;
+    expect(occurrences).toBe(1);
   });
 });

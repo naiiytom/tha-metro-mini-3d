@@ -1135,6 +1135,11 @@ export function assertStationModelsValid(models = STATION_MODELS) {
         throw new Error(`Station model override '${model.id}' headingOffsetDeg must be a finite number`);
       }
     }
+    if (model.headingDeg !== undefined) {
+      if (typeof model.headingDeg !== "number" || !Number.isFinite(model.headingDeg)) {
+        throw new Error(`Station model override '${model.id}' headingDeg must be a finite number`);
+      }
+    }
     if (model.altitudeOffsetM !== undefined) {
       if (typeof model.altitudeOffsetM !== "number" || !Number.isFinite(model.altitudeOffsetM)) {
         throw new Error(`Station model override '${model.id}' altitudeOffsetM must be a finite number`);

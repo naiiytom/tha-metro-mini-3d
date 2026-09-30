@@ -148,13 +148,25 @@ export function createCanopyGeometry(
 }
 
 /** Create route-tinted trim/fascia running along both sides of the canopy roof. */
-export function createTrimGeometry(dims: StationDimensions): THREE.BufferGeometry {
+export function createTrimGeometry(
+  dims: StationDimensions,
+  structure: Structure = "elevated",
+): THREE.BufferGeometry {
   const halfW = dims.widthM / 2 + dims.canopyOverhangM;
+  let trimZ = dims.canopyHeightM - 0.3;
+  if (structure !== "underground") {
+    const canopyWidth = dims.widthM + dims.canopyOverhangM * 2;
+    const radius = canopyWidth * 0.75;
+    const thetaHalf = Math.asin(Math.min((canopyWidth / 2) / radius, 0.95));
+    // Eaves sit at the arch edge height: apex - radius + radius * cos(thetaHalf)
+    trimZ = dims.canopyHeightM - radius + radius * Math.cos(thetaHalf);
+  }
+
   const railL = new THREE.BoxGeometry(dims.lengthM, 0.4, 0.6);
-  railL.translate(0, -halfW, dims.canopyHeightM - 0.3);
+  railL.translate(0, -halfW, trimZ);
 
   const railR = new THREE.BoxGeometry(dims.lengthM, 0.4, 0.6);
-  railR.translate(0, halfW, dims.canopyHeightM - 0.3);
+  railR.translate(0, halfW, trimZ);
 
   const merged = mergeGeometries([railL, railR]);
   railL.dispose();
@@ -193,7 +205,7 @@ function buildStationInstancedGroup(
 
   const platformGeo = createPlatformGeometry(dims);
   const canopyGeo = createCanopyGeometry(dims, structure);
-  const trimGeo = createTrimGeometry(dims);
+  const trimGeo = createTrimGeometry(dims, structure);
   const pillarGeo = createColumnGeometry();
 
   const platformMat = new THREE.MeshLambertMaterial({ color: 0x94a3b8 });
@@ -284,11 +296,13 @@ export function suppressStationInMeshGroup(
     let updated = false;
     for (let i = 0; i < items.length; i++) {
       const s = items[i].station;
-      if (
+      const isTarget =
         targetIds.has(s.id) ||
-        (s.code && targetIds.has(s.code)) ||
-        (s.hubId && targetIds.has(s.hubId))
-      ) {
+        targetIds.has(String(s.id)) ||
+        (Boolean(s.code) && targetIds.has(s.code)) ||
+        (Boolean(s.hubId) && targetIds.has(s.hubId!)) ||
+        (Boolean(s.name) && targetIds.has(s.name));
+      if (isTarget) {
         obj.setMatrixAt(i, new THREE.Matrix4().makeScale(0, 0, 0));
         updated = true;
       }
@@ -328,7 +342,13 @@ export function buildStationGeometry(
   const undergroundItems: StationInstanceData[] = [];
 
   for (const station of line.stations) {
-    if (suppressedStopIds?.has(station.id) || (station.code && suppressedStopIds?.has(station.code))) {
+    if (
+      suppressedStopIds?.has(station.id) ||
+      suppressedStopIds?.has(String(station.id)) ||
+      (station.code && suppressedStopIds?.has(station.code)) ||
+      (station.hubId && suppressedStopIds?.has(station.hubId)) ||
+      (station.name && suppressedStopIds?.has(station.name))
+    ) {
       continue;
     }
     const localPos = lngLatAltToLocal(station.position);

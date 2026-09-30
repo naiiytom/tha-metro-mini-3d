@@ -17,6 +17,7 @@ import {
   computeStationTangentHeading,
   suppressStationInMeshGroup,
 } from "./stationGeometry";
+import { assignStationHubIds, normalizedName } from "../stations/stationHubs";
 import { nightLift } from "./nightLift";
 import { materialAlbedo } from "./materialAlbedo";
 import { windowGlowOpacity } from "./windowGlow";
@@ -114,7 +115,11 @@ export class NetworkLayer implements CustomLayerInterface {
   constructor(
     private data: NetworkData,
     private vehicles?: VehicleManager,
-  ) {}
+  ) {
+    if (this.data?.lines) {
+      assignStationHubIds(this.data.lines);
+    }
+  }
 
   onAdd(map: MapLibreMap, gl: WebGL2RenderingContext): void {
     this.renderer = new THREE.WebGLRenderer({
@@ -499,17 +504,25 @@ export class NetworkLayer implements CustomLayerInterface {
     const matchingStops: { station: Station; line: LineGeometry }[] = [];
 
     if (overrideId) {
+      const normOverride = normalizedName(overrideId.replace(/^hub:/, ""));
       for (const line of this.data.lines) {
         for (const st of line.stations) {
-          if (
+          const normName = normalizedName(st.name);
+          const isMatch =
             st.code === overrideId ||
             String(st.id) === overrideId ||
-            (st.hubId && st.hubId === overrideId)
-          ) {
+            (Boolean(st.hubId) && st.hubId === overrideId) ||
+            st.name.toLowerCase() === overrideId.toLowerCase() ||
+            (Boolean(normOverride) && normName === normOverride);
+          if (isMatch) {
             matchingStops.push({ station: st, line });
           }
         }
       }
+    }
+
+    if (overrideId && matchingStops.length === 0) {
+      console.warn(`[station model] no station found matching override id '${overrideId}'`);
     }
 
     let isUnderground = false;
@@ -543,8 +556,10 @@ export class NetworkLayer implements CustomLayerInterface {
       const targetIds = new Set<string | number>();
       for (const { station } of matchingStops) {
         targetIds.add(station.id);
+        targetIds.add(String(station.id));
         if (station.code) targetIds.add(station.code);
         if (station.hubId) targetIds.add(station.hubId);
+        if (station.name) targetIds.add(station.name);
       }
       for (const group of this.lineGroups) {
         suppressStationInMeshGroup(group, targetIds);
@@ -571,7 +586,9 @@ export class NetworkLayer implements CustomLayerInterface {
             m instanceof THREE.MeshLambertMaterial ||
             m instanceof THREE.MeshStandardMaterial
           ) {
-            this.litMaterials.push(m);
+            if (!this.litMaterials.includes(m)) {
+              this.litMaterials.push(m);
+            }
             this.litMaterialWorstOpacity.set(m, worstOpacity);
 
             if (this.currentPalette && this.currentElevationDeg !== undefined) {
@@ -588,9 +605,13 @@ export class NetworkLayer implements CustomLayerInterface {
           }
 
           if (isUnderground) {
-            this.subsurfaceMaterials.push(m);
+            if (!this.subsurfaceMaterials.includes(m)) {
+              this.subsurfaceMaterials.push(m);
+            }
           } else {
-            this.surfaceMaterials.push(m);
+            if (!this.surfaceMaterials.includes(m)) {
+              this.surfaceMaterials.push(m);
+            }
           }
 
           const on = this.undergroundMode;
