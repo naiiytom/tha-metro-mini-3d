@@ -18,7 +18,7 @@ import { projectLocal, type ViewProjection } from "./screenProject";
  */
 
 const VEHICLE_PICK_PX = 22;
-const STATION_PICK_PX = 16;
+const STATION_PICK_PX = 24;
 
 export type Picked =
   | { type: "vehicle"; runIdx: number }
@@ -114,10 +114,15 @@ export function pickAt(
   let bestStation: { station: StationInfo; d2: number } | null = null;
   for (const s of stations) {
     if (hiddenRoutes.includes(s.route_idx)) continue;
-    const sz = map3D ? s.z : 0;
-    const d2 = screenDistanceSq(view, s.x, s.y, sz, at);
-    if (d2 <= stationRadius * stationRadius && (!bestStation || d2 < bestStation.d2)) {
-      bestStation = { station: s, d2 };
+    // Check both platform floor level and canopy elevation to prevent
+    // parallax miss under pitched 3D perspective views
+    const sz1 = map3D ? s.z : 0;
+    const sz2 = map3D ? s.z + 3.5 : 0;
+    const d1 = screenDistanceSq(view, s.x, s.y, sz1, at);
+    const d2 = screenDistanceSq(view, s.x, s.y, sz2, at);
+    const dStation = Math.min(d1, d2);
+    if (dStation <= stationRadius * stationRadius && (!bestStation || dStation < bestStation.d2)) {
+      bestStation = { station: s, d2: dStation };
     }
   }
   if (bestStation) {

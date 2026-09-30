@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import type { LineGeometry, Station, Structure, VehicleType } from "../types";
-import { lngLatAltToLocal, STATION_MARKER_HEIGHT_M } from "./coordinates";
+import { lngLatAltToLocal, localToLngLat, STATION_MARKER_HEIGHT_M } from "./coordinates";
 import { poleTransform } from "./trackGeometry";
 
 /**
@@ -57,6 +57,107 @@ export const STATION_DIMENSIONS: Record<VehicleType, StationDimensions> = {
     canopyOverhangM: 1.0,
   },
 };
+
+export interface SnappedStationInfo {
+  localPos: [number, number, number];
+  heading: number;
+  structure: Structure;
+}
+
+/**
+ * Snaps a station onto the track polyline of its line, returning its
+ * track-centerline ENU position, track tangent heading, and resolved structure.
+ */
+export function snapStationToTrack(
+  station: Station,
+  line: LineGeometry,
+): SnappedStationInfo {
+  const stationLocal = lngLatAltToLocal(station.position);
+
+  if (!line.track || line.track.length < 2) {
+    const isUg = station.position[2] < 0;
+    return {
+      localPos: stationLocal,
+      heading: 0,
+      structure: isUg ? "underground" : (line.structure ?? "elevated"),
+    };
+  }
+
+  const trackLocal = line.track.map((p) => ({
+    pos: lngLatAltToLocal([p[0], p[1], p[2]]),
+    structure: p[3],
+  }));
+
+  let bestDistSq = Infinity;
+  let bestProj: [number, number, number] = stationLocal;
+  let bestHeading = 0;
+  let bestStructure: Structure = line.structure ?? "elevated";
+
+  for (let i = 0; i < trackLocal.length - 1; i++) {
+    const a = trackLocal[i].pos;
+    const b = trackLocal[i + 1].pos;
+    const abX = b[0] - a[0];
+    const abY = b[1] - a[1];
+    const lenSq = abX * abX + abY * abY;
+    if (lenSq < 1e-6) continue;
+
+    const t = Math.max(
+      0,
+      Math.min(
+        1,
+        ((stationLocal[0] - a[0]) * abX + (stationLocal[1] - a[1]) * abY) / lenSq,
+      ),
+    );
+    const projX = a[0] + t * abX;
+    const projY = a[1] + t * abY;
+    const projZ = a[2] + t * (b[2] - a[2]);
+    const dSq = (stationLocal[0] - projX) ** 2 + (stationLocal[1] - projY) ** 2;
+
+    if (dSq < bestDistSq) {
+      bestDistSq = dSq;
+      bestProj = [projX, projY, projZ];
+      bestHeading = Math.atan2(abY, abX);
+
+      const isUg =
+        projZ < 0 ||
+        trackLocal[i].structure === "underground" ||
+        trackLocal[i + 1].structure === "underground";
+      if (isUg) {
+        bestStructure = "underground";
+      } else if (
+        trackLocal[i].structure === "atGrade" ||
+        trackLocal[i + 1].structure === "atGrade" ||
+        line.structure === "atGrade"
+      ) {
+        bestStructure = "atGrade";
+      } else {
+        bestStructure = "elevated";
+      }
+    }
+  }
+
+  return {
+    localPos: bestProj,
+    heading: bestHeading,
+    structure: bestStructure,
+  };
+}
+
+/**
+ * Snaps all stations in the given lines to their track polylines, updating
+ * each station's geographic position [lng, lat, alt] to sit on the track
+ * centerline at the true track altitude.
+ */
+export function snapStationsToTrack(lines: LineGeometry[]): void {
+  for (const line of lines) {
+    if (!line.track || line.track.length < 2) continue;
+    for (const station of line.stations) {
+      const snap = snapStationToTrack(station, line);
+      const geo = localToLngLat(snap.localPos[0], snap.localPos[1]);
+      station.position = [geo.lng, geo.lat, snap.localPos[2]];
+    }
+  }
+}
 
 /**
  * Computes the forward track tangent heading (yaw in radians) at a station's position
@@ -334,9 +435,6 @@ export function buildStationGeometry(
 
   const dims = STATION_DIMENSIONS[line.vehicleType] ?? STATION_DIMENSIONS.heavy;
   const lineColor = new THREE.Color(line.color);
-  const trackLocal = line.track.map(
-    (p) => new THREE.Vector3(...lngLatAltToLocal([p[0], p[1], p[2]])),
-  );
 
   const surfaceItems: StationInstanceData[] = [];
   const undergroundItems: StationInstanceData[] = [];
@@ -351,18 +449,16 @@ export function buildStationGeometry(
     ) {
       continue;
     }
-    const localPos = lngLatAltToLocal(station.position);
-    const heading = computeStationTangentHeading(localPos, trackLocal);
-    const isUnderground = station.position[2] < 0;
+    const snap = snapStationToTrack(station, line);
 
     const data: StationInstanceData = {
       station,
-      localPos,
-      heading,
-      structure: isUnderground ? "underground" : (line.structure ?? "elevated"),
+      localPos: snap.localPos,
+      heading: snap.heading,
+      structure: snap.structure,
     };
 
-    if (isUnderground) {
+    if (snap.structure === "underground") {
       undergroundItems.push(data);
     } else {
       surfaceItems.push(data);

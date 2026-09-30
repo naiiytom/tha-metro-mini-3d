@@ -9,9 +9,13 @@ import {
   createColumnGeometry,
   createPlatformGeometry,
   createTrimGeometry,
+  snapStationToTrack,
+  snapStationsToTrack,
   suppressStationInMeshGroup,
 } from "./stationGeometry";
 import type { LineGeometry } from "../types";
+import { lngLatAltToLocal } from "./coordinates";
+import network from "../data/network.json";
 
 const makeLine = (over: Partial<LineGeometry> = {}): LineGeometry => ({
   key: "test-line",
@@ -55,6 +59,83 @@ describe("computeStationTangentHeading", () => {
   it("handles empty or single-point track cleanly", () => {
     expect(computeStationTangentHeading([0, 0, 0], [])).toBe(0);
     expect(computeStationTangentHeading([0, 0, 0], [new THREE.Vector3(0, 0, 0)])).toBe(0);
+  });
+});
+
+describe("snapStationToTrack", () => {
+  it("snaps an off-track station horizontally onto track centerline and computes tangent heading", () => {
+    const l = makeLine({
+      track: [
+        [100.53, 13.74, 15, "elevated"],
+        [100.54, 13.74, 15, "elevated"],
+      ],
+      stations: [
+        // Station node is ~60m north of track
+        { id: "S1", name: "Off-track", nameTh: "นอกทาง", code: "OT1", position: [100.535, 13.7405, 15] },
+      ],
+    });
+
+    const snap = snapStationToTrack(l.stations[0], l);
+    // Heading should be 0 (running East)
+    expect(snap.heading).toBeCloseTo(0);
+    expect(snap.structure).toBe("elevated");
+    // Snapped y should match track latitude (13.74), not station latitude (13.7405)
+    const expectedTrackY = lngLatAltToLocal([100.535, 13.74, 15])[1];
+    expect(snap.localPos[1]).toBeCloseTo(expectedTrackY, 1);
+    expect(snap.localPos[2]).toBeCloseTo(15, 1);
+  });
+
+  it("snaps underground station to negative track altitude and assigns underground structure", () => {
+    const l = makeLine({
+      track: [
+        [100.54, 13.74, -18, "underground"],
+        [100.55, 13.74, -18, "underground"],
+      ],
+      stations: [
+        // Stale nominal altitude 15m from OSM
+        { id: "UG1", name: "Underground", nameTh: "ใต้ดิน", code: "BL10", position: [100.545, 13.74, 15] },
+      ],
+    });
+
+    const snap = snapStationToTrack(l.stations[0], l);
+    expect(snap.structure).toBe("underground");
+    expect(snap.localPos[2]).toBeCloseTo(-18, 1);
+  });
+
+  it("resolves atGrade structure for atGrade track segments", () => {
+    const l = makeLine({
+      track: [
+        [100.53, 13.74, 0, "atGrade"],
+        [100.54, 13.74, 0, "atGrade"],
+      ],
+      stations: [
+        { id: "AG1", name: "At Grade", nameTh: "ระดับดิน", code: "RN01", position: [100.535, 13.74, 0] },
+      ],
+    });
+
+    const snap = snapStationToTrack(l.stations[0], l);
+    expect(snap.structure).toBe("atGrade");
+    expect(snap.localPos[2]).toBeCloseTo(0, 1);
+  });
+});
+
+describe("snapStationsToTrack", () => {
+  it("updates station.position in place to track centerline and altitude", () => {
+    const l = makeLine({
+      track: [
+        [100.54, 13.74, -18, "underground"],
+        [100.55, 13.74, -18, "underground"],
+      ],
+      stations: [
+        { id: "UG1", name: "Underground", nameTh: "ใต้ดิน", code: "BL10", position: [100.545, 13.7405, 15] },
+      ],
+    });
+
+    snapStationsToTrack([l]);
+    // Altitude updated from 15 to -18
+    expect(l.stations[0].position[2]).toBeCloseTo(-18, 1);
+    // Latitude snapped to track (13.74)
+    expect(l.stations[0].position[1]).toBeCloseTo(13.74, 4);
   });
 });
 
@@ -203,6 +284,11 @@ describe("buildStationHighlightFrame", () => {
 describe("suppressStationInMeshGroup", () => {
   it("dynamically zeroes transform matrix for matching stop IDs and codes while preserving others", () => {
     const l = makeLine({
+      track: [
+        [100.53, 13.74, 15, "elevated"],
+        [100.54, 13.74, 15, "elevated"],
+        [100.55, 13.74, 15, "elevated"],
+      ],
       stations: [
         { id: "S1", name: "Station 1", nameTh: "สถานี 1", code: "CEN", position: [100.535, 13.74, 15], hubId: "hub:siam" },
         { id: "S2", name: "Station 2", nameTh: "สถานี 2", code: "E1", position: [100.545, 13.74, 15] },
@@ -314,5 +400,52 @@ describe("computeStationTangentHeading edge cases", () => {
     expect(computeStationTangentHeading([0, 0, 0], [{ x: 10, y: 10 }])).toBe(0);
     // Coincident points
     expect(computeStationTangentHeading([0, 0, 0], [{ x: 10, y: 10 }, { x: 10, y: 10 }])).toBe(0);
+  });
+});
+
+describe("snapStationsToTrack on real network data", () => {
+  it("resolves all 22 underground stations on MRT Blue and snaps off-track stations to track", () => {
+    // Clone blue line so test does not mutate shared import
+    const rawBlue = network.lines.find((l) => l.key === "blue")!;
+    const blueLine = JSON.parse(JSON.stringify(rawBlue)) as LineGeometry;
+
+    snapStationsToTrack([blueLine]);
+
+    const undergroundStops = blueLine.stations.filter((s) => s.position[2] < 0);
+    expect(undergroundStops).toHaveLength(22);
+
+    // Underground landmarks correctly sit at -18m
+    const huaLamphong = blueLine.stations.find((s) => s.name === "Hua Lamphong");
+    expect(huaLamphong).toBeDefined();
+    expect(huaLamphong!.position[2]).toBeCloseTo(-18, 1);
+
+    const sukhumvit = blueLine.stations.find((s) => s.name === "Sukhumvit");
+    expect(sukhumvit).toBeDefined();
+    expect(sukhumvit!.position[2]).toBeCloseTo(-18, 1);
+
+    // Elevated stops stay at +15m
+    const thaPhra = blueLine.stations.find((s) => s.name === "Tha Phra");
+    expect(thaPhra).toBeDefined();
+    expect(thaPhra!.position[2]).toBeCloseTo(15, 1);
+
+    // Kamphaeng Phet was ~72.6m off track; now snapped directly onto the track (< 1m)
+    const kpp = blueLine.stations.find((s) => s.name === "Kamphaeng Phet");
+    expect(kpp).toBeDefined();
+    const kppLocal = lngLatAltToLocal(kpp!.position);
+    let minPolyDistSq = Infinity;
+    for (let i = 0; i < blueLine.track.length - 1; i++) {
+      const a = lngLatAltToLocal([blueLine.track[i][0], blueLine.track[i][1], blueLine.track[i][2]]);
+      const b = lngLatAltToLocal([blueLine.track[i + 1][0], blueLine.track[i + 1][1], blueLine.track[i + 1][2]]);
+      const abX = b[0] - a[0];
+      const abY = b[1] - a[1];
+      const lenSq = abX * abX + abY * abY;
+      if (lenSq < 1e-6) continue;
+      const t = Math.max(0, Math.min(1, ((kppLocal[0] - a[0]) * abX + (kppLocal[1] - a[1]) * abY) / lenSq));
+      const px = a[0] + t * abX;
+      const py = a[1] + t * abY;
+      const dSq = (kppLocal[0] - px) ** 2 + (kppLocal[1] - py) ** 2;
+      if (dSq < minPolyDistSq) minPolyDistSq = dSq;
+    }
+    expect(Math.sqrt(minPolyDistSq)).toBeLessThan(0.01);
   });
 });

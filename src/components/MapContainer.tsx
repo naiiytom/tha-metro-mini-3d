@@ -42,7 +42,8 @@ import { DEFAULT_TICK_MS, ECO_TICK_MS, LANE_RUN_IDX, LANE_Z, VEHICLE_STRIDE, typ
 import { formatCountdown } from "../sim/time";
 import { translate } from "../i18n";
 import { useAppStore } from "../stores/useAppStore";
-import { findStationHub } from "../stations/stationHubs";
+import { assignStationHubIds, findStationHub } from "../stations/stationHubs";
+import { snapStationsToTrack } from "../map/stationGeometry";
 import network from "../data/network.json";
 import type { NetworkData } from "../types";
 
@@ -187,6 +188,8 @@ export function MapContainer() {
     let followedAltitudeM: number | null = null;
     let autoUnderground = initialAutoState();
     const net = network as unknown as NetworkData;
+    snapStationsToTrack(net.lines);
+    assignStationHubIds(net.lines);
 
     // Everything below is RE-CREATED on every style.load (map.setStyle()
     // destroys every custom layer). SimClient/FollowCamera/TrainTooltip and

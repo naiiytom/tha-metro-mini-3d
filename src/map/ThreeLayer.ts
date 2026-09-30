@@ -15,6 +15,7 @@ import {
   buildStationGeometry,
   buildStationHighlightFrame,
   computeStationTangentHeading,
+  snapStationsToTrack,
   suppressStationInMeshGroup,
 } from "./stationGeometry";
 import { assignStationHubIds, normalizedName } from "../stations/stationHubs";
@@ -118,6 +119,7 @@ export class NetworkLayer implements CustomLayerInterface {
   ) {
     if (this.data?.lines) {
       assignStationHubIds(this.data.lines);
+      snapStationsToTrack(this.data.lines);
     }
   }
 
