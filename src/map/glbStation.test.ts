@@ -161,6 +161,35 @@ describe("collectSuppressedStationIds", () => {
     expect(suppressed.has("RN01")).toBe(true);
   });
 
+  it("does not suppress station when suppressProcedural is false", () => {
+    const stations = [
+      { id: "stop-1", code: "RN01", hubId: "hub:bangsue" },
+    ];
+    const overrides: StationModelOverride[] = [
+      { id: "RN01", glbUrl: "/bangsue.glb", suppressProcedural: false },
+    ];
+
+    const suppressed = collectSuppressedStationIds(stations, overrides);
+    expect(suppressed.has("stop-1")).toBe(false);
+    expect(suppressed.has("RN01")).toBe(false);
+  });
+
+  it("suppresses Krung Thep Aphiwat stops across lines from registry override", () => {
+    const stations = [
+      { id: "7314652468", code: "3", hubId: "hub:krung-thep-aphiwat", name: "Krung Thep Aphiwat" },
+      { id: "7314652456", code: "9", hubId: "hub:krung-thep-aphiwat", name: "Krung Thep Aphiwat" },
+      { id: "8990375565", code: "10", hubId: "hub:bang-son", name: "Bang Son" },
+    ];
+    const overrides: StationModelOverride[] = [
+      { id: "hub:krung-thep-aphiwat", glbUrl: "/models/krung-thep-aphiwat.glb", suppressProcedural: true },
+    ];
+
+    const suppressed = collectSuppressedStationIds(stations, overrides);
+    expect(suppressed.has("7314652468")).toBe(true);
+    expect(suppressed.has("7314652456")).toBe(true);
+    expect(suppressed.has("8990375565")).toBe(false);
+  });
+
   it("returns empty set when no overrides declared", () => {
     const stations = [{ id: "stop-1", code: "CEN" }];
     const suppressed = collectSuppressedStationIds(stations, []);
@@ -431,3 +460,27 @@ describe("ThreeLayer landmark station integration", () => {
     expect(occurrences).toBe(1);
   });
 });
+
+describe("Krung Thep Aphiwat landmark override", () => {
+  it("resolves Krung Thep Aphiwat stations across lines to hub:krung-thep-aphiwat", () => {
+    const override = findStationOverride("3", "hub:krung-thep-aphiwat");
+    expect(override).toBeDefined();
+    expect(override?.id).toBe("hub:krung-thep-aphiwat");
+    expect(override?.glbUrl).toBe("/models/krung-thep-aphiwat.glb");
+    expect(override?.altitudeOffsetM).toBe(-1.5);
+    expect(override?.suppressProcedural).toBe(true);
+  });
+
+  it("suppresses procedural station geometry for both SRT Red line stops", () => {
+    const stops = [
+      { id: "7314652468", code: "3", hubId: "hub:krung-thep-aphiwat", name: "Krung Thep Aphiwat" },
+      { id: "7314652456", code: "9", hubId: "hub:krung-thep-aphiwat", name: "Krung Thep Aphiwat" },
+    ];
+    const suppressed = collectSuppressedStationIds(stops);
+    expect(suppressed.has("7314652468")).toBe(true);
+    expect(suppressed.has("7314652456")).toBe(true);
+    expect(suppressed.has("3")).toBe(true);
+    expect(suppressed.has("9")).toBe(true);
+  });
+});
+

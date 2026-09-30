@@ -359,8 +359,12 @@ describe("network.json field order", () => {
 });
 
 describe("STATION_MODELS override registry", () => {
-  it("passes assertStationModelsValid with default empty registry", () => {
+  it("passes assertStationModelsValid with configured station models", () => {
     expect(() => assertStationModelsValid(STATION_MODELS)).not.toThrow();
+    const aphiwat = STATION_MODELS.find((m) => m.id === "hub:krung-thep-aphiwat");
+    expect(aphiwat).toBeDefined();
+    expect(aphiwat?.glbUrl).toBe("/models/krung-thep-aphiwat.glb");
+    expect(aphiwat?.suppressProcedural).toBe(true);
   });
 
   it("accepts valid station model overrides", () => {
@@ -371,6 +375,7 @@ describe("STATION_MODELS override registry", () => {
         scale: [1, 1, 1],
         headingOffsetDeg: 45,
         altitudeOffsetM: 2,
+        suppressProcedural: true,
       },
     ];
     expect(() => assertStationModelsValid(valid)).not.toThrow();
@@ -389,10 +394,11 @@ describe("STATION_MODELS override registry", () => {
     expect(() => assertStationModelsValid(dups)).toThrow(/Duplicate station model override id 'hub:siam'/);
   });
 
-  it("validates scale, headingOffsetDeg, headingDeg, and altitudeOffsetM types", () => {
+  it("validates scale, headingOffsetDeg, headingDeg, altitudeOffsetM, and suppressProcedural types", () => {
     expect(() => assertStationModelsValid([{ id: "A", glbUrl: "/a.glb", scale: [1, 0] }])).toThrow(/3-element positive/);
     expect(() => assertStationModelsValid([{ id: "A", glbUrl: "/a.glb", headingOffsetDeg: "north" }])).toThrow(/finite number/);
     expect(() => assertStationModelsValid([{ id: "A", glbUrl: "/a.glb", headingDeg: "north" }])).toThrow(/finite number/);
     expect(() => assertStationModelsValid([{ id: "A", glbUrl: "/a.glb", altitudeOffsetM: NaN }])).toThrow(/finite number/);
+    expect(() => assertStationModelsValid([{ id: "A", glbUrl: "/a.glb", suppressProcedural: "yes" }])).toThrow(/must be a boolean/);
   });
 });

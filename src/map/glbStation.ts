@@ -120,10 +120,11 @@ export function collectSuppressedStationIds(
   overrides: StationModelOverride[] = STATION_MODELS,
 ): Set<string | number> {
   const suppressed = new Set<string | number>();
-  if (overrides.length === 0) return suppressed;
+  const activeOverrides = overrides.filter((o) => o.suppressProcedural !== false);
+  if (activeOverrides.length === 0) return suppressed;
 
-  const overrideIds = new Set(overrides.map((o) => o.id));
-  const normOverrideNames = overrides.map((o) =>
+  const overrideIds = new Set(activeOverrides.map((o) => o.id));
+  const normOverrideNames = activeOverrides.map((o) =>
     normalizedName(o.id.replace(/^hub:/, "")),
   );
 

@@ -19,6 +19,8 @@ import {
   suppressStationInMeshGroup,
 } from "./stationGeometry";
 import { assignStationHubIds, normalizedName } from "../stations/stationHubs";
+import { collectSuppressedStationIds } from "./glbStation";
+import { STATION_MODELS } from "../../tools/lines.config.mjs";
 import { nightLift } from "./nightLift";
 import { materialAlbedo } from "./materialAlbedo";
 import { windowGlowOpacity } from "./windowGlow";
@@ -204,7 +206,8 @@ export class NetworkLayer implements CustomLayerInterface {
       const { line: centerline, material } = buildTrackLine(line);
       group.add(centerline);
       this.lineMaterials.push(material);
-      group.add(buildStationGeometry(line));
+      const suppressedIds = collectSuppressedStationIds(line.stations, STATION_MODELS);
+      group.add(buildStationGeometry(line, suppressedIds));
       scene.add(group);
       this.lineGroups.push(group);
     }
@@ -555,16 +558,18 @@ export class NetworkLayer implements CustomLayerInterface {
       }
 
       // Procedural replacement: suppress instances in existing line groups
-      const targetIds = new Set<string | number>();
-      for (const { station } of matchingStops) {
-        targetIds.add(station.id);
-        targetIds.add(String(station.id));
-        if (station.code) targetIds.add(station.code);
-        if (station.hubId) targetIds.add(station.hubId);
-        if (station.name) targetIds.add(station.name);
-      }
-      for (const group of this.lineGroups) {
-        suppressStationInMeshGroup(group, targetIds);
+      if (override?.suppressProcedural !== false) {
+        const targetIds = new Set<string | number>();
+        for (const { station } of matchingStops) {
+          targetIds.add(station.id);
+          targetIds.add(String(station.id));
+          if (station.code) targetIds.add(station.code);
+          if (station.hubId) targetIds.add(station.hubId);
+          if (station.name) targetIds.add(station.name);
+        }
+        for (const group of this.lineGroups) {
+          suppressStationInMeshGroup(group, targetIds);
+        }
       }
 
       isUnderground = cz < 0 || matchingStops[0].station.position[2] < 0;

@@ -48,6 +48,7 @@ export interface StationModelOverrideConfig {
   headingDeg?: number;
   scale?: [number, number, number];
   altitudeOffsetM?: number;
+  suppressProcedural?: boolean;
 }
 export type StationModelConfig = StationModelOverrideConfig;
 export const STATION_MODELS: StationModelOverrideConfig[];

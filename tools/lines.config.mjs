@@ -1108,9 +1108,18 @@ export function assertRegistryValid(lines = LINES) {
 /**
  * Landmark 3D station model overrides (.glb), mirroring rolling stock overrides.
  * Keyed by station stop code (e.g. "CEN") or hub ID (e.g. "hub:siam").
- * Empty by default (procedural generation is the permanent baseline).
+ * Procedural generation is the permanent baseline for un-overridden stations.
  */
-export const STATION_MODELS = [];
+export const STATION_MODELS = [
+  {
+    id: "hub:krung-thep-aphiwat",
+    glbUrl: "/models/krung-thep-aphiwat.glb",
+    scale: [1, 1, 1],
+    headingOffsetDeg: 0,
+    altitudeOffsetM: -1.5,
+    suppressProcedural: true,
+  },
+];
 
 export function assertStationModelsValid(models = STATION_MODELS) {
   const seenIds = new Set();
@@ -1149,6 +1158,9 @@ export function assertStationModelsValid(models = STATION_MODELS) {
       if (typeof model.altitudeOffsetM !== "number" || !Number.isFinite(model.altitudeOffsetM)) {
         throw new Error(`Station model override '${model.id}' altitudeOffsetM must be a finite number`);
       }
+    }
+    if (model.suppressProcedural !== undefined && typeof model.suppressProcedural !== "boolean") {
+      throw new Error(`Station model override '${model.id}' suppressProcedural must be a boolean`);
     }
   }
 }

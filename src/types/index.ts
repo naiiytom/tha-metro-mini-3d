@@ -148,6 +148,7 @@ export interface StationModelOverride {
   headingDeg?: number;
   scale?: [number, number, number];
   altitudeOffsetM?: number;
+  suppressProcedural?: boolean;
 }
 
 /** Mirroring Ticket 2 spec alias for StationModelOverride. */
