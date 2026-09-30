@@ -448,4 +448,26 @@ describe("snapStationsToTrack on real network data", () => {
     }
     expect(Math.sqrt(minPolyDistSq)).toBeLessThan(0.01);
   });
+
+  it("aligns Makkasan station canopy exactly with the simulation train stop position", () => {
+    const rawArl = network.lines.find((l) => l.key === "arl")!;
+    const arlLine = JSON.parse(JSON.stringify(rawArl)) as LineGeometry;
+
+    const makkasan = arlLine.stations.find((s) => s.name === "Makkasan")!;
+    expect(makkasan).toBeDefined();
+
+    const snap = snapStationToTrack(makkasan, arlLine);
+
+    // Simulation engine train stop position for ARL Makkasan from network.tmb
+    const engineTrainStop = [3031.2874, 598.36, 15];
+    const distToTrainStopM = Math.hypot(
+      snap.localPos[0] - engineTrainStop[0],
+      snap.localPos[1] - engineTrainStop[1],
+    );
+
+    // Station canopy center and train dwell position must align within 0.1 meter
+    expect(distToTrainStopM).toBeLessThan(0.1);
+    expect(snap.structure).toBe("elevated");
+  });
 });
+

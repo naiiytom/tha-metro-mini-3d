@@ -196,8 +196,13 @@ export const LINES = [
         { zM: 0.35, heightM: 0.35, tint: "#6E757C" },
       ],
     },
+    // Makkasan (A6): relation 2148241 includes eastern concourse node 3178943413
+    // (103.6 m east of train stop). In network.json, Makkasan is placed at the
+    // platform/GTFS stop position [100.5612648, 13.7509811] so the 3D canopy,
+    // simulation train dwell point, and click hit-testing align exactly.
     osm: { relationId: 2148241, match: /airport rail link/i },
   },
+
   {
     key: "pink",
     name: "MRT Pink Line",
