@@ -9,6 +9,7 @@ export interface Station {
   nameTh: string;
   code: string;
   position: LngLatAlt;
+  hubId?: string;
 }
 
 export type Structure = "elevated" | "atGrade" | "underground";

@@ -4,14 +4,19 @@ import type {
   Map as MapLibreMap,
 } from "maplibre-gl";
 import * as THREE from "three";
-import type { NetworkData } from "../types";
+import type { LineGeometry, NetworkData, Station, StationModelOverride } from "../types";
 import { Line2 } from "three/addons/lines/Line2.js";
 import { LineMaterial } from "three/addons/lines/LineMaterial.js";
-import { MERC_PER_METER, ORIGIN_MERC } from "./coordinates";
+import { MERC_PER_METER, ORIGIN_MERC, STATION_MARKER_HEIGHT_M, lngLatAltToLocal } from "./coordinates";
 import { buildHighlightLine, type RouteHighlightSpan } from "./routeHighlight";
 import { buildSkyDome, type SkyDome } from "./skyDome";
 import { PRE_REVENUE_OPACITY, buildTrackDeck, buildTrackLine } from "./trackGeometry";
-import { buildStationGeometry, buildStationHighlightFrame } from "./stationGeometry";
+import {
+  buildStationGeometry,
+  buildStationHighlightFrame,
+  computeStationTangentHeading,
+  suppressStationInMeshGroup,
+} from "./stationGeometry";
 import { nightLift } from "./nightLift";
 import { materialAlbedo } from "./materialAlbedo";
 import { windowGlowOpacity } from "./windowGlow";
@@ -62,7 +67,7 @@ export class NetworkLayer implements CustomLayerInterface {
    *  other's property (the same split styleBinding.ts enforces for the
    *  basemap). The Line2 centerlines are deliberately absent — LineMaterial is
    *  unlit, so it already renders at full colour and needs no floor. */
-  private litMaterials: THREE.MeshLambertMaterial[] = [];
+  private litMaterials: (THREE.MeshLambertMaterial | THREE.MeshStandardMaterial)[] = [];
   /**
    * Worst-case opacity each lit material can render at across BOTH
    * underground-mode states — populated in `indexMaterialsByBand()`, fed to
@@ -72,7 +77,10 @@ export class NetworkLayer implements CustomLayerInterface {
    * vehicle, which `applyUndergroundMode()` never touches) is always fully
    * opaque, hence the `?? 1` at every lookup site rather than a default entry.
    */
-  private litMaterialWorstOpacity = new WeakMap<THREE.MeshLambertMaterial, number>();
+  private litMaterialWorstOpacity = new WeakMap<THREE.Material, number>();
+  private currentPalette: SkyPalette | null = null;
+  private currentElevationDeg?: number;
+  private currentNdotl = 1.0;
   private undergroundMode = false;
   private map3D = true;
   private shadowCatcher: THREE.Mesh<THREE.PlaneGeometry, THREE.ShadowMaterial> | null = null;
@@ -240,6 +248,10 @@ export class NetworkLayer implements CustomLayerInterface {
     // it is O(materials), ~50 objects, and the palette only moves as fast as
     // the sun does.
     const ndotl = Math.max(dir.up, 0.05);
+    this.currentPalette = palette;
+    this.currentElevationDeg = elevationDeg;
+    this.currentNdotl = ndotl;
+
     for (const m of this.litMaterials) {
       // Solve against this material's WORST-CASE opacity (its band's
       // backgrounded state, or 1 for a vehicle — see the field's own
@@ -303,7 +315,7 @@ export class NetworkLayer implements CustomLayerInterface {
         band.push(...mats);
         const worstOpacity = underground ? SUBSURFACE_BACKGROUNDED_OPACITY : SURFACE_BACKGROUNDED_OPACITY;
         for (const m of mats) {
-          if (m instanceof THREE.MeshLambertMaterial) {
+          if (m instanceof THREE.MeshLambertMaterial || m instanceof THREE.MeshStandardMaterial) {
             this.litMaterials.push(m);
             this.litMaterialWorstOpacity.set(m, worstOpacity);
           }
@@ -397,7 +409,7 @@ export class NetworkLayer implements CustomLayerInterface {
       this.shadowCatcher.visible = is3D && !this.undergroundMode && (this.renderer?.shadowMap.enabled ?? false);
     }
     this.scene?.traverse((o) => {
-      if (o.userData?.isCanopy) {
+      if (o.userData?.isCanopy || o.userData?.isPillar) {
         o.visible = is3D;
       }
     });
@@ -476,19 +488,123 @@ export class NetworkLayer implements CustomLayerInterface {
   }
 
   /**
-   * Attaches an asynchronous landmark 3D station model (.glb) to the scene.
+   * Attaches an asynchronous landmark 3D station model (.glb) to the scene,
+   * positioning it along the track tangent and replacing any procedural
+   * station representation at that location.
    */
-  addLandmarkModel(model: THREE.Object3D): void {
+  addLandmarkModel(model: THREE.Object3D, override?: StationModelOverride): void {
     if (!this.scene) return;
+
+    const overrideId = override?.id ?? (model.userData?.overrideId as string | undefined);
+    const matchingStops: { station: Station; line: LineGeometry }[] = [];
+
+    if (overrideId) {
+      for (const line of this.data.lines) {
+        for (const st of line.stations) {
+          if (
+            st.code === overrideId ||
+            String(st.id) === overrideId ||
+            (st.hubId && st.hubId === overrideId)
+          ) {
+            matchingStops.push({ station: st, line });
+          }
+        }
+      }
+    }
+
+    let isUnderground = false;
+
+    if (matchingStops.length > 0) {
+      let sumX = 0;
+      let sumY = 0;
+      let sumZ = 0;
+      for (const { station } of matchingStops) {
+        const [lx, ly, lz] = lngLatAltToLocal(station.position);
+        sumX += lx;
+        sumY += ly;
+        sumZ += lz;
+      }
+      const cx = sumX / matchingStops.length;
+      const cy = sumY / matchingStops.length;
+      const cz = sumZ / matchingStops.length;
+
+      const primary = matchingStops[0];
+      const trackLocal = primary.line.track.map(
+        (p) => new THREE.Vector3(...lngLatAltToLocal([p[0], p[1], p[2]])),
+      );
+      const heading = computeStationTangentHeading([cx, cy, cz], trackLocal);
+
+      if (model.position.x === 0 && model.position.y === 0) {
+        model.position.set(cx, cy, cz + STATION_MARKER_HEIGHT_M);
+        model.rotation.z += heading;
+      }
+
+      // Procedural replacement: suppress instances in existing line groups
+      const targetIds = new Set<string | number>();
+      for (const { station } of matchingStops) {
+        targetIds.add(station.id);
+        if (station.code) targetIds.add(station.code);
+        if (station.hubId) targetIds.add(station.hubId);
+      }
+      for (const group of this.lineGroups) {
+        suppressStationInMeshGroup(group, targetIds);
+      }
+
+      isUnderground = cz < 0 || matchingStops[0].station.position[2] < 0;
+    }
+
+    model.userData.structure = isUnderground ? "underground" : "elevated";
+    const worstOpacity = isUnderground
+      ? SUBSURFACE_BACKGROUNDED_OPACITY
+      : SURFACE_BACKGROUNDED_OPACITY;
+
     this.scene.add(model);
     this.landmarkModels.push(model);
+
     model.traverse((o) => {
       if (o instanceof THREE.Mesh) {
+        o.castShadow = true;
+        o.receiveShadow = true;
         const mats = Array.isArray(o.material) ? o.material : [o.material];
         for (const m of mats) {
-          if (m instanceof THREE.MeshLambertMaterial) {
+          if (
+            m instanceof THREE.MeshLambertMaterial ||
+            m instanceof THREE.MeshStandardMaterial
+          ) {
             this.litMaterials.push(m);
+            this.litMaterialWorstOpacity.set(m, worstOpacity);
+
+            if (this.currentPalette && this.currentElevationDeg !== undefined) {
+              const lift = nightLift(
+                materialAlbedo(m),
+                this.currentPalette,
+                this.currentNdotl,
+                this.currentElevationDeg,
+                worstOpacity,
+              );
+              m.emissive.setHex(lift.emissive);
+              m.emissiveIntensity = lift.intensity;
+            }
           }
+
+          if (isUnderground) {
+            this.subsurfaceMaterials.push(m);
+          } else {
+            this.surfaceMaterials.push(m);
+          }
+
+          const on = this.undergroundMode;
+          const opacity = isUnderground
+            ? (on ? 1 : SUBSURFACE_BACKGROUNDED_OPACITY)
+            : (on ? SURFACE_BACKGROUNDED_OPACITY : 1);
+          m.transparent = opacity < 1;
+          m.opacity = opacity;
+          m.depthWrite = isUnderground ? on : !on;
+          m.needsUpdate = true;
+        }
+
+        if (!this.map3D && (o.userData?.isCanopy || o.userData?.isPillar)) {
+          o.visible = false;
         }
       }
     });
@@ -547,6 +663,7 @@ export class NetworkLayer implements CustomLayerInterface {
     this.hasMainMatrix = false;
     this.sunLight = null;
     this.ambientLight = null;
+    this.currentPalette = null;
     // The GL context belongs to MapLibre — dispose Three's wrapper only.
     this.renderer?.dispose();
     this.renderer = null;

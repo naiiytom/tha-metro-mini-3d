@@ -25,11 +25,13 @@ import { effectiveTheme } from "../map/effectiveTheme";
 import { resolveStock, type StockSpec } from "../map/rollingStock";
 import { loadStockGeometry } from "../map/glbStock";
 import { loadStationModel } from "../map/glbStation";
+import { computeStationTangentHeading } from "../map/stationGeometry";
 import { STATION_MODELS } from "../../tools/lines.config.mjs";
 import { VehicleManager } from "../map/VehicleManager";
 import { offsetCenterForSheet } from "../map/viewportOffset";
 import { StationBillboardManager } from "../map/StationBillboardManager";
 import {
+  lngLatAltToLocal,
   lngLatToLocal,
   localToLngLat,
   ORIGIN_LNG_LAT,
@@ -244,7 +246,7 @@ export function MapContainer() {
         loadStationModel(override)
           .then((model) => {
             if (disposed || currentLayer !== layer || !model) return;
-            currentLayer.addLandmarkModel(model);
+            currentLayer.addLandmarkModel(model, override);
             map.triggerRepaint();
           })
           .catch((error) => {
@@ -359,18 +361,37 @@ export function MapContainer() {
         if (!state.selectedStation) {
           layer?.setStationHighlight(null);
         } else {
+          const enrichStop = (st: StationInfo) => {
+            const line = net.lines[st.route_idx];
+            let heading = 0;
+            if (line?.track && line.track.length >= 2) {
+              const trackLocal = line.track.map((p) => {
+                const [x, y] = lngLatAltToLocal([p[0], p[1], p[2]]);
+                return { x, y };
+              });
+              heading = computeStationTangentHeading([st.x, st.y, st.z], trackLocal);
+            }
+            return {
+              x: st.x,
+              y: st.y,
+              z: st.z,
+              heading,
+              vehicleType: line?.vehicleType,
+            };
+          };
+
           const hub = findStationHub(state.stations, state.selectedStation.routeIdx, state.selectedStation.stationIdx);
           if (hub && hub.stops.length > 0) {
             const stops = hub.stops
               .map((stop) => state.stations.find((st) => st.route_idx === stop.routeIdx && st.station_idx === stop.stationIdx))
               .filter((st): st is StationInfo => Boolean(st))
-              .map((st) => ({ x: st.x, y: st.y, z: st.z }));
+              .map(enrichStop);
             layer?.setStationHighlight(stops.length > 0 ? stops : null);
           } else {
             const station = state.stations.find(
               (st) => st.route_idx === state.selectedStation!.routeIdx && st.station_idx === state.selectedStation!.stationIdx,
             );
-            layer?.setStationHighlight(station ? [{ x: station.x, y: station.y, z: station.z }] : null);
+            layer?.setStationHighlight(station ? [enrichStop(station)] : null);
           }
         }
         map.triggerRepaint();
@@ -428,18 +449,37 @@ export function MapContainer() {
         const s = useAppStore.getState();
         layer.setRouteHighlight(highlightSpans(s.routePlan, s.hiddenRoutes));
         if (s.selectedStation) {
+          const enrichStop = (st: StationInfo) => {
+            const line = net.lines[st.route_idx];
+            let heading = 0;
+            if (line?.track && line.track.length >= 2) {
+              const trackLocal = line.track.map((p) => {
+                const [x, y] = lngLatAltToLocal([p[0], p[1], p[2]]);
+                return { x, y };
+              });
+              heading = computeStationTangentHeading([st.x, st.y, st.z], trackLocal);
+            }
+            return {
+              x: st.x,
+              y: st.y,
+              z: st.z,
+              heading,
+              vehicleType: line?.vehicleType,
+            };
+          };
+
           const hub = findStationHub(s.stations, s.selectedStation.routeIdx, s.selectedStation.stationIdx);
           if (hub && hub.stops.length > 0) {
             const stops = hub.stops
               .map((stop) => s.stations.find((st) => st.route_idx === stop.routeIdx && st.station_idx === stop.stationIdx))
               .filter((st): st is StationInfo => Boolean(st))
-              .map((st) => ({ x: st.x, y: st.y, z: st.z }));
+              .map(enrichStop);
             layer.setStationHighlight(stops.length > 0 ? stops : null);
           } else {
             const station = s.stations.find(
               (st) => st.route_idx === s.selectedStation!.routeIdx && st.station_idx === s.selectedStation!.stationIdx,
             );
-            layer.setStationHighlight(station ? [{ x: station.x, y: station.y, z: station.z }] : null);
+            layer.setStationHighlight(station ? [enrichStop(station)] : null);
           }
         }
       }

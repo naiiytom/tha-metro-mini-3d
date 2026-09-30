@@ -9,6 +9,7 @@ import {
   createColumnGeometry,
   createPlatformGeometry,
   createTrimGeometry,
+  suppressStationInMeshGroup,
 } from "./stationGeometry";
 import type { LineGeometry } from "../types";
 
@@ -174,5 +175,90 @@ describe("buildStationHighlightFrame", () => {
   it("returns empty group for empty stops array", () => {
     const group = buildStationHighlightFrame([]);
     expect(group.children).toHaveLength(0);
+  });
+});
+
+describe("suppressStationInMeshGroup", () => {
+  it("dynamically zeroes transform matrix for matching stop IDs and codes while preserving others", () => {
+    const l = makeLine({
+      stations: [
+        { id: "S1", name: "Station 1", nameTh: "สถานี 1", code: "CEN", position: [100.535, 13.74, 15], hubId: "hub:siam" },
+        { id: "S2", name: "Station 2", nameTh: "สถานี 2", code: "E1", position: [100.545, 13.74, 15] },
+      ],
+    });
+    const group = buildStationGeometry(l);
+
+    const platforms = group.getObjectByName("station-platforms") as THREE.InstancedMesh;
+    expect(platforms).toBeDefined();
+
+    // Verify both instances have non-zero scale initially
+    const m0 = new THREE.Matrix4();
+    const m1 = new THREE.Matrix4();
+    platforms.getMatrixAt(0, m0);
+    platforms.getMatrixAt(1, m1);
+
+    const scale0 = new THREE.Vector3();
+    const scale1 = new THREE.Vector3();
+    m0.decompose(new THREE.Vector3(), new THREE.Quaternion(), scale0);
+    m1.decompose(new THREE.Vector3(), new THREE.Quaternion(), scale1);
+
+    expect(m0.getMaxScaleOnAxis()).toBeGreaterThan(0.1);
+    expect(m1.getMaxScaleOnAxis()).toBeGreaterThan(0.1);
+
+    // Suppress by stop code "CEN"
+    const updated = suppressStationInMeshGroup(group, new Set(["CEN"]));
+    expect(updated).toBe(4); // platforms, canopies, trims, pillars
+
+    platforms.getMatrixAt(0, m0);
+    platforms.getMatrixAt(1, m1);
+
+    // S1 (index 0) has collapsed to zero scale
+    expect(m0.getMaxScaleOnAxis()).toBe(0);
+
+    // S2 (index 1) remains unaffected
+    expect(m1.getMaxScaleOnAxis()).toBeGreaterThan(0.1);
+  });
+
+  it("suppresses member stop instances when parent hubId is targeted", () => {
+    const l = makeLine({
+      stations: [
+        { id: "S1", name: "Station 1", nameTh: "สถานี 1", code: "CEN", position: [100.535, 13.74, 15], hubId: "hub:siam" },
+      ],
+    });
+    const group = buildStationGeometry(l);
+    const platforms = group.getObjectByName("station-platforms") as THREE.InstancedMesh;
+
+    suppressStationInMeshGroup(group, new Set(["hub:siam"]));
+
+    const m = new THREE.Matrix4();
+    platforms.getMatrixAt(0, m);
+    expect(m.getMaxScaleOnAxis()).toBe(0);
+  });
+});
+
+describe("computeStationTangentHeading edge cases", () => {
+  it("computes cardinal headings correctly", () => {
+    // Eastward (heading 0)
+    const eastTrack = [{ x: 0, y: 0 }, { x: 100, y: 0 }];
+    expect(computeStationTangentHeading([50, 0, 0], eastTrack)).toBeCloseTo(0);
+
+    // Northward (heading PI/2)
+    const northTrack = [{ x: 0, y: 0 }, { x: 0, y: 100 }];
+    expect(computeStationTangentHeading([0, 50, 0], northTrack)).toBeCloseTo(Math.PI / 2);
+
+    // Westward (heading PI)
+    const westTrack = [{ x: 100, y: 0 }, { x: 0, y: 0 }];
+    expect(Math.abs(computeStationTangentHeading([50, 0, 0], westTrack))).toBeCloseTo(Math.PI);
+
+    // Southward (heading -PI/2)
+    const southTrack = [{ x: 0, y: 100 }, { x: 0, y: 0 }];
+    expect(computeStationTangentHeading([0, 50, 0], southTrack)).toBeCloseTo(-Math.PI / 2);
+  });
+
+  it("handles degenerate or single-point tracks safely", () => {
+    expect(computeStationTangentHeading([0, 0, 0], [])).toBe(0);
+    expect(computeStationTangentHeading([0, 0, 0], [{ x: 10, y: 10 }])).toBe(0);
+    // Coincident points
+    expect(computeStationTangentHeading([0, 0, 0], [{ x: 10, y: 10 }, { x: 10, y: 10 }])).toBe(0);
   });
 });

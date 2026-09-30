@@ -64,7 +64,7 @@ export const STATION_DIMENSIONS: Record<VehicleType, StationDimensions> = {
  */
 export function computeStationTangentHeading(
   stationPosLocal: [number, number, number],
-  trackPointsLocal: THREE.Vector3[],
+  trackPointsLocal: readonly { x: number; y: number }[],
 ): number {
   if (trackPointsLocal.length < 2) return 0;
   let bestDistSq = Infinity;
@@ -169,7 +169,7 @@ export function createColumnGeometry(): THREE.BufferGeometry {
   return geo;
 }
 
-interface StationInstanceData {
+export interface StationInstanceData {
   station: Station;
   localPos: [number, number, number];
   heading: number;
@@ -207,15 +207,20 @@ function buildStationInstancedGroup(
 
   const platforms = new THREE.InstancedMesh(platformGeo, platformMat, count);
   platforms.name = "station-platforms";
+  platforms.userData.items = items;
   const canopies = new THREE.InstancedMesh(canopyGeo, canopyMat, count);
   canopies.name = "station-canopies";
   canopies.userData.isCanopy = true;
+  canopies.userData.items = items;
   const trims = new THREE.InstancedMesh(trimGeo, trimMat, count);
   trims.name = "station-trims";
   trims.userData.isCanopy = true;
   trims.userData.isTrim = true;
+  trims.userData.items = items;
   const pillars = new THREE.InstancedMesh(pillarGeo, pillarMat, count);
   pillars.name = "station-pillars";
+  pillars.userData.isPillar = true;
+  pillars.userData.items = items;
 
   const m = new THREE.Matrix4();
   const rotM = new THREE.Matrix4();
@@ -258,6 +263,42 @@ function buildStationInstancedGroup(
   pillars.receiveShadow = true;
 
   return { platforms, canopies, trims, pillars };
+}
+
+/**
+ * Suppresses procedural station instances (platforms, canopies, trims, pillars)
+ * matching the given station IDs, stop codes, or hub IDs by setting their
+ * instance transform matrix to zero scale.
+ *
+ * Returns the number of instanced meshes updated.
+ */
+export function suppressStationInMeshGroup(
+  root: THREE.Object3D,
+  targetIds: ReadonlySet<string | number>,
+): number {
+  let count = 0;
+  root.traverse((obj) => {
+    if (!(obj instanceof THREE.InstancedMesh)) return;
+    const items = obj.userData.items as StationInstanceData[] | undefined;
+    if (!items) return;
+    let updated = false;
+    for (let i = 0; i < items.length; i++) {
+      const s = items[i].station;
+      if (
+        targetIds.has(s.id) ||
+        (s.code && targetIds.has(s.code)) ||
+        (s.hubId && targetIds.has(s.hubId))
+      ) {
+        obj.setMatrixAt(i, new THREE.Matrix4().makeScale(0, 0, 0));
+        updated = true;
+      }
+    }
+    if (updated) {
+      obj.instanceMatrix.needsUpdate = true;
+      count++;
+    }
+  });
+  return count;
 }
 
 /**
