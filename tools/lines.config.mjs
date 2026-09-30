@@ -1096,4 +1096,49 @@ export function assertRegistryValid(lines = LINES) {
       }
     }
   }
+
+  assertStationModelsValid(STATION_MODELS);
+}
+
+/**
+ * Landmark 3D station model overrides (.glb), mirroring rolling stock overrides.
+ * Keyed by station stop code (e.g. "CEN") or hub ID (e.g. "hub:siam").
+ * Empty by default (procedural generation is the permanent baseline).
+ */
+export const STATION_MODELS = [];
+
+export function assertStationModelsValid(models = STATION_MODELS) {
+  const seenIds = new Set();
+  for (const model of models) {
+    if (!model.id || typeof model.id !== "string") {
+      throw new Error(`Station model override missing valid string 'id'`);
+    }
+    if (seenIds.has(model.id)) {
+      throw new Error(`Duplicate station model override id '${model.id}'`);
+    }
+    seenIds.add(model.id);
+
+    if (!model.glbUrl || typeof model.glbUrl !== "string") {
+      throw new Error(`Station model override '${model.id}' missing valid string 'glbUrl'`);
+    }
+    if (model.scale !== undefined) {
+      if (
+        !Array.isArray(model.scale) ||
+        model.scale.length !== 3 ||
+        !model.scale.every((s) => typeof s === "number" && Number.isFinite(s) && s > 0)
+      ) {
+        throw new Error(`Station model override '${model.id}' scale must be a 3-element positive number array`);
+      }
+    }
+    if (model.headingOffsetDeg !== undefined) {
+      if (typeof model.headingOffsetDeg !== "number" || !Number.isFinite(model.headingOffsetDeg)) {
+        throw new Error(`Station model override '${model.id}' headingOffsetDeg must be a finite number`);
+      }
+    }
+    if (model.altitudeOffsetM !== undefined) {
+      if (typeof model.altitudeOffsetM !== "number" || !Number.isFinite(model.altitudeOffsetM)) {
+        throw new Error(`Station model override '${model.id}' altitudeOffsetM must be a finite number`);
+      }
+    }
+  }
 }

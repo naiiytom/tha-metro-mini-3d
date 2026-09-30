@@ -10,7 +10,8 @@ import { LineMaterial } from "three/addons/lines/LineMaterial.js";
 import { MERC_PER_METER, ORIGIN_MERC } from "./coordinates";
 import { buildHighlightLine, type RouteHighlightSpan } from "./routeHighlight";
 import { buildSkyDome, type SkyDome } from "./skyDome";
-import { PRE_REVENUE_OPACITY, buildStationMarkers, buildTrackDeck, buildTrackLine } from "./trackGeometry";
+import { PRE_REVENUE_OPACITY, buildTrackDeck, buildTrackLine } from "./trackGeometry";
+import { buildStationGeometry, buildStationHighlightFrame } from "./stationGeometry";
 import { nightLift } from "./nightLift";
 import { materialAlbedo } from "./materialAlbedo";
 import { windowGlowOpacity } from "./windowGlow";
@@ -84,6 +85,7 @@ export class NetworkLayer implements CustomLayerInterface {
   private highlightMaterials: LineMaterial[] = [];
   private stationHighlightGroup: THREE.Group | null = null;
   private stationHighlightMaterial: THREE.MeshBasicMaterial | null = null;
+  private landmarkModels: THREE.Object3D[] = [];
 
   /**
    * The mercator->clip matrix from the most recent render, copied (not
@@ -187,7 +189,7 @@ export class NetworkLayer implements CustomLayerInterface {
       const { line: centerline, material } = buildTrackLine(line);
       group.add(centerline);
       this.lineMaterials.push(material);
-      group.add(buildStationMarkers([line]));
+      group.add(buildStationGeometry(line));
       scene.add(group);
       this.lineGroups.push(group);
     }
@@ -394,6 +396,11 @@ export class NetworkLayer implements CustomLayerInterface {
     if (this.shadowCatcher) {
       this.shadowCatcher.visible = is3D && !this.undergroundMode && (this.renderer?.shadowMap.enabled ?? false);
     }
+    this.scene?.traverse((o) => {
+      if (o.userData?.isCanopy) {
+        o.visible = is3D;
+      }
+    });
   }
 
   /** Show/hide one line's track + stations. Vehicles are hidden separately by
@@ -439,27 +446,13 @@ export class NetworkLayer implements CustomLayerInterface {
    * Highlights station models for all stops within the selected station hub.
    * Passing null or an empty array clears the highlight.
    */
-  setStationHighlight(stops: { x: number; y: number; z: number }[] | null): void {
+  setStationHighlight(
+    stops: { x: number; y: number; z: number; heading?: number; vehicleType?: import("../types").VehicleType }[] | null,
+  ): void {
     this.clearStationHighlight();
     if (!this.scene || !stops || stops.length === 0) return;
 
-    const group = new THREE.Group();
-    group.name = "station-selection-highlight";
-    const geo = new THREE.CylinderGeometry(18, 18, 3.2, 32);
-    geo.rotateX(Math.PI / 2);
-    const mat = new THREE.MeshBasicMaterial({
-      color: 0xfde047,
-      transparent: true,
-      opacity: 0.85,
-      depthWrite: false,
-    });
-    this.stationHighlightMaterial = mat;
-
-    for (const stop of stops) {
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.set(stop.x, stop.y, stop.z + 0.5);
-      group.add(mesh);
-    }
+    const group = buildStationHighlightFrame(stops);
     this.scene.add(group);
     this.stationHighlightGroup = group;
   }
@@ -470,6 +463,8 @@ export class NetworkLayer implements CustomLayerInterface {
       this.stationHighlightGroup.traverse((obj) => {
         if (obj instanceof THREE.Mesh) {
           obj.geometry.dispose();
+          const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+          mats.forEach((m) => m.dispose());
         }
       });
       this.stationHighlightGroup = null;
@@ -478,6 +473,25 @@ export class NetworkLayer implements CustomLayerInterface {
       this.stationHighlightMaterial.dispose();
       this.stationHighlightMaterial = null;
     }
+  }
+
+  /**
+   * Attaches an asynchronous landmark 3D station model (.glb) to the scene.
+   */
+  addLandmarkModel(model: THREE.Object3D): void {
+    if (!this.scene) return;
+    this.scene.add(model);
+    this.landmarkModels.push(model);
+    model.traverse((o) => {
+      if (o instanceof THREE.Mesh) {
+        const mats = Array.isArray(o.material) ? o.material : [o.material];
+        for (const m of mats) {
+          if (m instanceof THREE.MeshLambertMaterial) {
+            this.litMaterials.push(m);
+          }
+        }
+      }
+    });
   }
 
   render(_gl: WebGL2RenderingContext, options: CustomRenderMethodInput): void {
@@ -510,6 +524,16 @@ export class NetworkLayer implements CustomLayerInterface {
     this.skyDome?.dispose();
     this.skyDome = null;
     this.shadowCatcher = null;
+    for (const model of this.landmarkModels) {
+      model.traverse((o) => {
+        if (o instanceof THREE.Mesh) {
+          o.geometry.dispose();
+          const mats = Array.isArray(o.material) ? o.material : [o.material];
+          mats.forEach((m) => m.dispose());
+        }
+      });
+    }
+    this.landmarkModels = [];
     this.scene = null;
     this.lineMaterials = [];
     this.lineGroups = [];

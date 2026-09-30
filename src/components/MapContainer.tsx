@@ -24,6 +24,8 @@ import { effectiveElevationDeg } from "../map/themeMode";
 import { effectiveTheme } from "../map/effectiveTheme";
 import { resolveStock, type StockSpec } from "../map/rollingStock";
 import { loadStockGeometry } from "../map/glbStock";
+import { loadStationModel } from "../map/glbStation";
+import { STATION_MODELS } from "../../tools/lines.config.mjs";
 import { VehicleManager } from "../map/VehicleManager";
 import { offsetCenterForSheet } from "../map/viewportOffset";
 import { StationBillboardManager } from "../map/StationBillboardManager";
@@ -237,6 +239,20 @@ export function MapContainer() {
       });
     };
 
+    const attachStationOverrides = (currentLayer: NetworkLayer) => {
+      for (const override of STATION_MODELS) {
+        loadStationModel(override)
+          .then((model) => {
+            if (disposed || currentLayer !== layer || !model) return;
+            currentLayer.addLandmarkModel(model);
+            map.triggerRepaint();
+          })
+          .catch((error) => {
+            console.warn(`[station model] override failed for ${override.id}:`, error);
+          });
+      }
+    };
+
     // Per-frame path: interpolate + pose instances inside the layer's
     // render(), entirely outside React. Declared once, re-attached to each
     // new NetworkLayer instance on every style swap (see style.load below).
@@ -383,6 +399,7 @@ export function MapContainer() {
       attachStockOverrides(vehicleManager, stocks);
       layer = new NetworkLayer(net, vehicleManager);
       map.addLayer(layer);
+      attachStationOverrides(layer);
       setMapReady(true);
       store.setRoutes(net.lines);
       binding = bindStyle(map, layer);
