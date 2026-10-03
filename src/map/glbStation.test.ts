@@ -262,6 +262,77 @@ describe("ThreeLayer landmark station integration", () => {
     ],
   });
 
+  it("keeps configured landmark platforms visible when loading fails", async () => {
+    const net = createMockNetwork();
+    net.lines[0].stations[0].name = "Krung Thep Aphiwat";
+    delete net.lines[0].stations[0].hubId;
+    const layer = new NetworkLayer(net);
+    layer.onAdd({ getCanvas: () => ({}) } as unknown as import("maplibre-gl").Map, {} as WebGL2RenderingContext);
+    const scene = (layer as unknown as { scene: THREE.Scene }).scene;
+    const platforms = scene.getObjectByName("line-test-line")!.getObjectByName("station-platforms") as THREE.InstancedMesh;
+    const matrix = new THREE.Matrix4();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const model = await loadStationModel(
+        { id: "hub:krung-thep-aphiwat", glbUrl: "/missing.glb" },
+        async () => { throw new Error("404"); },
+      );
+      expect(model).toBeNull();
+      expect(platforms).toBeDefined();
+      expect(platforms.count).toBe(1);
+      platforms.getMatrixAt(0, matrix);
+      expect(matrix.getMaxScaleOnAxis()).toBeGreaterThan(0);
+    } finally {
+      warn.mockRestore();
+      layer.onRemove();
+    }
+  });
+
+  it("keeps a shared landmark visible only while a member route is visible", () => {
+    const net = createMockNetwork();
+    net.lines[1].stations[0].code = "CEN";
+    const layer = new NetworkLayer(net);
+    layer.onAdd({ getCanvas: () => ({}) } as unknown as import("maplibre-gl").Map, {} as WebGL2RenderingContext);
+    layer.setLineVisible(0, false);
+    layer.setLineVisible(1, false);
+    const model = new THREE.Group();
+    layer.addLandmarkModel(model, { id: "CEN", glbUrl: "/shared.glb" });
+    expect(model.visible).toBe(false);
+    layer.setLineVisible(1, true);
+    expect(model.visible).toBe(true);
+    layer.setLineVisible(0, true);
+    layer.setLineVisible(1, false);
+    expect(model.visible).toBe(true);
+    layer.setLineVisible(0, false);
+    expect(model.visible).toBe(false);
+    layer.onRemove();
+  });
+
+  it.each(["CEN", "BL26"])("preserves shared glass alpha across mode changes for %s", (id) => {
+    const layer = new NetworkLayer(createMockNetwork());
+    layer.onAdd({ getCanvas: () => ({}) } as unknown as import("maplibre-gl").Map, {} as WebGL2RenderingContext);
+    const glass = new THREE.MeshStandardMaterial({ opacity: 0.65, transparent: true, depthWrite: false });
+    const alphaTexture = new THREE.MeshStandardMaterial({ transparent: true });
+    const solid = new THREE.MeshStandardMaterial();
+    const model = new THREE.Group();
+    model.add(new THREE.Mesh(new THREE.BoxGeometry(), [glass, alphaTexture, solid]));
+    model.add(new THREE.Mesh(new THREE.BoxGeometry(), glass));
+    layer.setUndergroundMode(true);
+    layer.addLandmarkModel(model, { id, glbUrl: "/glass.glb" });
+    for (const on of [true, false, true, false]) {
+      layer.setUndergroundMode(on);
+      const factor = id === "BL26" ? (on ? 1 : 0.35) : (on ? 0.3 : 1);
+      expect(glass.opacity).toBeCloseTo(0.65 * factor);
+      expect(glass.transparent).toBe(true);
+      expect(glass.depthWrite).toBe(false);
+      expect(alphaTexture.transparent).toBe(true);
+      expect(solid.opacity).toBeCloseTo(factor);
+      expect(solid.transparent).toBe(factor < 1);
+      expect(solid.depthWrite).toBe(factor === 1);
+    }
+    layer.onRemove();
+  });
+
   it("positions landmark model at station coordinates and track tangent heading", () => {
     const net = createMockNetwork();
     const layer = new NetworkLayer(net);

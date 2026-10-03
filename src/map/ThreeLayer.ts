@@ -19,8 +19,6 @@ import {
   suppressStationInMeshGroup,
 } from "./stationGeometry";
 import { assignStationHubIds, normalizedName } from "../stations/stationHubs";
-import { collectSuppressedStationIds } from "./glbStation";
-import { STATION_MODELS } from "../../tools/lines.config.mjs";
 import { nightLift } from "./nightLift";
 import { materialAlbedo } from "./materialAlbedo";
 import { windowGlowOpacity } from "./windowGlow";
@@ -98,6 +96,10 @@ export class NetworkLayer implements CustomLayerInterface {
   private stationHighlightGroup: THREE.Group | null = null;
   private stationHighlightMaterial: THREE.MeshBasicMaterial | null = null;
   private landmarkModels: THREE.Object3D[] = [];
+  private landmarkLineGroups = new WeakMap<THREE.Object3D, THREE.Group[]>();
+  private landmarkMaterialDefaults = new WeakMap<THREE.Material, {
+    opacity: number; transparent: boolean; depthWrite: boolean;
+  }>();
 
   /**
    * The mercator->clip matrix from the most recent render, copied (not
@@ -206,8 +208,7 @@ export class NetworkLayer implements CustomLayerInterface {
       const { line: centerline, material } = buildTrackLine(line);
       group.add(centerline);
       this.lineMaterials.push(material);
-      const suppressedIds = collectSuppressedStationIds(line.stations, STATION_MODELS);
-      group.add(buildStationGeometry(line, suppressedIds));
+      group.add(buildStationGeometry(line));
       scene.add(group);
       this.lineGroups.push(group);
     }
@@ -354,17 +355,19 @@ export class NetworkLayer implements CustomLayerInterface {
     const cap = (opacity: number, m: THREE.Material) =>
       m.userData?.preRevenue ? Math.min(opacity, PRE_REVENUE_OPACITY) : opacity;
     for (const m of this.subsurfaceMaterials) {
-      const opacity = cap(on ? 1 : SUBSURFACE_BACKGROUNDED_OPACITY, m);
-      m.transparent = opacity < 1;
+      const original = this.landmarkMaterialDefaults.get(m);
+      const opacity = cap((original?.opacity ?? 1) * (on ? 1 : SUBSURFACE_BACKGROUNDED_OPACITY), m);
+      m.transparent = (original?.transparent ?? false) || opacity < 1;
       m.opacity = opacity;
-      m.depthWrite = on;
+      m.depthWrite = on && (original?.depthWrite ?? true);
       m.needsUpdate = true;
     }
     for (const m of this.surfaceMaterials) {
-      const opacity = cap(on ? SURFACE_BACKGROUNDED_OPACITY : 1, m);
-      m.transparent = opacity < 1;
+      const original = this.landmarkMaterialDefaults.get(m);
+      const opacity = cap((original?.opacity ?? 1) * (on ? SURFACE_BACKGROUNDED_OPACITY : 1), m);
+      m.transparent = (original?.transparent ?? false) || opacity < 1;
       m.opacity = opacity;
-      m.depthWrite = !on;
+      m.depthWrite = !on && (original?.depthWrite ?? true);
       m.needsUpdate = true;
     }
     if (this.shadowCatcher) {
@@ -430,6 +433,12 @@ export class NetworkLayer implements CustomLayerInterface {
   setLineVisible(index: number, visible: boolean): void {
     const group = this.lineGroups[index];
     if (group) group.visible = visible;
+    for (const model of this.landmarkModels) {
+      const groups = this.landmarkLineGroups.get(model);
+      if (group && groups?.includes(group)) {
+        model.visible = groups.some((member) => member.visible);
+      }
+    }
   }
 
   /** Draw one white overlay per planned ride leg. Passing an empty array
@@ -582,6 +591,11 @@ export class NetworkLayer implements CustomLayerInterface {
 
     this.scene.add(model);
     this.landmarkModels.push(model);
+    const groups = this.lineGroups.filter((_, index) =>
+      matchingStops.some(({ line }) => line === this.data.lines[index]),
+    );
+    this.landmarkLineGroups.set(model, groups);
+    if (groups.length > 0) model.visible = groups.some((group) => group.visible);
 
     model.traverse((o) => {
       if (o instanceof THREE.Mesh) {
@@ -589,6 +603,12 @@ export class NetworkLayer implements CustomLayerInterface {
         o.receiveShadow = true;
         const mats = Array.isArray(o.material) ? o.material : [o.material];
         for (const m of mats) {
+          if (!this.landmarkMaterialDefaults.has(m)) {
+            this.landmarkMaterialDefaults.set(m, {
+              opacity: m.opacity, transparent: m.transparent, depthWrite: m.depthWrite,
+            });
+          }
+          const materialWorstOpacity = worstOpacity * this.landmarkMaterialDefaults.get(m)!.opacity;
           if (
             m instanceof THREE.MeshLambertMaterial ||
             m instanceof THREE.MeshStandardMaterial
@@ -596,7 +616,7 @@ export class NetworkLayer implements CustomLayerInterface {
             if (!this.litMaterials.includes(m)) {
               this.litMaterials.push(m);
             }
-            this.litMaterialWorstOpacity.set(m, worstOpacity);
+            this.litMaterialWorstOpacity.set(m, materialWorstOpacity);
 
             if (this.currentPalette && this.currentElevationDeg !== undefined) {
               const lift = nightLift(
@@ -604,7 +624,7 @@ export class NetworkLayer implements CustomLayerInterface {
                 this.currentPalette,
                 this.currentNdotl,
                 this.currentElevationDeg,
-                worstOpacity,
+                materialWorstOpacity,
               );
               m.emissive.setHex(lift.emissive);
               m.emissiveIntensity = lift.intensity;
@@ -620,15 +640,6 @@ export class NetworkLayer implements CustomLayerInterface {
               this.surfaceMaterials.push(m);
             }
           }
-
-          const on = this.undergroundMode;
-          const opacity = isUnderground
-            ? (on ? 1 : SUBSURFACE_BACKGROUNDED_OPACITY)
-            : (on ? SURFACE_BACKGROUNDED_OPACITY : 1);
-          m.transparent = opacity < 1;
-          m.opacity = opacity;
-          m.depthWrite = isUnderground ? on : !on;
-          m.needsUpdate = true;
         }
 
         if (!this.map3D && (o.userData?.isCanopy || o.userData?.isPillar)) {
@@ -636,6 +647,7 @@ export class NetworkLayer implements CustomLayerInterface {
         }
       }
     });
+    this.applyUndergroundMode();
   }
 
   render(_gl: WebGL2RenderingContext, options: CustomRenderMethodInput): void {
