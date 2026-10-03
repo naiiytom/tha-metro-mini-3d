@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { StationInfo } from "../sim/protocol";
-import { buildStationHubs, findStationHub, normalizedName } from "./stationHubs";
+import { assignStationHubIds, buildStationHubs, findStationHub, normalizedName } from "./stationHubs";
 
 function station(overrides: Partial<StationInfo>): StationInfo {
   return {
@@ -106,5 +106,57 @@ describe("findStationHub", () => {
   it("returns null when stop does not exist in any hub", () => {
     const hub = findStationHub(stations, 99, 99);
     expect(hub).toBeNull();
+  });
+});
+
+describe("assignStationHubIds", () => {
+  it("populates hubId on stations across lines sharing the same hub", () => {
+    const lines: import("../types").LineGeometry[] = [
+      {
+        key: "sukhumvit",
+        name: "Sukhumvit Line",
+        nameTh: "สายสุขุมวิท",
+        color: "#7CB342",
+        structure: "elevated",
+        vehicleType: "heavy",
+        gtfsRouteId: "1",
+        preRevenue: false,
+        syntheticSchedule: null,
+        estimatedRunTimes: null,
+        rollingStock: null,
+        relationId: 1,
+        osmName: "Sukhumvit",
+        track: [],
+        stations: [
+          { id: "101", name: "Siam", nameTh: "สยาม", code: "", position: [100.53, 13.74, 15] },
+          { id: "102", name: "Chit Lom", nameTh: "ชิดลม", code: "E1", position: [100.54, 13.74, 15] },
+        ],
+      },
+      {
+        key: "silom",
+        name: "Silom Line",
+        nameTh: "สายสีลม",
+        color: "#00897B",
+        structure: "elevated",
+        vehicleType: "heavy",
+        gtfsRouteId: "2",
+        preRevenue: false,
+        syntheticSchedule: null,
+        estimatedRunTimes: null,
+        rollingStock: null,
+        relationId: 2,
+        osmName: "Silom",
+        track: [],
+        stations: [
+          { id: "201", name: "Siam", nameTh: "สยาม", code: "", position: [100.53, 13.74, 15] },
+        ],
+      },
+    ];
+
+    assignStationHubIds(lines);
+
+    expect(lines[0].stations[0].hubId).toBe("hub:siam");
+    expect(lines[1].stations[0].hubId).toBe("hub:siam");
+    expect(lines[0].stations[1].hubId).toBe("hub:chit-lom");
   });
 });

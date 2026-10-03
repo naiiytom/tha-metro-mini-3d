@@ -196,8 +196,13 @@ export const LINES = [
         { zM: 0.35, heightM: 0.35, tint: "#6E757C" },
       ],
     },
+    // Makkasan (A6): relation 2148241 includes eastern concourse node 3178943413
+    // (103.6 m east of train stop). In network.json, Makkasan is placed at the
+    // platform/GTFS stop position [100.5612648, 13.7509811] so the 3D canopy,
+    // simulation train dwell point, and click hit-testing align exactly.
     osm: { relationId: 2148241, match: /airport rail link/i },
   },
+
   {
     key: "pink",
     name: "MRT Pink Line",
@@ -1094,6 +1099,68 @@ export function assertRegistryValid(lines = LINES) {
       if (!keys.has(o[`${side}Line`])) {
         throw new Error(`interchange override names unknown line '${o[`${side}Line`]}'`);
       }
+    }
+  }
+
+  assertStationModelsValid(STATION_MODELS);
+}
+
+/**
+ * Landmark 3D station model overrides (.glb), mirroring rolling stock overrides.
+ * Keyed by station stop code (e.g. "CEN") or hub ID (e.g. "hub:siam").
+ * Procedural generation is the permanent baseline for un-overridden stations.
+ */
+export const STATION_MODELS = [
+  {
+    id: "hub:krung-thep-aphiwat",
+    glbUrl: "/models/krung-thep-aphiwat.glb",
+    scale: [1, 1, 1],
+    headingOffsetDeg: 0,
+    altitudeOffsetM: -1.5,
+    suppressProcedural: true,
+  },
+];
+
+export function assertStationModelsValid(models = STATION_MODELS) {
+  const seenIds = new Set();
+  for (const model of models) {
+    if (!model.id || typeof model.id !== "string") {
+      throw new Error(`Station model override missing valid string 'id'`);
+    }
+    if (seenIds.has(model.id)) {
+      throw new Error(`Duplicate station model override id '${model.id}'`);
+    }
+    seenIds.add(model.id);
+
+    if (!model.glbUrl || typeof model.glbUrl !== "string") {
+      throw new Error(`Station model override '${model.id}' missing valid string 'glbUrl'`);
+    }
+    if (model.scale !== undefined) {
+      if (
+        !Array.isArray(model.scale) ||
+        model.scale.length !== 3 ||
+        !model.scale.every((s) => typeof s === "number" && Number.isFinite(s) && s > 0)
+      ) {
+        throw new Error(`Station model override '${model.id}' scale must be a 3-element positive number array`);
+      }
+    }
+    if (model.headingOffsetDeg !== undefined) {
+      if (typeof model.headingOffsetDeg !== "number" || !Number.isFinite(model.headingOffsetDeg)) {
+        throw new Error(`Station model override '${model.id}' headingOffsetDeg must be a finite number`);
+      }
+    }
+    if (model.headingDeg !== undefined) {
+      if (typeof model.headingDeg !== "number" || !Number.isFinite(model.headingDeg)) {
+        throw new Error(`Station model override '${model.id}' headingDeg must be a finite number`);
+      }
+    }
+    if (model.altitudeOffsetM !== undefined) {
+      if (typeof model.altitudeOffsetM !== "number" || !Number.isFinite(model.altitudeOffsetM)) {
+        throw new Error(`Station model override '${model.id}' altitudeOffsetM must be a finite number`);
+      }
+    }
+    if (model.suppressProcedural !== undefined && typeof model.suppressProcedural !== "boolean") {
+      throw new Error(`Station model override '${model.id}' suppressProcedural must be a boolean`);
     }
   }
 }

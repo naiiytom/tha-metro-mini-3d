@@ -15,7 +15,9 @@ import * as THREE from "three";
  * material in the scene (track decks, poles, anything un-stamped), whose
  * `.color` genuinely is what it renders as.
  */
-export function materialAlbedo(material: THREE.MeshLambertMaterial): number {
+export function materialAlbedo(
+  material: THREE.Material & { color?: THREE.Color; userData?: Record<string, unknown> },
+): number {
   const stamped = material.userData?.liveryHex as number | undefined;
-  return stamped ?? material.color.getHex();
+  return stamped ?? material.color?.getHex() ?? 0xffffff;
 }

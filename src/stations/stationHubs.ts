@@ -1,4 +1,5 @@
 import type { StationHub, StationHubStopRef, StationInfo } from "../sim/protocol";
+import type { LineGeometry } from "../types";
 
 export type { StationHub, StationHubStopRef };
 
@@ -111,4 +112,39 @@ export function buildStationHubs(stations: StationInfo[]): StationHub[] {
 export function findStationHub(stations: StationInfo[], routeIdx: number, stationIdx: number): StationHub | null {
   buildStationHubs(stations);
   return cachedStopToHub.get(stopKey(routeIdx, stationIdx)) ?? null;
+}
+
+/**
+ * Attaches computed `hubId` to every station in `lines`, enabling landmark 3D
+ * station overrides and hub-wide queries to match stations across lines.
+ */
+export function assignStationHubIds(lines: LineGeometry[]): void {
+  const stationInfos: StationInfo[] = [];
+  for (let rIdx = 0; rIdx < lines.length; rIdx++) {
+    const line = lines[rIdx];
+    for (let sIdx = 0; sIdx < line.stations.length; sIdx++) {
+      const st = line.stations[sIdx];
+      stationInfos.push({
+        route_idx: rIdx,
+        station_idx: sIdx,
+        code: st.code ?? "",
+        name_en: st.name,
+        name_th: st.nameTh,
+        x: 0,
+        y: 0,
+        z: 0,
+        arc_m: 0,
+        interchanges: [],
+      });
+    }
+  }
+  const hubs = buildStationHubs(stationInfos);
+  for (const hub of hubs) {
+    for (const stop of hub.stops) {
+      const st = lines[stop.routeIdx]?.stations[stop.stationIdx];
+      if (st && !st.hubId) {
+        st.hubId = hub.id;
+      }
+    }
+  }
 }

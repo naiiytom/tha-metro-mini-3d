@@ -2,11 +2,13 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   assertRegistryValid,
+  assertStationModelsValid,
   INTERCHANGE_OVERRIDES,
   LINES,
   NETWORK_LINE_FIELD_ORDER,
   NOSE_PROFILES,
   ROOF_KITS,
+  STATION_MODELS,
   STRUCTURE_ALTITUDE_M,
   structureOfWay,
 } from "./lines.config.mjs";
@@ -353,5 +355,50 @@ describe("network.json field order", () => {
         expect(NETWORK_LINE_FIELD_ORDER, `${line.key}.${key}`).not.toContain(key);
       }
     }
+  });
+});
+
+describe("STATION_MODELS override registry", () => {
+  it("passes assertStationModelsValid with configured station models", () => {
+    expect(() => assertStationModelsValid(STATION_MODELS)).not.toThrow();
+    const aphiwat = STATION_MODELS.find((m) => m.id === "hub:krung-thep-aphiwat");
+    expect(aphiwat).toBeDefined();
+    expect(aphiwat?.glbUrl).toBe("/models/krung-thep-aphiwat.glb");
+    expect(aphiwat?.suppressProcedural).toBe(true);
+  });
+
+  it("accepts valid station model overrides", () => {
+    const valid = [
+      {
+        id: "hub:siam",
+        glbUrl: "/models/siam.glb",
+        scale: [1, 1, 1],
+        headingOffsetDeg: 45,
+        altitudeOffsetM: 2,
+        suppressProcedural: true,
+      },
+    ];
+    expect(() => assertStationModelsValid(valid)).not.toThrow();
+  });
+
+  it("rejects overrides missing id or glbUrl", () => {
+    expect(() => assertStationModelsValid([{ glbUrl: "/test.glb" }])).toThrow(/valid string 'id'/);
+    expect(() => assertStationModelsValid([{ id: "CEN" }])).toThrow(/valid string 'glbUrl'/);
+  });
+
+  it("rejects duplicate override ids", () => {
+    const dups = [
+      { id: "hub:siam", glbUrl: "/siam1.glb" },
+      { id: "hub:siam", glbUrl: "/siam2.glb" },
+    ];
+    expect(() => assertStationModelsValid(dups)).toThrow(/Duplicate station model override id 'hub:siam'/);
+  });
+
+  it("validates scale, headingOffsetDeg, headingDeg, altitudeOffsetM, and suppressProcedural types", () => {
+    expect(() => assertStationModelsValid([{ id: "A", glbUrl: "/a.glb", scale: [1, 0] }])).toThrow(/3-element positive/);
+    expect(() => assertStationModelsValid([{ id: "A", glbUrl: "/a.glb", headingOffsetDeg: "north" }])).toThrow(/finite number/);
+    expect(() => assertStationModelsValid([{ id: "A", glbUrl: "/a.glb", headingDeg: "north" }])).toThrow(/finite number/);
+    expect(() => assertStationModelsValid([{ id: "A", glbUrl: "/a.glb", altitudeOffsetM: NaN }])).toThrow(/finite number/);
+    expect(() => assertStationModelsValid([{ id: "A", glbUrl: "/a.glb", suppressProcedural: "yes" }])).toThrow(/must be a boolean/);
   });
 });

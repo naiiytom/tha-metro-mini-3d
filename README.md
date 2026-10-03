@@ -42,6 +42,9 @@ Greater Bangkok Metro Mini 3D places Bangkok's metro and rail lines above a vect
 - **Route Search (A → B Journey Planner)**: Timetable-aware RAPTOR router in Rust/Wasm computing fastest and fewest-transfers itineraries, transfer instructions, and interactive 3D track highlight arcs.
 - **Station Search & Geolocation**: Bilingual (Thai/English) substring search and one-shot HTML5 Geolocation nearest-station finder.
 - **Custom Rolling Stock Models**: Procedural 3D consist geometries tailored to each line (heavy rail, monorail, APM, commuter) with authentic car counts, nose profiles, roof kits (overhead pantographs on 25 kV AC lines, third-rail / straddle-beam elsewhere), route livery bands, glowing cabin windows at night, and lazy GLB model loading hook.
+- **Procedural 3D Station Geometry**: Platform decks, canopy roofs, and underground cavern shells generated from GTFS stop coordinates and elevation data — every station has a spatially correct physical form.
+- **Landmark GLB Model Override**: High-fidelity GLB asset for Krung Thep Aphiwat central terminal replaces the procedural geometry, with route visibility correctly propagated to the landmark model so it shows/hides with its serving lines.
+- **Original Material Transparency Preservation**: Underground / surface mode switches restore each station model's authored material opacity rather than forcing a fixed value, so landmark and procedural assets both look correct across mode transitions.
 - **Time Controls**: Real-time Bangkok clock (UTC+7), 1×/5×/10×/60× speed multipliers, and continuous time-scrubbing.
 - **Camera Modes**: Free orbit camera, third-person train follow camera with user yaw orbit, altitude-aware hit-testing, and hover cursor feedback.
 - **Lighting & Atmosphere**: Real-time solar position calculations (NOAA), sunset sky dome, and WCAG 3:1 emissive contrast floors for night legibility.
@@ -163,7 +166,7 @@ Other scripts:
 |---------|--------------|
 | `npm run build` | Type-check (`tsc -b`) + production build to `dist/` |
 | `npm run typecheck` | Type-check only |
-| `npm test` | Vitest unit test suite (47 test files, 445 tests covering pure helpers, calculations, shaders, and UI components) |
+| `npm test` | Vitest unit test suite (64 test files, 670 tests covering pure helpers, calculations, shaders, and UI components) |
 | `npm run preview` | Serve the production build locally |
 | `npm run data:fetch [lineKey ...]` | Regenerate `src/data/network.json` — every registry line's track geometry + stations from OpenStreetMap (Overpass) |
 | `npm run data:fetch-gtfs` | Download fresh Namtang GTFS feed zip to `.gtfs-cache/` |

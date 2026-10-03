@@ -4,13 +4,21 @@ import type {
   Map as MapLibreMap,
 } from "maplibre-gl";
 import * as THREE from "three";
-import type { NetworkData } from "../types";
+import type { LineGeometry, NetworkData, Station, StationModelOverride } from "../types";
 import { Line2 } from "three/addons/lines/Line2.js";
 import { LineMaterial } from "three/addons/lines/LineMaterial.js";
-import { MERC_PER_METER, ORIGIN_MERC } from "./coordinates";
+import { MERC_PER_METER, ORIGIN_MERC, STATION_MARKER_HEIGHT_M, lngLatAltToLocal } from "./coordinates";
 import { buildHighlightLine, type RouteHighlightSpan } from "./routeHighlight";
 import { buildSkyDome, type SkyDome } from "./skyDome";
-import { PRE_REVENUE_OPACITY, buildStationMarkers, buildTrackDeck, buildTrackLine } from "./trackGeometry";
+import { PRE_REVENUE_OPACITY, buildTrackDeck, buildTrackLine } from "./trackGeometry";
+import {
+  buildStationGeometry,
+  buildStationHighlightFrame,
+  computeStationTangentHeading,
+  snapStationsToTrack,
+  suppressStationInMeshGroup,
+} from "./stationGeometry";
+import { assignStationHubIds, normalizedName } from "../stations/stationHubs";
 import { nightLift } from "./nightLift";
 import { materialAlbedo } from "./materialAlbedo";
 import { windowGlowOpacity } from "./windowGlow";
@@ -61,7 +69,7 @@ export class NetworkLayer implements CustomLayerInterface {
    *  other's property (the same split styleBinding.ts enforces for the
    *  basemap). The Line2 centerlines are deliberately absent — LineMaterial is
    *  unlit, so it already renders at full colour and needs no floor. */
-  private litMaterials: THREE.MeshLambertMaterial[] = [];
+  private litMaterials: (THREE.MeshLambertMaterial | THREE.MeshStandardMaterial)[] = [];
   /**
    * Worst-case opacity each lit material can render at across BOTH
    * underground-mode states — populated in `indexMaterialsByBand()`, fed to
@@ -71,7 +79,10 @@ export class NetworkLayer implements CustomLayerInterface {
    * vehicle, which `applyUndergroundMode()` never touches) is always fully
    * opaque, hence the `?? 1` at every lookup site rather than a default entry.
    */
-  private litMaterialWorstOpacity = new WeakMap<THREE.MeshLambertMaterial, number>();
+  private litMaterialWorstOpacity = new WeakMap<THREE.Material, number>();
+  private currentPalette: SkyPalette | null = null;
+  private currentElevationDeg?: number;
+  private currentNdotl = 1.0;
   private undergroundMode = false;
   private map3D = true;
   private shadowCatcher: THREE.Mesh<THREE.PlaneGeometry, THREE.ShadowMaterial> | null = null;
@@ -84,6 +95,11 @@ export class NetworkLayer implements CustomLayerInterface {
   private highlightMaterials: LineMaterial[] = [];
   private stationHighlightGroup: THREE.Group | null = null;
   private stationHighlightMaterial: THREE.MeshBasicMaterial | null = null;
+  private landmarkModels: THREE.Object3D[] = [];
+  private landmarkLineGroups = new WeakMap<THREE.Object3D, THREE.Group[]>();
+  private landmarkMaterialDefaults = new WeakMap<THREE.Material, {
+    opacity: number; transparent: boolean; depthWrite: boolean;
+  }>();
 
   /**
    * The mercator->clip matrix from the most recent render, copied (not
@@ -104,7 +120,12 @@ export class NetworkLayer implements CustomLayerInterface {
   constructor(
     private data: NetworkData,
     private vehicles?: VehicleManager,
-  ) {}
+  ) {
+    if (this.data?.lines) {
+      assignStationHubIds(this.data.lines);
+      snapStationsToTrack(this.data.lines);
+    }
+  }
 
   onAdd(map: MapLibreMap, gl: WebGL2RenderingContext): void {
     this.renderer = new THREE.WebGLRenderer({
@@ -187,7 +208,7 @@ export class NetworkLayer implements CustomLayerInterface {
       const { line: centerline, material } = buildTrackLine(line);
       group.add(centerline);
       this.lineMaterials.push(material);
-      group.add(buildStationMarkers([line]));
+      group.add(buildStationGeometry(line));
       scene.add(group);
       this.lineGroups.push(group);
     }
@@ -238,6 +259,10 @@ export class NetworkLayer implements CustomLayerInterface {
     // it is O(materials), ~50 objects, and the palette only moves as fast as
     // the sun does.
     const ndotl = Math.max(dir.up, 0.05);
+    this.currentPalette = palette;
+    this.currentElevationDeg = elevationDeg;
+    this.currentNdotl = ndotl;
+
     for (const m of this.litMaterials) {
       // Solve against this material's WORST-CASE opacity (its band's
       // backgrounded state, or 1 for a vehicle — see the field's own
@@ -301,7 +326,7 @@ export class NetworkLayer implements CustomLayerInterface {
         band.push(...mats);
         const worstOpacity = underground ? SUBSURFACE_BACKGROUNDED_OPACITY : SURFACE_BACKGROUNDED_OPACITY;
         for (const m of mats) {
-          if (m instanceof THREE.MeshLambertMaterial) {
+          if (m instanceof THREE.MeshLambertMaterial || m instanceof THREE.MeshStandardMaterial) {
             this.litMaterials.push(m);
             this.litMaterialWorstOpacity.set(m, worstOpacity);
           }
@@ -330,17 +355,19 @@ export class NetworkLayer implements CustomLayerInterface {
     const cap = (opacity: number, m: THREE.Material) =>
       m.userData?.preRevenue ? Math.min(opacity, PRE_REVENUE_OPACITY) : opacity;
     for (const m of this.subsurfaceMaterials) {
-      const opacity = cap(on ? 1 : SUBSURFACE_BACKGROUNDED_OPACITY, m);
-      m.transparent = opacity < 1;
+      const original = this.landmarkMaterialDefaults.get(m);
+      const opacity = cap((original?.opacity ?? 1) * (on ? 1 : SUBSURFACE_BACKGROUNDED_OPACITY), m);
+      m.transparent = (original?.transparent ?? false) || opacity < 1;
       m.opacity = opacity;
-      m.depthWrite = on;
+      m.depthWrite = on && (original?.depthWrite ?? true);
       m.needsUpdate = true;
     }
     for (const m of this.surfaceMaterials) {
-      const opacity = cap(on ? SURFACE_BACKGROUNDED_OPACITY : 1, m);
-      m.transparent = opacity < 1;
+      const original = this.landmarkMaterialDefaults.get(m);
+      const opacity = cap((original?.opacity ?? 1) * (on ? SURFACE_BACKGROUNDED_OPACITY : 1), m);
+      m.transparent = (original?.transparent ?? false) || opacity < 1;
       m.opacity = opacity;
-      m.depthWrite = !on;
+      m.depthWrite = !on && (original?.depthWrite ?? true);
       m.needsUpdate = true;
     }
     if (this.shadowCatcher) {
@@ -394,6 +421,11 @@ export class NetworkLayer implements CustomLayerInterface {
     if (this.shadowCatcher) {
       this.shadowCatcher.visible = is3D && !this.undergroundMode && (this.renderer?.shadowMap.enabled ?? false);
     }
+    this.scene?.traverse((o) => {
+      if (o.userData?.isCanopy || o.userData?.isPillar) {
+        o.visible = is3D;
+      }
+    });
   }
 
   /** Show/hide one line's track + stations. Vehicles are hidden separately by
@@ -401,6 +433,12 @@ export class NetworkLayer implements CustomLayerInterface {
   setLineVisible(index: number, visible: boolean): void {
     const group = this.lineGroups[index];
     if (group) group.visible = visible;
+    for (const model of this.landmarkModels) {
+      const groups = this.landmarkLineGroups.get(model);
+      if (group && groups?.includes(group)) {
+        model.visible = groups.some((member) => member.visible);
+      }
+    }
   }
 
   /** Draw one white overlay per planned ride leg. Passing an empty array
@@ -439,27 +477,13 @@ export class NetworkLayer implements CustomLayerInterface {
    * Highlights station models for all stops within the selected station hub.
    * Passing null or an empty array clears the highlight.
    */
-  setStationHighlight(stops: { x: number; y: number; z: number }[] | null): void {
+  setStationHighlight(
+    stops: { x: number; y: number; z: number; heading?: number; vehicleType?: import("../types").VehicleType }[] | null,
+  ): void {
     this.clearStationHighlight();
     if (!this.scene || !stops || stops.length === 0) return;
 
-    const group = new THREE.Group();
-    group.name = "station-selection-highlight";
-    const geo = new THREE.CylinderGeometry(18, 18, 3.2, 32);
-    geo.rotateX(Math.PI / 2);
-    const mat = new THREE.MeshBasicMaterial({
-      color: 0xfde047,
-      transparent: true,
-      opacity: 0.85,
-      depthWrite: false,
-    });
-    this.stationHighlightMaterial = mat;
-
-    for (const stop of stops) {
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.set(stop.x, stop.y, stop.z + 0.5);
-      group.add(mesh);
-    }
+    const group = buildStationHighlightFrame(stops);
     this.scene.add(group);
     this.stationHighlightGroup = group;
   }
@@ -470,6 +494,8 @@ export class NetworkLayer implements CustomLayerInterface {
       this.stationHighlightGroup.traverse((obj) => {
         if (obj instanceof THREE.Mesh) {
           obj.geometry.dispose();
+          const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+          mats.forEach((m) => m.dispose());
         }
       });
       this.stationHighlightGroup = null;
@@ -478,6 +504,150 @@ export class NetworkLayer implements CustomLayerInterface {
       this.stationHighlightMaterial.dispose();
       this.stationHighlightMaterial = null;
     }
+  }
+
+  /**
+   * Attaches an asynchronous landmark 3D station model (.glb) to the scene,
+   * positioning it along the track tangent and replacing any procedural
+   * station representation at that location.
+   */
+  addLandmarkModel(model: THREE.Object3D, override?: StationModelOverride): void {
+    if (!this.scene) return;
+
+    const overrideId = override?.id ?? (model.userData?.overrideId as string | undefined);
+    const matchingStops: { station: Station; line: LineGeometry }[] = [];
+
+    if (overrideId) {
+      const normOverride = normalizedName(overrideId.replace(/^hub:/, ""));
+      for (const line of this.data.lines) {
+        for (const st of line.stations) {
+          const normName = normalizedName(st.name);
+          const isMatch =
+            st.code === overrideId ||
+            String(st.id) === overrideId ||
+            (Boolean(st.hubId) && st.hubId === overrideId) ||
+            st.name.toLowerCase() === overrideId.toLowerCase() ||
+            (Boolean(normOverride) && normName === normOverride);
+          if (isMatch) {
+            matchingStops.push({ station: st, line });
+          }
+        }
+      }
+    }
+
+    if (overrideId && matchingStops.length === 0) {
+      console.warn(`[station model] no station found matching override id '${overrideId}'`);
+    }
+
+    let isUnderground = false;
+
+    if (matchingStops.length > 0) {
+      let sumX = 0;
+      let sumY = 0;
+      let sumZ = 0;
+      for (const { station } of matchingStops) {
+        const [lx, ly, lz] = lngLatAltToLocal(station.position);
+        sumX += lx;
+        sumY += ly;
+        sumZ += lz;
+      }
+      const cx = sumX / matchingStops.length;
+      const cy = sumY / matchingStops.length;
+      const cz = sumZ / matchingStops.length;
+
+      const primary = matchingStops[0];
+      const trackLocal = primary.line.track.map(
+        (p) => new THREE.Vector3(...lngLatAltToLocal([p[0], p[1], p[2]])),
+      );
+      const heading = computeStationTangentHeading([cx, cy, cz], trackLocal);
+
+      if (model.position.x === 0 && model.position.y === 0) {
+        model.position.set(cx, cy, cz + STATION_MARKER_HEIGHT_M);
+        model.rotation.z += heading;
+      }
+
+      // Procedural replacement: suppress instances in existing line groups
+      if (override?.suppressProcedural !== false) {
+        const targetIds = new Set<string | number>();
+        for (const { station } of matchingStops) {
+          targetIds.add(station.id);
+          targetIds.add(String(station.id));
+          if (station.code) targetIds.add(station.code);
+          if (station.hubId) targetIds.add(station.hubId);
+          if (station.name) targetIds.add(station.name);
+        }
+        for (const group of this.lineGroups) {
+          suppressStationInMeshGroup(group, targetIds);
+        }
+      }
+
+      isUnderground = cz < 0 || matchingStops[0].station.position[2] < 0;
+    }
+
+    model.userData.structure = isUnderground ? "underground" : "elevated";
+    const worstOpacity = isUnderground
+      ? SUBSURFACE_BACKGROUNDED_OPACITY
+      : SURFACE_BACKGROUNDED_OPACITY;
+
+    this.scene.add(model);
+    this.landmarkModels.push(model);
+    const groups = this.lineGroups.filter((_, index) =>
+      matchingStops.some(({ line }) => line === this.data.lines[index]),
+    );
+    this.landmarkLineGroups.set(model, groups);
+    if (groups.length > 0) model.visible = groups.some((group) => group.visible);
+
+    model.traverse((o) => {
+      if (o instanceof THREE.Mesh) {
+        o.castShadow = true;
+        o.receiveShadow = true;
+        const mats = Array.isArray(o.material) ? o.material : [o.material];
+        for (const m of mats) {
+          if (!this.landmarkMaterialDefaults.has(m)) {
+            this.landmarkMaterialDefaults.set(m, {
+              opacity: m.opacity, transparent: m.transparent, depthWrite: m.depthWrite,
+            });
+          }
+          const materialWorstOpacity = worstOpacity * this.landmarkMaterialDefaults.get(m)!.opacity;
+          if (
+            m instanceof THREE.MeshLambertMaterial ||
+            m instanceof THREE.MeshStandardMaterial
+          ) {
+            if (!this.litMaterials.includes(m)) {
+              this.litMaterials.push(m);
+            }
+            this.litMaterialWorstOpacity.set(m, materialWorstOpacity);
+
+            if (this.currentPalette && this.currentElevationDeg !== undefined) {
+              const lift = nightLift(
+                materialAlbedo(m),
+                this.currentPalette,
+                this.currentNdotl,
+                this.currentElevationDeg,
+                materialWorstOpacity,
+              );
+              m.emissive.setHex(lift.emissive);
+              m.emissiveIntensity = lift.intensity;
+            }
+          }
+
+          if (isUnderground) {
+            if (!this.subsurfaceMaterials.includes(m)) {
+              this.subsurfaceMaterials.push(m);
+            }
+          } else {
+            if (!this.surfaceMaterials.includes(m)) {
+              this.surfaceMaterials.push(m);
+            }
+          }
+        }
+
+        if (!this.map3D && (o.userData?.isCanopy || o.userData?.isPillar)) {
+          o.visible = false;
+        }
+      }
+    });
+    this.applyUndergroundMode();
   }
 
   render(_gl: WebGL2RenderingContext, options: CustomRenderMethodInput): void {
@@ -510,6 +680,16 @@ export class NetworkLayer implements CustomLayerInterface {
     this.skyDome?.dispose();
     this.skyDome = null;
     this.shadowCatcher = null;
+    for (const model of this.landmarkModels) {
+      model.traverse((o) => {
+        if (o instanceof THREE.Mesh) {
+          o.geometry.dispose();
+          const mats = Array.isArray(o.material) ? o.material : [o.material];
+          mats.forEach((m) => m.dispose());
+        }
+      });
+    }
+    this.landmarkModels = [];
     this.scene = null;
     this.lineMaterials = [];
     this.lineGroups = [];
@@ -523,6 +703,7 @@ export class NetworkLayer implements CustomLayerInterface {
     this.hasMainMatrix = false;
     this.sunLight = null;
     this.ambientLight = null;
+    this.currentPalette = null;
     // The GL context belongs to MapLibre — dispose Three's wrapper only.
     this.renderer?.dispose();
     this.renderer = null;

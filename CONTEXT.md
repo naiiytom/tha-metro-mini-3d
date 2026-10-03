@@ -82,3 +82,7 @@ _Avoid_: multi-station, station cluster, interchange station, complex
 A single line-specific platform or calling point on a route's alignment, identified by its route and stop index.
 _Avoid_: platform stop, sub-station, station node
 
+**Station model**:
+A 3D representation of a station structure (procedural platform canopy or landmark architecture) situated in world space.
+_Avoid_: station marker, disc, building asset
+

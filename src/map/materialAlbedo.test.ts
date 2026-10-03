@@ -107,4 +107,13 @@ describe("materialAlbedo", () => {
     // line's colour onto the shared material.
     expect(materialAlbedo(discs.material as THREE.MeshLambertMaterial)).toBe(0xffffff);
   });
+
+  test("MeshStandardMaterial reports its own color or stamped liveryHex", () => {
+    const std = new THREE.MeshStandardMaterial({ color: 0x22c55e });
+    expect(materialAlbedo(std)).toBe(0x22c55e);
+
+    const stamped = new THREE.MeshStandardMaterial({ color: 0xffffff });
+    stamped.userData.liveryHex = 0xe11d48;
+    expect(materialAlbedo(stamped)).toBe(0xe11d48);
+  });
 });

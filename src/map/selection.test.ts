@@ -98,6 +98,14 @@ describe("pickAt with altitude", () => {
     });
   });
 
+  it("picks an elevated station clicked on its canopy roof under pitched view", () => {
+    // Platform at z: 15 projects to y: 485. Canopy roof at z: 18.5 projects to y: 481.5.
+    const s = station({ z: 15, station_idx: 1 });
+    expect(pickAt(view, new Float32Array(0), 0, [s], { x: 500, y: 481.5 }, [], 18)).toEqual({
+      type: "station", routeIdx: 0, stationIdx: 1,
+    });
+  });
+
   it("prefers a train over a station when both are in range", () => {
     const vehicles = vehicleBuffer(0, 0, 0, 9, 0);
     const s = station({ station_idx: 2 });

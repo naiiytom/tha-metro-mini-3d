@@ -33,6 +33,7 @@ Features to close parity with [nagix/mini-tokyo-3d](https://github.com/nagix/min
 | 26 | [SEO, Structured Data & PWA Manifest](#26-seo-structured-data--web-app-manifest-suite) | SEO & Discoverability | Web Standards | 📋 Feature Parity Item |
 | 27 | [UI Elements: About, Share QR & Spotlight Tour](#27-ui-elements-about--privacy-panel-share-qr-and-guided-spotlight-tour) | UI Elements & Tour | Interactive Experience | 📋 Feature Parity Item |
 | 28 | [3D Map Flyover & WASD / QE Controls](#28-3d-map-flyover--wasd--qe-keyboard-navigation-controls) | Camera Controls | Gaming 6DOF | ✅ Delivered |
+| 29 | [Public CCTV Overlay (BMA / Highways / Municipalities)](#29-public-cctv-overlay-bma--highways--municipalities) | Live Data Layer | Bangkok Context | 🔬 Research Required |
 
 ---
 
@@ -350,5 +351,60 @@ Concrete, already-scoped work that fell out of MVP 6. Constraints below were est
   - Pitch keys (`R`, `F`) and zoom keys (`Z`, `C`) preserve follow lock while framing the train.
 - **Specification:** Detailed architecture in [`docs/FLYOVER_CONTROLS_SPEC.md`](./docs/FLYOVER_CONTROLS_SPEC.md).
 
+---
 
+## Bangkok Context — Live Data Layers
 
+### 29. Public CCTV Overlay (BMA / Highways / Municipalities)
+
+**Status: 🔬 Research Required** — Implementation is blocked on data sourcing and terms-of-service clarification. This entry records the research findings and the open questions that must be resolved before a plan can be written.
+
+#### Concept
+
+Display publicly accessible traffic-monitoring CCTV camera pins on the map. Clicking a pin opens a thumbnail snapshot of that camera's live view. A dedicated toggle filters to cameras located within a configurable corridor (e.g. 200 m) of any active metro line, highlighting the "along the metro" view.
+
+This is purely **traffic management** camera data — not the BMA's security CCTV network, which has no public live access and requires a police report to retrieve footage.
+
+#### Available Data Sources (surveyed 2026-09-30)
+
+| Source | What is public | Feed format | Open questions |
+|---|---|---|---|
+| **iTIC Foundation** (`iticfoundation.org`) | JPEG snapshots + MJPEG streams at `cameras.iticfoundation.org/api/jpeg2.php?camid=X` and `/mjpeg2.php?camid=X`. Aggregates BMA, EXAT, and Department of Highways cameras. | JPEG pull / MJPEG | **No official `GET /cameras` list endpoint.** Camera `{camid, lat, lng, name}` must be scraped from their web UI or extracted from the Longdo Map SDK camera overlay. ToS allows non-profit / educational use; public embedding is unconfirmed. |
+| **Longdo Traffic** (`traffic.longdo.com`) | Camera overlay layer via Longdo Map SDK (`longdo.Overlays.cameras`). Clicking a pin yields metadata (camid, name, coordinates) in JSON. Same pool as iTIC. | Longdo Map SDK (requires API key) | Requires a **Longdo API key** (free registration). Can the camera metadata be extracted independently of rendering the full Longdo map? |
+| **BMA Traffic App** (`cctv.bangkok.go.th`) | Footage **request portal** only (requires a police report). Not a live-view API. | Web portal — not an API | Out of scope for this feature. |
+| **OSM `man_made=surveillance`** | Crowdsourced camera nodes in Bangkok — a few dozen, very sparse and not linked to any live feed. | GeoJSON via Overpass | Usable as a position supplement but insufficient on its own. |
+| **Department of Highways** | Camera subset visible through iTIC and Longdo — no independent public API. | Same as iTIC | Covered by iTIC research above. |
+
+#### Hard Blockers (must resolve before implementation)
+
+1. **Camera catalog.** No public `{camid, lat, lng, name}` list exists for iTIC cameras. Two candidate approaches:
+   - **(a) Longdo SDK extraction:** Load `longdo.Overlays.cameras` in a scraper tool (`tools/fetch-cctv.mjs`), capture every pin's metadata on map load, write to `public/data/cctv-cameras.json` — same one-time baked pattern as `network.json`. Requires a Longdo API key.
+   - **(b) Direct iTIC contact:** Email iTIC Foundation (Faculty of Engineering, Chulalongkorn University) to request a bulk camera catalog. They have a documented data-sharing process for research/non-profit projects.
+   Both approaches require **verifying permission** before publishing the catalog or embedding the snapshot feeds in a public app.
+
+2. **Mixed-content / HTTPS.** The iTIC snapshot endpoints are `http://` only. The app is served over HTTPS (`metro.itstom.me`). A browser will block mixed-content fetches. Requires a proxy — the natural fit is a small **Cloudflare Worker** that forwards requests to iTIC and sets `Cache-Control: max-age=30` (matching the ~30 s snapshot refresh cadence). This adds an external service dependency; none currently exists.
+
+3. **Terms of service.** iTIC's site describes non-profit/research use as permitted. Embedding live feeds in a public web app for general access may require explicit written permission. **This must be confirmed before any camera data is committed or the app goes live with this feature.**
+
+4. **Camera density near metro lines.** iTIC cameras are traffic-intersection and expressway cameras. Coverage is strongest on the major roads under the BTS Sukhumvit and Silom elevated sections and near expressway interchanges. Coverage is thin or absent near underground MRT segments, smaller municipal roads, and suburban SRT/ARL corridors. The "along the metro" filter may return sparse results for several lines.
+
+5. **Privacy posture.** This project currently claims zero tracking, zero analytics, zero cookies. Embedding live street camera feeds is architecturally consistent (no user data is captured), but the About / Privacy panel disclosure must be updated to note that camera snapshots are served by a third-party proxy and are subject to the originating agency's data policies.
+
+#### Proposed Implementation Shape (post-research)
+
+Once the data sourcing and ToS questions are resolved, the implementation follows the existing project patterns:
+
+- **Data:** `tools/fetch-cctv.mjs` — one-time scrape producing `public/data/cctv-cameras.json` with `{id, lat, lng, nameEn, nameTh, owner, camid}`. Committed and versioned like `network.json`; not fetched at runtime.
+- **Proxy:** `workers/cctv-proxy/` — Cloudflare Worker forwarding `/api/cctv-snapshot?id=X` → `http://cameras.iticfoundation.org/api/jpeg2.php?camid=X` with a 30 s cache TTL. No user data stored.
+- **MapLibre layer:** GeoJSON point source from `cctv-cameras.json`, rendered as a distinct camera icon layer (separate from train and station layers). Visibility toggled via a `ViewControls` button; default off.
+- **Corridor filter:** Client-side spatial query at toggle time — for each camera point, compute minimum distance to any route's track polyline. Only cameras within the threshold (e.g. 200 m) are shown in "metro corridor" mode.
+- **Snapshot popup:** Clicking a camera pin opens an `<img>` sourced from the Worker proxy URL, with a 30 s auto-refresh `setInterval`. Closed on map click or Escape.
+- **Disclosure:** A banner in the camera popup and in the About tab: *"Traffic camera snapshots are sourced from the iTIC Foundation (iticfoundation.org), aggregating feeds from BMA, EXAT, and the Department of Highways. These are traffic-monitoring cameras, not security cameras. Snapshot refresh: ~30 s."*
+
+#### Research Tasks Before This Can Be Planned
+
+- [ ] Register for a Longdo API key and verify the camera overlay metadata is accessible and exportable without violating ToS.
+- [ ] Contact iTIC Foundation to confirm: (a) bulk catalog availability, (b) permission to embed snapshot feeds in a public non-commercial web app, (c) attribution requirements.
+- [ ] Manually audit a sample of cameras near the BTS Sukhumvit, MRT Blue, and MRT Pink corridors to assess real coverage density.
+- [ ] Decide on proxy hosting: standalone Cloudflare Worker vs. a simple Vite dev-proxy for local development only.
+- [ ] Update `docs/addition-roadmap.md` status from 🔬 to 📋 once all blockers are cleared, and open a formal spec issue.

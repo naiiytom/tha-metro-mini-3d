@@ -112,11 +112,14 @@ export function reconcileStationAltitude(
 ): StationInfo[] {
   return stations.map((s) => {
     const candidates = lines[s.route_idx]?.stations ?? [];
-    let best: { z: number; d2: number } | null = null;
+    let best: { z: number; d2: number; station?: import("../types").Station } | null = null;
     for (const c of candidates) {
       const [cx, cy, cz] = lngLatAltToLocal(c.position);
       const d2 = (cx - s.x) ** 2 + (cy - s.y) ** 2;
-      if (best === null || d2 < best.d2) best = { z: cz + STATION_MARKER_HEIGHT_M, d2 };
+      if (best === null || d2 < best.d2) best = { z: cz + STATION_MARKER_HEIGHT_M, d2, station: c };
+    }
+    if (best?.station && !best.station.code && s.code) {
+      best.station.code = s.code;
     }
     return best ? { ...s, z: best.z } : s;
   });
