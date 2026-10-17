@@ -26,20 +26,22 @@ export function formatServiceSec(sec: number): string {
 
 /** Human countdown: "due", "45s", "2m 30s", "1h 05m" (or Thai equivalents). */
 export function formatCountdown(seconds: number, lang: PrimaryLanguage = "en"): string {
-  if (seconds <= 0) return translate(lang, "units.due");
+  if (!Number.isFinite(seconds) || seconds <= 0) return translate(lang, "units.due");
+  const total = Math.round(seconds);
+  if (total <= 0) return translate(lang, "units.due");
   const sSuffix = translate(lang, "units.secSuffix");
   const mSuffix = translate(lang, "units.minSuffix");
   const hSuffix = translate(lang, "units.hourSuffix");
-  if (seconds < 60) return `${Math.round(seconds)}${sSuffix}`;
-  if (seconds < 3600) {
-    const m = Math.floor(seconds / 60);
-    const s = Math.round(seconds % 60);
+  if (total < 60) return `${total}${sSuffix}`;
+  if (total < 3600) {
+    const m = Math.floor(total / 60);
+    const s = total % 60;
     return s === 0
       ? `${m}${mSuffix}`
       : `${m}${mSuffix} ${String(s).padStart(2, "0")}${sSuffix}`;
   }
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
   return `${h}${hSuffix} ${String(m).padStart(2, "0")}${mSuffix}`;
 }
 

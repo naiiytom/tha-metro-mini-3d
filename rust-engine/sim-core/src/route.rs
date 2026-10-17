@@ -21,7 +21,7 @@
 //! the preprocessor, so `sim-core` sees nothing but concrete
 //! `RunDoc { pattern_idx, service_idx, start_sec }`.
 //!
-//! Nothing in this module is baked into the cache — `TMB_VERSION` stays at 3.
+//! Nothing in this module is baked into the cache — `TMB_VERSION` stays at 4.
 //! Walking distances are re-derived from `position_at_arc`, the same call
 //! `link_interchanges()` already used to create the links being walked.
 
@@ -136,7 +136,6 @@ impl RouteIndex {
 
     /// Infallible flat id for an index pair already known to be in range
     /// (every `PatternStop::station_idx`, validated by `SimWorld::from_doc`).
-    #[allow(dead_code)]
     pub(crate) fn stop_of(&self, route_idx: usize, station_idx: usize) -> usize {
         self.stop_offsets[route_idx] + station_idx
     }
@@ -633,7 +632,7 @@ fn compute_raptor_rounds(
 
     let mut marked: Vec<usize> = origin_stops.iter().map(|&(s, _)| s).collect();
     for k in 1..=(req.max_transfers as usize + 1) {
-        let prev = rounds[k - 1].clone();
+        let prev = &rounds[k - 1];
         let mut cur = prev.clone();
         let mut next_marked: Vec<usize> = Vec::new();
 
@@ -874,6 +873,30 @@ pub fn plan(doc: &CacheDoc, idx: &RouteIndex, req: &PlanRequest) -> Option<Route
 /// (`ride_legs_are_self_consistent_in_time_and_arc`,
 /// `alternatives_are_distinct_and_ordered_fastest_first`, and the `finish`-
 /// specific tests below), so drift between them would be caught either way.
+/// Pick the best target label in a single round by effective arrival
+/// (raw arrival plus the walk buffer for a far complex member).
+fn best_in_round(
+    labels: &[Option<Label>],
+    target_stops: &[(usize, f64)],
+    transfer_buffer_s: u32,
+) -> Option<(usize, i64, f64, i64)> {
+    let mut best: Option<(usize, i64, f64, i64)> = None;
+    for &(s, walk_m) in target_stops {
+        if let Some(l) = &labels[s] {
+            let effective = l.arrival
+                + if walk_m >= SAME_STATION_COMPLEX_M {
+                    transfer_buffer_s as i64
+                } else {
+                    0
+                };
+            if best.is_none_or(|(_, _, _, e)| effective < e) {
+                best = Some((s, l.arrival, walk_m, effective));
+            }
+        }
+    }
+    best
+}
+
 pub fn plan_alternatives(doc: &CacheDoc, idx: &RouteIndex, req: &PlanRequest) -> Vec<RoutePlan> {
     let Some(raptor) = compute_raptor_rounds(doc, idx, req) else {
         return Vec::new();
@@ -881,21 +904,9 @@ pub fn plan_alternatives(doc: &CacheDoc, idx: &RouteIndex, req: &PlanRequest) ->
 
     let mut candidate_plans = Vec::new();
     for (k, labels) in raptor.rounds.iter().enumerate() {
-        let mut chosen_in_round: Option<(usize, i64, f64, i64)> = None;
-        for &(s, walk_m) in &raptor.target_stops {
-            if let Some(l) = &labels[s] {
-                let effective = l.arrival
-                    + if walk_m >= SAME_STATION_COMPLEX_M {
-                        req.transfer_buffer_s as i64
-                    } else {
-                        0
-                    };
-                if chosen_in_round.is_none_or(|(_, _, _, e)| effective < e) {
-                    chosen_in_round = Some((s, l.arrival, walk_m, effective));
-                }
-            }
-        }
-        if let Some((stop, arrive, dest_walk_m, _)) = chosen_in_round {
+        if let Some((stop, arrive, dest_walk_m, _)) =
+            best_in_round(labels, &raptor.target_stops, req.transfer_buffer_s)
+        {
             let plan = build_plan(
                 doc,
                 idx,
@@ -1023,18 +1034,13 @@ fn finish(
     // the walk is charged below. See PR #20 review, finding 1.
     let mut chosen: Option<(usize, usize, i64, f64, i64)> = None;
     for (k, labels) in rounds.iter().enumerate() {
-        for &(s, walk_m) in target_stops {
-            if let Some(l) = &labels[s] {
-                let effective = l.arrival
-                    + if walk_m >= SAME_STATION_COMPLEX_M {
-                        req.transfer_buffer_s as i64
-                    } else {
-                        0
-                    };
-                if chosen.is_none_or(|(_, _, _, _, e)| effective < e) {
-                    chosen = Some((k, s, l.arrival, walk_m, effective));
-                }
-            }
+        let Some((s, arrival, walk_m, effective)) =
+            best_in_round(labels, target_stops, req.transfer_buffer_s)
+        else {
+            continue;
+        };
+        if chosen.is_none_or(|(_, _, _, _, e)| effective < e) {
+            chosen = Some((k, s, arrival, walk_m, effective));
         }
     }
 

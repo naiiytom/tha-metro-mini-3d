@@ -27,7 +27,7 @@ export const LANE_Z = 2; // up meters
 export const LANE_YAW = 3; // radians CCW from +x (east), direction of travel
 export const LANE_STATE = 4; // 0 = dwelling, 1 = in transit
 export const LANE_RUN_IDX = 5; // index into CacheDoc.runs
-export const LANE_ROUTE_IDX = 6; // 0 = Sukhumvit, 1 = Silom
+export const LANE_ROUTE_IDX = 6; // index into CacheDoc.routes
 export const LANE_PROGRESS = 7; // 0..1 smoothed leg progress
 
 /** Parsed + camelCased form of Engine.validation_json() (contract §8 DoD). */

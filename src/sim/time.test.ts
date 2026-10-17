@@ -51,6 +51,18 @@ describe("formatCountdown", () => {
     expect(formatCountdown(3600 + 5 * 60)).toBe("1h 05m");
   });
 
+  it("handles boundary fractional rounding cleanly", () => {
+    // 59.6 rounds to 60s -> "1m" (not "60s")
+    expect(formatCountdown(59.6)).toBe("1m");
+    // 119.6 rounds to 120s -> "2m" (not "1m 60s")
+    expect(formatCountdown(119.6)).toBe("2m");
+    // 3599.6 rounds to 3600s -> "1h 00m" (not "59m 60s")
+    expect(formatCountdown(3599.6)).toBe("1h 00m");
+    // Non-finite values
+    expect(formatCountdown(NaN)).toBe("due");
+    expect(formatCountdown(Infinity)).toBe("due");
+  });
+
   it("formats countdowns in Thai when requested", () => {
     expect(formatCountdown(0, "th")).toBe("ถึงแล้ว");
     expect(formatCountdown(-10, "th")).toBe("ถึงแล้ว");

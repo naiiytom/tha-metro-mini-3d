@@ -2,7 +2,19 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   DEFAULT_MAX_TRANSFERS,
   DEFAULT_MAX_WAIT_S,
+  DEFAULT_TICK_MS,
   DEFAULT_TRANSFER_BUFFER_S,
+  ECO_TICK_MS,
+  FRAME_BYTES,
+  LANE_PROGRESS,
+  LANE_ROUTE_IDX,
+  LANE_RUN_IDX,
+  LANE_STATE,
+  LANE_X,
+  LANE_Y,
+  LANE_YAW,
+  LANE_Z,
+  VEHICLE_STRIDE,
   type MainToWorker,
   type RoutePlan,
   type WorkerToMain,
@@ -152,3 +164,205 @@ describe("SimClient.getRoutePlan", () => {
     await expect(promise).resolves.toEqual([PLAN]);
   });
 });
+
+function makeFrameBuffer(vehicles: number[][]): ArrayBuffer {
+  const buf = new ArrayBuffer(FRAME_BYTES);
+  const view = new Float32Array(buf);
+  for (let i = 0; i < vehicles.length; i++) {
+    for (let k = 0; k < VEHICLE_STRIDE; k++) {
+      view[i * VEHICLE_STRIDE + k] = vehicles[i][k] ?? 0;
+    }
+  }
+  return buf;
+}
+
+describe("SimClient.getInterpolated and tick cadence", () => {
+  let client: SimClient;
+
+  beforeEach(() => {
+    (globalThis as unknown as { Worker: unknown }).Worker = FakeWorker;
+    (globalThis as unknown as { fetch: unknown }).fetch = () =>
+      Promise.resolve({ ok: true, arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)) });
+    client = new SimClient();
+  });
+
+  afterEach(() => {
+    client.dispose();
+  });
+
+  it("clamps setTickMs to [DEFAULT_TICK_MS, ECO_TICK_MS] and posts tickRate", () => {
+    const worker = FakeWorker.last!;
+    client.setTickMs(50); // below min
+    expect(worker.sent).toContainEqual({ kind: "tickRate", tickMs: DEFAULT_TICK_MS });
+
+    client.setTickMs(5000); // above max
+    expect(worker.sent).toContainEqual({ kind: "tickRate", tickMs: ECO_TICK_MS });
+
+    client.setTickMs(500);
+    expect(worker.sent).toContainEqual({ kind: "tickRate", tickMs: 500 });
+  });
+
+  it("interpolates with 100 ms delay at default tick rate", () => {
+    const worker = FakeWorker.last!;
+    const clockSetAt = 1000;
+    client.setClock(10_000, 1);
+    (client as unknown as { clock: { clockEpochMs: number; clockSetAt: number; warp: number } }).clock = {
+      clockEpochMs: 10_000,
+      clockSetAt,
+      warp: 1,
+    };
+
+    const vA = [0, 0, 0, 0, 1, 1, 0, 0];
+    const vB = [100, 0, 0, 0, 1, 1, 0, 1];
+    worker.reply({
+      kind: "frame",
+      simEpochMs: 10_000,
+      count: 1,
+      evalMs: 1,
+      truncated: false,
+      buffer: makeFrameBuffer([vA]),
+    });
+    worker.reply({
+      kind: "frame",
+      simEpochMs: 10_100,
+      count: 1,
+      evalMs: 1,
+      truncated: false,
+      buffer: makeFrameBuffer([vB]),
+    });
+
+    // simNow = 10_150, renderSimTime = 10_150 - 100 = 10_050, alpha = 0.5
+    const res = client.getInterpolated(clockSetAt + 150);
+    expect(res.count).toBe(1);
+    expect(res.vehicles[LANE_X]).toBeCloseTo(50, 4);
+  });
+
+  it("interpolates with 1000 ms delay in eco mode", () => {
+    const worker = FakeWorker.last!;
+    client.setTickMs(1000);
+    const clockSetAt = 1000;
+    (client as unknown as { clock: { clockEpochMs: number; clockSetAt: number; warp: number } }).clock = {
+      clockEpochMs: 10_000,
+      clockSetAt,
+      warp: 1,
+    };
+
+    const vA = [0, 0, 0, 0, 1, 1, 0, 0];
+    const vB = [100, 0, 0, 0, 1, 1, 0, 1];
+    worker.reply({
+      kind: "frame",
+      simEpochMs: 10_000,
+      count: 1,
+      evalMs: 1,
+      truncated: false,
+      buffer: makeFrameBuffer([vA]),
+    });
+    worker.reply({
+      kind: "frame",
+      simEpochMs: 11_000,
+      count: 1,
+      evalMs: 1,
+      truncated: false,
+      buffer: makeFrameBuffer([vB]),
+    });
+
+    // simNow = 11_500, renderSimTime = 11_500 - 1000 = 10_500, alpha = 0.5
+    const res = client.getInterpolated(clockSetAt + 1500);
+    expect(res.count).toBe(1);
+    expect(res.vehicles[LANE_X]).toBeCloseTo(50, 4);
+  });
+
+  it("handles discrete lane lerping and progress correctly", () => {
+    const worker = FakeWorker.last!;
+    const clockSetAt = 1000;
+    (client as unknown as { clock: { clockEpochMs: number; clockSetAt: number; warp: number } }).clock = {
+      clockEpochMs: 10_000,
+      clockSetAt,
+      warp: 1,
+    };
+
+    const vA = [10, 20, 30, 3.1, 0, 5, 2, 0.1];
+    const vB = [30, 40, 50, -3.1, 1, 5, 2, 0.7];
+    worker.reply({
+      kind: "frame",
+      simEpochMs: 10_000,
+      count: 1,
+      evalMs: 1,
+      truncated: false,
+      buffer: makeFrameBuffer([vA]),
+    });
+    worker.reply({
+      kind: "frame",
+      simEpochMs: 10_100,
+      count: 1,
+      evalMs: 1,
+      truncated: false,
+      buffer: makeFrameBuffer([vB]),
+    });
+
+    // alpha = 0.5
+    const res = client.getInterpolated(clockSetAt + 150);
+    expect(res.vehicles[LANE_X]).toBeCloseTo(20, 4);
+    expect(res.vehicles[LANE_Y]).toBeCloseTo(30, 4);
+    expect(res.vehicles[LANE_Z]).toBeCloseTo(40, 4);
+    expect(res.vehicles[LANE_YAW]).toBeGreaterThan(3.1);
+    expect(res.vehicles[LANE_STATE]).toBe(0);
+    expect(res.vehicles[LANE_RUN_IDX]).toBe(5);
+    expect(res.vehicles[LANE_ROUTE_IDX]).toBe(2);
+    expect(res.vehicles[LANE_PROGRESS]).toBeCloseTo(0.4, 4);
+
+    // alpha = 1.1 (extrapolating slightly)
+    const resLate = client.getInterpolated(clockSetAt + 210);
+    expect(resLate.vehicles[LANE_STATE]).toBe(1);
+    expect(resLate.vehicles[LANE_PROGRESS]).toBeCloseTo(0.7, 4);
+  });
+
+  it("does not lerp progress when vehicle transitions to dwelling in B", () => {
+    const worker = FakeWorker.last!;
+    const clockSetAt = 1000;
+    (client as unknown as { clock: { clockEpochMs: number; clockSetAt: number; warp: number } }).clock = {
+      clockEpochMs: 10_000,
+      clockSetAt,
+      warp: 1,
+    };
+
+    const vA = [10, 20, 30, 0, 1, 5, 2, 0.9];
+    const vB = [30, 40, 50, 0, 0, 5, 2, 0.0];
+    worker.reply({
+      kind: "frame",
+      simEpochMs: 10_000,
+      count: 1,
+      evalMs: 1,
+      truncated: false,
+      buffer: makeFrameBuffer([vA]),
+    });
+    worker.reply({
+      kind: "frame",
+      simEpochMs: 10_100,
+      count: 1,
+      evalMs: 1,
+      truncated: false,
+      buffer: makeFrameBuffer([vB]),
+    });
+
+    const res = client.getInterpolated(clockSetAt + 150);
+    expect(res.vehicles[LANE_PROGRESS]).toBe(0.0);
+  });
+
+  it("pools and reuses byRun Map across frames without reallocating", () => {
+    const worker = FakeWorker.last!;
+    for (let i = 0; i < 5; i++) {
+      worker.reply({
+        kind: "frame",
+        simEpochMs: 10_000 + i * 100,
+        count: 1,
+        evalMs: 1,
+        truncated: false,
+        buffer: makeFrameBuffer([[0, 0, 0, 0, 1, 7, 0, 0]]),
+      });
+    }
+    const returned = worker.sent.filter((m) => m.kind === "returnBuffer");
+    expect(returned.length).toBeGreaterThanOrEqual(3);
+  });
+});
+

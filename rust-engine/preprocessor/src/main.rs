@@ -59,7 +59,6 @@ enum SnapVerdict {
 /// this band: a stop already disclosed as a known 554 m outlier should not
 /// need a second, redundant entry in a second list.
 fn classify_snap(
-    _line_key: &str,
     stop_id: &str,
     snap_m: f64,
     warn_exempt: &[String],
@@ -787,7 +786,6 @@ fn run() -> Result<(), String> {
                         max_snap_m = max_snap_m.max(snap_d);
                     }
                     match classify_snap(
-                        &line.key,
                         stop_id,
                         snap_d,
                         &line.snap_warn_exempt_stop_ids,
@@ -907,7 +905,6 @@ fn run() -> Result<(), String> {
                         ));
                     }
                     match classify_snap(
-                        &line.key,
                         &s.id,
                         snap_d,
                         &line.snap_warn_exempt_stop_ids,
@@ -924,7 +921,7 @@ fn run() -> Result<(), String> {
                             return Err(format!(
                                 "station {} ({}) on line '{}' registry position snaps \
                                  {snap_m:.1} m from track (warn limit {SNAP_WARN_M} m). If \
-                                 this is real, understood geometry, add it to that line's \
+                                  this is real, understood geometry, add it to that line's \
                                  snapWarnExemptStopIds in tools/lines.config.mjs WITH a \
                                  comment saying why, then re-run npm run data:fetch. If it \
                                  is not, the station's hand-authored/fetched position is \
@@ -951,7 +948,6 @@ fn run() -> Result<(), String> {
                     }
                     max_snap_m = max_snap_m.max(snap_d);
                     match classify_snap(
-                        &line.key,
                         &s.id,
                         snap_d,
                         &line.snap_warn_exempt_stop_ids,
@@ -1053,7 +1049,9 @@ fn run() -> Result<(), String> {
         let (mut added, mut removed) = calendar_dates.remove(id).unwrap_or_default();
         added.sort_unstable();
         removed.sort_unstable();
-        service_idx_by_id.insert(id.clone(), services.len() as u8);
+        let service_idx = u8::try_from(services.len())
+            .map_err(|_| "too many services for u8 service_idx".to_string())?;
+        service_idx_by_id.insert(id.clone(), service_idx);
         services.push(ServiceDoc {
             gtfs_service_id: id.clone(),
             weekday_mask: cal.weekday_mask,
@@ -1105,9 +1103,12 @@ fn run() -> Result<(), String> {
         let mut stops = Vec::with_capacity(rows.len());
         let mut prev_arr = 0u32;
         for (i, row) in rows.iter().enumerate() {
+            if row.arrival_s < t0 || row.departure_s < row.arrival_s {
+                return Err(format!("trip {}: non-monotonic stop times", trip.trip_id));
+            }
             let arrival_s = row.arrival_s - t0; // relative offsets; first stop = 0
             let departure_s = row.departure_s - t0;
-            if departure_s < arrival_s || arrival_s < prev_arr {
+            if arrival_s < prev_arr {
                 return Err(format!("trip {}: non-monotonic stop times", trip.trip_id));
             }
             prev_arr = arrival_s;
@@ -1165,10 +1166,14 @@ fn run() -> Result<(), String> {
             });
         }
         let (headsign_th, headsign_en) = gtfs::split_th_en(&trip.headsign);
-        pattern_idx_by_trip.insert(trip.trip_id.clone(), patterns.len() as u16);
+        let pattern_idx = u16::try_from(patterns.len())
+            .map_err(|_| "too many patterns for u16 pattern_idx".to_string())?;
+        pattern_idx_by_trip.insert(trip.trip_id.clone(), pattern_idx);
+        let route_idx_u8 =
+            u8::try_from(route_idx).map_err(|_| "too many routes for u8 route_idx".to_string())?;
         patterns.push(PatternDoc {
             gtfs_trip_id: trip.trip_id.clone(),
-            route_idx: route_idx as u8,
+            route_idx: route_idx_u8,
             direction: trip.direction_id,
             headsign_en,
             headsign_th,
@@ -1254,10 +1259,15 @@ fn run() -> Result<(), String> {
             day_qualified_service_split(headsign_en, &services[service_idx as usize])
         {
             let key = (service_idx, split.weekday_mask);
-            service_idx = *synthetic_service_idx.entry(key).or_insert_with(|| {
+            if let Some(&existing) = synthetic_service_idx.get(&key) {
+                service_idx = existing;
+            } else {
+                let new_service_idx = u8::try_from(services.len())
+                    .map_err(|_| "too many services for u8 service_idx".to_string())?;
                 services.push(split);
-                (services.len() - 1) as u8
-            });
+                synthetic_service_idx.insert(key, new_service_idx);
+                service_idx = new_service_idx;
+            }
         }
         let first_arrival_s = stop_times[&trip.trip_id]
             .first()
@@ -2557,7 +2567,7 @@ mod tests {
     #[test]
     fn snap_band_flags_an_undisclosed_stop_over_the_warn_limit() {
         let exempt: Vec<String> = vec![];
-        let verdict = classify_snap("blue", "99999", 88.0, &exempt, &[]);
+        let verdict = classify_snap("99999", 88.0, &exempt, &[]);
         assert!(
             matches!(verdict, SnapVerdict::Undisclosed { .. }),
             "an 88 m snap with no exemption must be undisclosed, got {verdict:?}"
@@ -2567,7 +2577,7 @@ mod tests {
     #[test]
     fn snap_band_accepts_a_disclosed_stop_over_the_warn_limit() {
         let exempt = vec!["13627".to_string()];
-        let verdict = classify_snap("blue", "13627", 109.5, &exempt, &[]);
+        let verdict = classify_snap("13627", 109.5, &exempt, &[]);
         assert!(
             matches!(verdict, SnapVerdict::Disclosed { .. }),
             "a disclosed 109.5 m snap must pass, got {verdict:?}"
@@ -2578,7 +2588,7 @@ mod tests {
     fn snap_band_ignores_a_stop_under_the_warn_limit() {
         let exempt: Vec<String> = vec![];
         assert!(matches!(
-            classify_snap("blue", "1", 12.0, &exempt, &[]),
+            classify_snap("1", 12.0, &exempt, &[]),
             SnapVerdict::Ok
         ));
     }
@@ -2589,7 +2599,7 @@ mod tests {
         // It must not ALSO need a snapWarnExemptStopIds entry — one disclosure
         // mechanism per stop, or every future exemption has to be written twice.
         let allow = vec!["359".to_string()];
-        let verdict = classify_snap("pink", "359", 554.7, &[], &allow);
+        let verdict = classify_snap("359", 554.7, &[], &allow);
         assert!(
             matches!(verdict, SnapVerdict::Disclosed { .. }),
             "allowLargeSnapStopIds must also satisfy the warn band, got {verdict:?}"

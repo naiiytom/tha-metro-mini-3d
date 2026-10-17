@@ -93,32 +93,10 @@ pub fn catmull_rom_resample(pts: &[P3], spacing: f64) -> Result<Vec<P3>, String>
 /// Nearest point on the polyline (2D, x/y) to `p`.
 /// Returns (arc_m, distance_m).
 pub fn snap_to_polyline(poly: &[P3], arc: &[f64], p: [f64; 2]) -> (f64, f64) {
-    let mut best_arc = 0.0;
-    let mut best_d2 = f64::INFINITY;
-    for i in 0..poly.len() - 1 {
-        let ax = poly[i][0];
-        let ay = poly[i][1];
-        let bx = poly[i + 1][0];
-        let by = poly[i + 1][1];
-        let abx = bx - ax;
-        let aby = by - ay;
-        let len2 = abx * abx + aby * aby;
-        let t = if len2 > 0.0 {
-            (((p[0] - ax) * abx + (p[1] - ay) * aby) / len2).clamp(0.0, 1.0)
-        } else {
-            0.0
-        };
-        let qx = ax + abx * t;
-        let qy = ay + aby * t;
-        let dx = p[0] - qx;
-        let dy = p[1] - qy;
-        let d2 = dx * dx + dy * dy;
-        if d2 < best_d2 {
-            best_d2 = d2;
-            best_arc = arc[i] + (arc[i + 1] - arc[i]) * t;
-        }
-    }
-    (best_arc, best_d2.sqrt())
+    snap_candidates(poly, arc, p)
+        .into_iter()
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .unwrap_or((0.0, f64::INFINITY))
 }
 
 /// All local minima of distance from `p` to the polyline (2D, x/y), each as
