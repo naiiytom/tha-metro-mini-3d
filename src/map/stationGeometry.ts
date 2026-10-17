@@ -294,8 +294,33 @@ export function createTrimGeometry(
   return merged ?? new THREE.BoxGeometry(dims.lengthM, 0.4, 0.6);
 }
 
-/** Create unit vertical column / access shaft geometry, oriented along Z. */
-export function createColumnGeometry(): THREE.BufferGeometry {
+/**
+ * Create unit vertical column (for elevated/atGrade) or mezzanine + stairwell access shafts
+ * (for underground), normalized to z in [-0.5, 0.5] so poleTransform(z) scales it from z=0 to platform.
+ */
+export function createColumnGeometry(
+  structure: Structure = "elevated",
+  dims: StationDimensions = STATION_DIMENSIONS.heavy,
+): THREE.BufferGeometry {
+  if (structure === "underground") {
+    const mezzanine = new THREE.BoxGeometry(dims.lengthM * 0.45, dims.widthM * 0.85, 0.18);
+    mezzanine.translate(0, 0, 0.05);
+
+    const shaftOffsetX = dims.lengthM * 0.3;
+    const shaftOffsetY = dims.widthM / 2 + 1.6;
+    const shaftA = new THREE.BoxGeometry(4.5, 3.2, 1.0);
+    shaftA.translate(-shaftOffsetX, -shaftOffsetY, 0);
+
+    const shaftB = new THREE.BoxGeometry(4.5, 3.2, 1.0);
+    shaftB.translate(shaftOffsetX, shaftOffsetY, 0);
+
+    const merged = mergeGeometries([mezzanine, shaftA, shaftB]);
+    mezzanine.dispose();
+    shaftA.dispose();
+    shaftB.dispose();
+    if (merged) return merged;
+  }
+
   const geo = new THREE.CylinderGeometry(1.2, 1.2, 1.0, 12);
   geo.rotateX(Math.PI / 2); // cylinder axis Y -> Z (our up)
   return geo;
@@ -326,11 +351,17 @@ function buildStationInstancedGroup(
   const platformGeo = createPlatformGeometry(dims);
   const canopyGeo = createCanopyGeometry(dims, structure);
   const trimGeo = createTrimGeometry(dims, structure);
-  const pillarGeo = createColumnGeometry();
+  const pillarGeo = createColumnGeometry(structure, dims);
 
-  const platformMat = new THREE.MeshLambertMaterial({ color: 0x94a3b8 });
+  const isUnderground = structure === "underground";
+  const platformMat = new THREE.MeshLambertMaterial({
+    color: 0x94a3b8,
+    polygonOffset: isUnderground,
+    polygonOffsetFactor: isUnderground ? -1 : 0,
+    polygonOffsetUnits: isUnderground ? -1 : 0,
+  });
   const canopyMat = new THREE.MeshLambertMaterial({
-    color: structure === "underground" ? 0x475569 : 0xe2e8f0,
+    color: isUnderground ? 0x475569 : 0xe2e8f0,
     side: THREE.DoubleSide,
   });
   const trimMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
@@ -357,6 +388,7 @@ function buildStationInstancedGroup(
   const m = new THREE.Matrix4();
   const rotM = new THREE.Matrix4();
   const posM = new THREE.Matrix4();
+  const scaleM = new THREE.Matrix4();
 
   for (let i = 0; i < count; i++) {
     const { localPos, heading } = items[i];
@@ -373,9 +405,11 @@ function buildStationInstancedGroup(
     trims.setMatrixAt(i, m);
     trims.setColorAt(i, lineColor);
 
-    // Support pillars reach from ground (z = 0) to platform
+    // Support pillars / underground access shafts reach from ground (z = 0) to platform
     const { scaleZ, centerZ } = poleTransform(z);
-    m.makeScale(1, 1, scaleZ).setPosition(x, y, centerZ);
+    posM.makeTranslation(x, y, centerZ);
+    scaleM.makeScale(1, 1, scaleZ);
+    m.multiplyMatrices(posM, rotM).multiply(scaleM);
     pillars.setMatrixAt(i, m);
   }
 
@@ -438,15 +472,21 @@ export function suppressStationInMeshGroup(
 /**
  * Builds procedural 3D station models for a transit line, split by structure band
  * (surface vs. underground) to maintain compatibility with ThreeLayer's underground mode.
- *
- * @param line The line geometry containing stations and track polyline.
  */
-export function buildStationGeometry(line: LineGeometry): THREE.Group {
+export function buildStationGeometry(line: LineGeometry): THREE.Group;
+export function buildStationGeometry(stations: Station[], line: LineGeometry): THREE.Group;
+export function buildStationGeometry(
+  stationsOrLine: Station[] | LineGeometry,
+  maybeLine?: LineGeometry,
+): THREE.Group {
+  const line = Array.isArray(stationsOrLine) ? maybeLine! : stationsOrLine;
+  const stations = Array.isArray(stationsOrLine) ? stationsOrLine : line.stations;
+
   const group = new THREE.Group();
   group.name = `stations-${line.key}`;
   group.userData.lineKey = line.key;
 
-  if (line.stations.length === 0) return group;
+  if (stations.length === 0) return group;
 
   const dims = STATION_DIMENSIONS[line.vehicleType] ?? STATION_DIMENSIONS.heavy;
   const lineColor = new THREE.Color(line.color);
@@ -454,7 +494,7 @@ export function buildStationGeometry(line: LineGeometry): THREE.Group {
   const surfaceItems: StationInstanceData[] = [];
   const undergroundItems: StationInstanceData[] = [];
 
-  for (const station of line.stations) {
+  for (const station of stations) {
     const snap = snapStationToTrack(station, line);
 
     const data: StationInstanceData = {

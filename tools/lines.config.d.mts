@@ -41,7 +41,7 @@ export const STRUCTURE_ALTITUDE_M: Record<"elevated" | "atGrade" | "underground"
 export const VEHICLE_TYPES: string[];
 export const LINES: LineConfig[];
 export const INTERCHANGE_OVERRIDES: InterchangeOverride[];
-export interface StationModelOverrideConfig {
+export interface StationModelConfig {
   id: string;
   glbUrl: string;
   headingOffsetDeg?: number;
@@ -50,9 +50,10 @@ export interface StationModelOverrideConfig {
   altitudeOffsetM?: number;
   suppressProcedural?: boolean;
 }
-export const STATION_MODELS: StationModelOverrideConfig[];
+export type StationModelOverrideConfig = StationModelConfig;
+export const STATION_MODELS: StationModelConfig[];
 export function assertRegistryValid(lines?: LineConfig[]): void;
-export function assertStationModelsValid(models?: StationModelOverrideConfig[]): void;
+export function assertStationModelsValid(models?: StationModelConfig[]): void;
 export function structureOfWay(
   tags: WayTags,
   fallback?: "elevated" | "atGrade" | "underground",

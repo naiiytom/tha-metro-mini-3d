@@ -1114,8 +1114,36 @@ export const STATION_MODELS = [
   {
     id: "hub:krung-thep-aphiwat",
     glbUrl: "/models/krung-thep-aphiwat.glb",
-    scale: [1, 1, 1],
-    headingOffsetDeg: 0,
+    altitudeOffsetM: -1.5,
+    suppressProcedural: true,
+  },
+  {
+    id: "hub:siam",
+    glbUrl: "/models/siam.glb",
+    altitudeOffsetM: -1.5,
+    suppressProcedural: true,
+  },
+  {
+    id: "A1",
+    glbUrl: "/models/suvarnabhumi.glb",
+    altitudeOffsetM: -1.5,
+    suppressProcedural: true,
+  },
+  {
+    id: "A6",
+    glbUrl: "/models/makkasan.glb",
+    altitudeOffsetM: -1.5,
+    suppressProcedural: true,
+  },
+  {
+    id: "hub:hua-lamphong",
+    glbUrl: "/models/hua-lamphong.glb",
+    altitudeOffsetM: -1.5,
+    suppressProcedural: true,
+  },
+  {
+    id: "N8",
+    glbUrl: "/models/mo-chit.glb",
     altitudeOffsetM: -1.5,
     suppressProcedural: true,
   },

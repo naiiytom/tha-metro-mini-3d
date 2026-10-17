@@ -361,10 +361,32 @@ describe("network.json field order", () => {
 describe("STATION_MODELS override registry", () => {
   it("passes assertStationModelsValid with configured station models", () => {
     expect(() => assertStationModelsValid(STATION_MODELS)).not.toThrow();
-    const aphiwat = STATION_MODELS.find((m) => m.id === "hub:krung-thep-aphiwat");
-    expect(aphiwat).toBeDefined();
-    expect(aphiwat?.glbUrl).toBe("/models/krung-thep-aphiwat.glb");
-    expect(aphiwat?.suppressProcedural).toBe(true);
+    const expectedModels = [
+      ["hub:krung-thep-aphiwat", "/models/krung-thep-aphiwat.glb"],
+      ["hub:siam", "/models/siam.glb"],
+      ["A1", "/models/suvarnabhumi.glb"],
+      ["A6", "/models/makkasan.glb"],
+      ["hub:hua-lamphong", "/models/hua-lamphong.glb"],
+      ["N8", "/models/mo-chit.glb"],
+    ];
+    for (const [id, glbUrl] of expectedModels) {
+      const entry = STATION_MODELS.find((m) => m.id === id);
+      expect(entry, `missing STATION_MODELS entry for ${id}`).toBeDefined();
+      expect(entry?.glbUrl).toBe(glbUrl);
+      expect(entry?.suppressProcedural).toBe(true);
+    }
+  });
+
+  it("ships a valid glTF 2.0 binary (.glb) asset on disk for every registered station model", () => {
+    for (const model of STATION_MODELS) {
+      const fileUrl = new URL(`../public${model.glbUrl}`, import.meta.url);
+      const buf = readFileSync(fileUrl);
+      expect(buf.byteLength, `${model.glbUrl} should be non-empty`).toBeGreaterThan(1024);
+      // glTF 2.0 binary header: magic "glTF" (0x46546C67 LE), version 2, total byteLength
+      expect(buf.readUInt32LE(0), `${model.glbUrl} magic`).toBe(0x46546c67);
+      expect(buf.readUInt32LE(4), `${model.glbUrl} version`).toBe(2);
+      expect(buf.readUInt32LE(8), `${model.glbUrl} total length`).toBe(buf.byteLength);
+    }
   });
 
   it("accepts valid station model overrides", () => {
@@ -401,4 +423,32 @@ describe("STATION_MODELS override registry", () => {
     expect(() => assertStationModelsValid([{ id: "A", glbUrl: "/a.glb", altitudeOffsetM: NaN }])).toThrow(/finite number/);
     expect(() => assertStationModelsValid([{ id: "A", glbUrl: "/a.glb", suppressProcedural: "yes" }])).toThrow(/must be a boolean/);
   });
+
+  it("builds an architecturally accurate Krung Thep Aphiwat scene with gull-wing roof, suspended Royal Clock, and clear SRT Red track channels at y = ±31.5m", async () => {
+    const THREE = await import("three");
+    const { buildKrungThepAphiwatScene } = await import("./generate-aphiwat-model.mjs");
+    const scene = buildKrungThepAphiwatScene();
+    scene.updateMatrixWorld(true);
+
+    const fullBox = new THREE.Box3().setFromObject(scene);
+    expect(fullBox.max.x - fullBox.min.x).toBeGreaterThanOrEqual(500);
+    expect(fullBox.max.y - fullBox.min.y).toBeGreaterThanOrEqual(170);
+    expect(fullBox.max.z).toBeLessThanOrEqual(25);
+
+    const clock = scene.getObjectByName("RoyalClock");
+    expect(clock).toBeDefined();
+    const clockBox = new THREE.Box3().setFromObject(clock);
+    expect(clockBox.max.z).toBeLessThan(20);
+    expect(scene.getObjectByName("ThaiNumeral9")).toBeDefined();
+
+    const platforms = scene.getObjectByName("PlatformDecks");
+    expect(platforms).toBeDefined();
+    for (const child of platforms.children) {
+      if (!child.name.startsWith("Platform_")) continue;
+      const box = new THREE.Box3().setFromObject(child);
+      expect(box.min.y < 31.5 && box.max.y > 31.5, `${child.name} collides with red-dark at y=31.5`).toBe(false);
+      expect(box.min.y < -31.5 && box.max.y > -31.5, `${child.name} collides with red-light at y=-31.5`).toBe(false);
+    }
+  });
 });
+

@@ -184,8 +184,18 @@ describe("procedural geometry generators", () => {
     const ugBox = undergroundTrim.boundingBox!;
     expect(ugBox.max.z).toBeCloseTo(dims.canopyHeightM);
 
-    const col = createColumnGeometry();
-    expect(col).toBeDefined();
+    const elevatedCol = createColumnGeometry("elevated", dims);
+    elevatedCol.computeBoundingBox();
+    const elColBox = elevatedCol.boundingBox!;
+    expect(elColBox.max.x - elColBox.min.x).toBeCloseTo(2.4, 1);
+
+    const ugShafts = createColumnGeometry("underground", dims);
+    ugShafts.computeBoundingBox();
+    const ugShaftBox = ugShafts.boundingBox!;
+    // Underground access structure includes mezzanine box and twin stairwell shafts along platform length
+    expect(ugShaftBox.max.x - ugShaftBox.min.x).toBeGreaterThan(20);
+    expect(ugShaftBox.max.y - ugShaftBox.min.y).toBeGreaterThan(dims.widthM);
+    expect(ugShaftBox.max.z - ugShaftBox.min.z).toBeCloseTo(1.0, 1);
   });
 });
 
@@ -225,6 +235,19 @@ describe("buildStationGeometry", () => {
     expect(mat.userData.liveryHex).toBe(new THREE.Color("#7CB342").getHex());
   });
 
+
+  it("applies polygonOffset on underground platform materials to prevent z-fighting with track decks", () => {
+    const l = makeLine();
+    const group = buildStationGeometry(l);
+    const ugPlatforms = group.children.find(
+      (c) => c.name === "station-platforms" && c.userData.structure === "underground",
+    ) as THREE.InstancedMesh;
+    expect(ugPlatforms).toBeDefined();
+    const mat = ugPlatforms.material as THREE.MeshLambertMaterial;
+    expect(mat.polygonOffset).toBe(true);
+    expect(mat.polygonOffsetFactor).toBe(-1);
+    expect(mat.polygonOffsetUnits).toBe(-1);
+  });
 
   it("returns empty group for line with no stations", () => {
     const l = makeLine({ stations: [] });
