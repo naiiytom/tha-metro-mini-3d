@@ -34,7 +34,7 @@ export default function App() {
         data-testid="bottom-sheet-stack"
         className={
           uiHidden
-            ? "hidden md:contents md:p-0"
+            ? "hidden"
             : "pointer-events-none fixed inset-x-0 bottom-0 z-30 flex flex-col items-center pl-[max(0rem,env(safe-area-inset-left))] pr-[max(0rem,env(safe-area-inset-right))] md:contents md:p-0"
         }
       >

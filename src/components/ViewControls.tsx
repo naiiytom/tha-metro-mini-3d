@@ -204,7 +204,7 @@ export function ViewControls() {
             data-testid="flyover-hud-card"
             role="dialog"
             aria-label={t("flyoverHud.title")}
-            className="panel-glass pointer-events-auto fixed left-4 z-40 w-72 rounded-xl border border-edge p-3 shadow-xl shadow-ink/10 backdrop-blur-md md:left-[17.5rem] md:bottom-12"
+            className="panel-glass pointer-events-auto fixed left-4 top-4 z-40 w-72 rounded-xl border border-edge p-3 shadow-xl shadow-ink/10 backdrop-blur-md md:left-[24rem] md:top-auto md:bottom-12"
           >
             <div className="flex items-center justify-between border-b border-edge pb-1.5">
               <div className="flex items-center gap-1.5 text-xs font-semibold text-ink">

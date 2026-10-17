@@ -21,7 +21,8 @@
  * see fetchBranchFromWayName's own comment for why).
  */
 
-import { writeFile, mkdir } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { writeFile, mkdir, readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -32,6 +33,7 @@ import {
   STRUCTURE_ALTITUDE_M,
 } from "./lines.config.mjs";
 import {
+  haversineMeters,
   limitTrackGradient,
   nearestTrackAltitude,
   stitchWays,
@@ -425,17 +427,6 @@ async function fetchBranchFromWayNames(namePatterns, branchKey, defaultStructure
     parts.push(await fetchBranchFromWayName(pattern, branchKey, defaultStructure));
   }
 
-  // Haversine distance in meters — same formula used elsewhere in this repo
-  // (tools/trackProfile.mjs, the verify scripts) for consistency.
-  const R = 6371008.8;
-  const rad = (d) => (d * Math.PI) / 180;
-  const dist = (a, b) => {
-    const dLat = rad(b[1] - a[1]);
-    const dLng = rad(b[0] - a[0]);
-    const h =
-      Math.sin(dLat / 2) ** 2 + Math.cos(rad(a[1])) * Math.cos(rad(b[1])) * Math.sin(dLng / 2) ** 2;
-    return 2 * R * Math.asin(Math.sqrt(h));
-  };
   // Generous but not silent: a real junction should be within a few meters
   // (measured 0.0 m for Orange). Anything under 20 m is still plausibly the
   // same physical point (rounding/resampling); anything over is NOT a known
@@ -446,7 +437,7 @@ async function fetchBranchFromWayNames(namePatterns, branchKey, defaultStructure
   for (let i = 1; i < parts.length; i++) {
     const prevLast = track[track.length - 1];
     const nextFirst = parts[i].track[0];
-    const gap = dist(prevLast, nextFirst);
+    const gap = haversineMeters(prevLast, nextFirst);
     if (gap > JUNCTION_TOLERANCE_M) {
       throw new Error(
         `${branchKey}: part ${i - 1}->${i} junction gap is ${gap.toFixed(1)} m ` +
@@ -558,15 +549,38 @@ async function main() {
     lines.push(record);
   }
 
+  let finalLines = lines;
+  let preservedHandPatches = undefined;
+
+  if (only.length > 0 && existsSync(OUT_PATH)) {
+    const existing = JSON.parse(await readFile(OUT_PATH, "utf8"));
+    const fetchedMap = new Map(lines.map((l) => [l.key, l]));
+    const existingMap = new Map((existing.lines ?? []).map((l) => [l.key, l]));
+
+    finalLines = LINES.map((l) => {
+      if (fetchedMap.has(l.key)) return fetchedMap.get(l.key);
+      return existingMap.get(l.key);
+    }).filter(Boolean);
+
+    if (Array.isArray(existing.handPatches)) {
+      preservedHandPatches = existing.handPatches.filter(
+        (hp) => !only.includes(hp.line),
+      );
+    }
+  }
+
   const out = {
     generated: new Date().toISOString(),
     source: "OpenStreetMap via Overpass API — © OpenStreetMap contributors, ODbL 1.0",
-    lines,
+    ...(preservedHandPatches && preservedHandPatches.length > 0
+      ? { handPatches: preservedHandPatches }
+      : {}),
+    lines: finalLines,
     interchangeOverrides: INTERCHANGE_OVERRIDES,
   };
   await mkdir(dirname(OUT_PATH), { recursive: true });
   await writeFile(OUT_PATH, JSON.stringify(out));
-  console.log(`Wrote ${OUT_PATH} (${lines.length} lines)`);
+  console.log(`Wrote ${OUT_PATH} (${finalLines.length} lines)`);
 }
 
 main().catch((err) => {

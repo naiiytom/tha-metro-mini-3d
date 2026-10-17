@@ -251,6 +251,61 @@ describe("NavigationPanel mobile bottom sheet", () => {
     expect(screen.getByTestId("time-scrubber")).toBeTruthy();
     expect(screen.getByTestId("time-controls")).toBeTruthy();
   });
+
+  it("leaves the show UI button accessible when uiHidden is true and clicking it restores UI", () => {
+    render(<NavigationPanel />);
+    const hideBtn = screen.getByRole("button", { name: /hide overlay ui/i });
+    fireEvent.click(hideBtn);
+    expect(useAppStore.getState().uiHidden).toBe(true);
+
+    const showBtn = screen.getByRole("button", { name: /show overlay ui/i });
+    expect(showBtn).toBeTruthy();
+
+    fireEvent.click(showBtn);
+    expect(useAppStore.getState().uiHidden).toBe(false);
+    expect(screen.getByRole("button", { name: /hide overlay ui/i })).toBeTruthy();
+  });
+
+  it("ensures the first tab (lines) has tabIndex 0 when activeTab is null", () => {
+    useAppStore.setState({ activeTab: null });
+    render(<NavigationPanel />);
+    const linesTab = screen.getByRole("tab", { name: /lines/i });
+    expect(linesTab).toHaveAttribute("tabindex", "0");
+
+    const stationsTab = screen.getByRole("tab", { name: /stations/i });
+    expect(stationsTab).toHaveAttribute("tabindex", "-1");
+  });
+
+  it("navigates relative to the currently focused tab button", () => {
+    render(<NavigationPanel />);
+    const stationsTab = screen.getByRole("tab", { name: /stations/i });
+    stationsTab.focus();
+
+    fireEvent.keyDown(stationsTab, { key: "ArrowRight" });
+    expect(useAppStore.getState().activeTab).toBe("route");
+
+    const routeTab = screen.getByRole("tab", { name: /route/i });
+    fireEvent.keyDown(routeTab, { key: "ArrowLeft" });
+    expect(useAppStore.getState().activeTab).toBe("stations");
+  });
+
+  it("renders estimated run times badge and synthetic schedule badge on corresponding lines", () => {
+    useAppStore.setState({
+      routes: [
+        makeLine({ key: "pink", name: "Pink Line", estimatedRunTimes: { basisLine: "yellow" } }),
+        makeLine({
+          key: "apm",
+          name: "APM Line",
+          gtfsRouteId: null,
+          syntheticSchedule: { headwaySec: 180, runtimeSec: 120, dwellSec: 30, startSec: 0, endSec: 86400 },
+        }),
+      ],
+    });
+    render(<NavigationPanel />);
+    expect(screen.getByTestId("estimated-run-times-badge")).toBeTruthy();
+    expect(screen.getByTestId("synthetic-schedule-badge")).toBeTruthy();
+  });
 });
+
 
 

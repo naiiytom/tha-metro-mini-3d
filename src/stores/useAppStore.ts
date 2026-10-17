@@ -124,14 +124,6 @@ interface AppState {
   trainScale: TrainScale;
   setTrainScale: (scale: TrainScale) => void;
 
-  /** Station search panel open status. */
-  searchOpen: boolean;
-  setSearchOpen: (open: boolean) => void;
-
-  /** Route planner panel open status. */
-  routePlannerOpen: boolean;
-  setRoutePlannerOpen: (open: boolean) => void;
-
   /** The plan currently being shown, or null. */
   routePlan: RoutePlan | null;
   setRoutePlan: (plan: RoutePlan | null) => void;
@@ -182,8 +174,6 @@ export const useAppStore = create<AppState>((set, get) => ({
   setActiveTab: (tab) =>
     set((s) => ({
       activeTab: tab,
-      searchOpen: tab === "stations",
-      routePlannerOpen: tab === "route",
       ...(tab !== null ? { selectedRunIdx: null, selectedStation: null, selectedHubId: null, following: false } : {}),
       ...(tab !== "route" && s.routePlan ? { routePlan: null } : {}),
     })),
@@ -210,8 +200,6 @@ export const useAppStore = create<AppState>((set, get) => ({
             selectedRunIdx: runIdx,
             selectedStation: null,
             selectedHubId: null,
-            searchOpen: false,
-            routePlannerOpen: false,
             routePlan: null,
           },
     ),
@@ -224,8 +212,6 @@ export const useAppStore = create<AppState>((set, get) => ({
             selectedHubId: findStationHub(get().stations, station.routeIdx, station.stationIdx)?.id ?? null,
             selectedRunIdx: null,
             following: false,
-            searchOpen: false,
-            routePlannerOpen: false,
             routePlan: null,
           },
     ),
@@ -276,39 +262,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     saveTrainScale(scale);
     set({ trainScale: scale });
   },
-
-  searchOpen: false,
-  setSearchOpen: (open) =>
-    set((s) => ({
-      searchOpen: open,
-      activeTab: open ? "stations" : s.activeTab === "stations" ? null : s.activeTab,
-      ...(open
-        ? {
-            selectedStation: null,
-            selectedHubId: null,
-            selectedRunIdx: null,
-            following: false,
-            routePlannerOpen: false,
-            routePlan: null,
-          }
-        : {}),
-    })),
-
-  routePlannerOpen: false,
-  setRoutePlannerOpen: (open) =>
-    set((s) => ({
-      routePlannerOpen: open,
-      activeTab: open ? "route" : s.activeTab === "route" ? null : s.activeTab,
-      ...(open
-        ? {
-            searchOpen: false,
-            selectedStation: null,
-            selectedHubId: null,
-            selectedRunIdx: null,
-            following: false,
-          }
-        : { routePlan: null }),
-    })),
 
   routePlan: null,
   setRoutePlan: (plan) => set({ routePlan: plan }),

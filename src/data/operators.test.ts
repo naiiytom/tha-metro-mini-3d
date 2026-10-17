@@ -37,10 +37,10 @@ describe("Transit Operators & IA", () => {
     expect(bts.lineKeys).toEqual(["sukhumvit", "silom", "gold"]);
 
     const mrt = TRANSIT_OPERATORS.find((op) => op.id === "mrt")!;
-    expect(mrt.lineKeys).toEqual(["blue", "purple", "yellow", "pink", "orange", "purple-ext"]);
+    expect(mrt.lineKeys).toEqual(["blue", "purple", "yellow", "pink", "orange", "purple-ext", "pink-spur"]);
 
     const srt = TRANSIT_OPERATORS.find((op) => op.id === "srt")!;
-    expect(srt.lineKeys).toEqual(["arl", "dark-red", "light-red"]);
+    expect(srt.lineKeys).toEqual(["arl", "red-dark", "red-light", "dark-red", "light-red"]);
 
     const apm = TRANSIT_OPERATORS.find((op) => op.id === "bkk_airport")!;
     expect(apm.lineKeys).toEqual(["apm"]);
