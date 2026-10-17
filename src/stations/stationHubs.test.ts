@@ -159,4 +159,75 @@ describe("assignStationHubIds", () => {
     expect(lines[1].stations[0].hubId).toBe("hub:siam");
     expect(lines[0].stations[1].hubId).toBe("hub:chit-lom");
   });
+
+  it("assigns compound hubId to cross-named interchanges (Bang Sue + Krung Thep Aphiwat, Asok + Sukhumvit)", () => {
+    const lines: import("../types").LineGeometry[] = [
+      {
+        key: "sukhumvit",
+        name: "Sukhumvit Line",
+        nameTh: "สายสุขุมวิท",
+        color: "#7CB342",
+        structure: "elevated",
+        vehicleType: "heavy",
+        gtfsRouteId: "1",
+        preRevenue: false,
+        syntheticSchedule: null,
+        estimatedRunTimes: null,
+        rollingStock: null,
+        relationId: 1,
+        osmName: "Sukhumvit",
+        track: [],
+        stations: [
+          { id: "101", name: "Asok", nameTh: "อโศก", code: "E4", position: [100.560, 13.737, 15] },
+        ],
+      },
+      {
+        key: "blue",
+        name: "Blue Line",
+        nameTh: "สายสีน้ำเงิน",
+        color: "#1964B7",
+        structure: "underground",
+        vehicleType: "heavy",
+        gtfsRouteId: "19",
+        preRevenue: false,
+        syntheticSchedule: null,
+        estimatedRunTimes: null,
+        rollingStock: null,
+        relationId: 19,
+        osmName: "Blue",
+        track: [],
+        stations: [
+          { id: "201", name: "Sukhumvit", nameTh: "สุขุมวิท", code: "BL22", position: [100.561, 13.737, -18] },
+          { id: "202", name: "Bang Sue", nameTh: "บางซื่อ", code: "", position: [100.5392576, 13.8032323, 15] },
+        ],
+      },
+      {
+        key: "red-dark",
+        name: "SRT Dark Red Line",
+        nameTh: "สายสีแดงเข้ม",
+        color: "#85172C",
+        structure: "elevated",
+        vehicleType: "commuter",
+        gtfsRouteId: "7",
+        preRevenue: false,
+        syntheticSchedule: null,
+        estimatedRunTimes: null,
+        rollingStock: null,
+        relationId: 7,
+        osmName: "Dark Red",
+        track: [],
+        stations: [
+          { id: "301", name: "Krung Thep Aphiwat", nameTh: "กรุงเทพอภิวัฒน์", code: "3", position: [100.5416057, 13.8047578, 0.5] },
+        ],
+      },
+    ];
+
+    assignStationHubIds(lines);
+
+    expect(lines[0].stations[0].hubId).toBe("hub:asok-sukhumvit");
+    expect(lines[1].stations[0].hubId).toBe("hub:asok-sukhumvit");
+    expect(lines[1].stations[1].hubId).toBe("hub:bang-sue-krung-thep-aphiwat");
+    expect(lines[2].stations[0].hubId).toBe("hub:bang-sue-krung-thep-aphiwat");
+  });
 });
+

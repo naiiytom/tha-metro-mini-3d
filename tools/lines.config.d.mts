@@ -50,7 +50,6 @@ export interface StationModelOverrideConfig {
   altitudeOffsetM?: number;
   suppressProcedural?: boolean;
 }
-export type StationModelConfig = StationModelOverrideConfig;
 export const STATION_MODELS: StationModelOverrideConfig[];
 export function assertRegistryValid(lines?: LineConfig[]): void;
 export function assertStationModelsValid(models?: StationModelOverrideConfig[]): void;

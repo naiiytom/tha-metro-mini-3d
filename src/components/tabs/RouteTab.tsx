@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { activeSimClient } from "../../sim/SimClient";
 import type { RoutePlan, StationInfo } from "../../sim/protocol";
 import { DEFAULT_MAX_WAIT_S } from "../../sim/protocol";
@@ -15,6 +15,7 @@ type Status = { kind: "idle" } | { kind: "loading" } | { kind: "done" } | { kind
 export function RouteTab() {
   const stations = useAppStore((s) => s.stations);
   const routes = useAppStore((s) => s.routes);
+  const hiddenRoutes = useAppStore((s) => s.hiddenRoutes);
   const currentPlan = useAppStore((s) => s.routePlan);
   const setPlan = useAppStore((s) => s.setRoutePlan);
   const primaryLang = useAppStore((s) => s.primaryLang);
@@ -25,14 +26,22 @@ export function RouteTab() {
   const [status, setStatus] = useState<Status>({ kind: "idle" });
   const [plans, setPlans] = useState<RoutePlan[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const reqCounterRef = useRef(0);
+
+  useEffect(() => {
+    if (currentPlan === null && status.kind === "done") {
+      setStatus({ kind: "idle" });
+      setPlans([]);
+    }
+  }, [currentPlan, status.kind]);
 
   const visibleStations = useMemo(() => {
     return stations.filter((s) => {
-      if (s.x === 0 && s.y === 0) return false;
+      if (hiddenRoutes.includes(s.route_idx)) return false;
       const line = routes[s.route_idx];
       return !line || line.gtfsRouteId !== null || line.syntheticSchedule !== null;
     });
-  }, [stations, routes]);
+  }, [stations, routes, hiddenRoutes]);
 
   const disclosures = useMemo(() => {
     if (!currentPlan || currentPlan.unreachable) {
@@ -44,6 +53,7 @@ export function RouteTab() {
   const submit = async () => {
     const client = activeSimClient.current;
     if (!client || !from || !to) return;
+    const reqId = ++reqCounterRef.current;
     setPlan(null);
     setPlans([]);
     setSelectedIndex(0);
@@ -56,6 +66,7 @@ export function RouteTab() {
         to.station_idx,
         client.getSimNow(),
       );
+      if (reqCounterRef.current !== reqId) return;
       if (!results || results.length === 0) {
         setStatus({ kind: "failed" });
         return;
@@ -65,6 +76,7 @@ export function RouteTab() {
       setPlan(results[0]);
       setStatus({ kind: "done" });
     } catch {
+      if (reqCounterRef.current !== reqId) return;
       setStatus({ kind: "failed" });
     }
   };

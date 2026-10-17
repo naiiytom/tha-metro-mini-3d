@@ -103,7 +103,14 @@ export function NavigationPanel() {
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    const currentIdx = TAB_ORDER.indexOf(activeTab || lastActiveTab.current || "lines");
+    const focusedTabId = (e.target as HTMLElement | null)
+      ?.closest?.("button[role='tab']")
+      ?.id?.replace(/^tab-/, "") as NavigationTab | undefined;
+    const baseTab =
+      focusedTabId && TAB_ORDER.includes(focusedTabId)
+        ? focusedTabId
+        : activeTab || lastActiveTab.current || "lines";
+    const currentIdx = TAB_ORDER.indexOf(baseTab);
     if (currentIdx === -1) return;
 
     let targetIdx = -1;
@@ -128,25 +135,37 @@ export function NavigationPanel() {
   };
 
   const hasMobileInspection = isMobile && (selectedStation !== null || selectedRunIdx !== null);
-  if (hasMobileInspection) return null;
+  if (hasMobileInspection && !uiHidden) return null;
 
   const bodyVisible = (isMobile || expanded) && activeTab !== null && !uiHidden;
   const currentTab = activeTab || lastActiveTab.current || "lines";
 
   return (
-    <nav
-      ref={isMobile ? sheetRef : undefined}
-      aria-label={t("nav.ariaLabel")}
-      data-testid="navigation-panel"
-      style={isMobile && translateY !== undefined ? { transform: `translateY(${translateY}px)` } : undefined}
-      className={`panel-glass pointer-events-auto overflow-hidden transition-all ${
-        isMobile
-          ? "fixed inset-x-0 bottom-0 z-30 flex h-[85dvh] max-h-[85dvh] w-full flex-col rounded-t-[28px] rounded-b-none border-t border-edge border-x-0 border-b-0 pb-[max(0.75rem,env(safe-area-inset-bottom))] pl-[max(0rem,env(safe-area-inset-left))] pr-[max(0rem,env(safe-area-inset-right))]"
-          : `absolute left-4 top-4 z-20 rounded-2xl border max-h-[calc(100dvh-2rem)] ${
-              expanded ? "w-88" : "w-12"
-            }`
-      } ${uiHidden ? (isMobile ? "translate-y-full" : "hidden") : ""}`}
-    >
+    <>
+      {uiHidden && (
+        <button
+          type="button"
+          onClick={() => setUiHidden(false)}
+          aria-label={t("nav.showUi")}
+          title={t("nav.showUi")}
+          className="fixed left-4 top-4 z-40 flex h-11 w-11 items-center justify-center rounded-full panel-glass border border-edge text-ink shadow-lg hover:bg-surface md:h-10 md:w-10 pointer-events-auto"
+        >
+          👁️
+        </button>
+      )}
+      <nav
+        ref={isMobile ? sheetRef : undefined}
+        aria-label={t("nav.ariaLabel")}
+        data-testid="navigation-panel"
+        style={isMobile && translateY !== undefined ? { transform: `translateY(${translateY}px)` } : undefined}
+        className={`panel-glass pointer-events-auto overflow-hidden transition-all ${
+          isMobile
+            ? "fixed inset-x-0 bottom-0 z-30 flex h-[85dvh] max-h-[85dvh] w-full flex-col rounded-t-[28px] rounded-b-none border-t border-edge border-x-0 border-b-0 pb-[max(0.75rem,env(safe-area-inset-bottom))] pl-[max(0rem,env(safe-area-inset-left))] pr-[max(0rem,env(safe-area-inset-right))]"
+            : `absolute left-4 top-4 z-20 rounded-2xl border max-h-[calc(100dvh-2rem)] ${
+                expanded ? "w-88" : "w-12"
+              }`
+        } ${uiHidden ? (isMobile ? "translate-y-full hidden" : "hidden") : ""}`}
+      >
       {/* Mobile Drag Handle */}
       {isMobile && (
         <div
@@ -182,12 +201,12 @@ export function NavigationPanel() {
           {/* Mobile Hide UI Toggle */}
           <button
             type="button"
-            onClick={() => setUiHidden(!uiHidden)}
-            aria-label={uiHidden ? t("nav.showUi") : t("nav.hideUi")}
-            title={uiHidden ? t("nav.showUi") : t("nav.hideUi")}
+            onClick={() => setUiHidden(true)}
+            aria-label={t("nav.hideUi")}
+            title={t("nav.hideUi")}
             className="flex h-11 w-11 min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-lg text-sm text-ink-muted hover:bg-surface-sunken md:h-8 md:w-8 md:min-h-0 md:min-w-0"
           >
-            {uiHidden ? "👁️" : "✕"}
+            ✕
           </button>
 
           {/* Desktop Collapse Toggle */}
@@ -242,7 +261,7 @@ export function NavigationPanel() {
               aria-label={tab.label}
               aria-selected={isSelected}
               aria-controls={`tabpanel-${tab.id}`}
-              tabIndex={isSelected || (!expanded && tab.id === "lines") ? 0 : -1}
+              tabIndex={isSelected || (activeTab === null && tab.id === "lines") ? 0 : -1}
               onClick={() => handleTabClick(tab.id)}
               title={tab.description}
               className={`flex items-center justify-center gap-1.5 rounded-lg text-xs font-medium transition-all ${
@@ -278,6 +297,7 @@ export function NavigationPanel() {
         </div>
       )}
     </nav>
+    </>
   );
 }
 

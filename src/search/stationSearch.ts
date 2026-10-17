@@ -113,6 +113,8 @@ export function groupByRoute(stations: StationInfo[]): StationGroup[] {
   return groups;
 }
 
+import { translate } from "../i18n";
+
 /**
  * Format browser geolocation error codes into human-readable user messages.
  */
@@ -120,27 +122,15 @@ export function geoErrorMessage(
   err: GeolocationPositionError | { code: number },
   lang: "en" | "th" = "en",
 ): string {
-  if (lang === "th") {
-    switch (err.code) {
-      case 1:
-        return "ไม่ได้รับอนุญาตให้เข้าถึงตำแหน่ง";
-      case 2:
-        return "ไม่สามารถระบุตำแหน่งได้";
-      case 3:
-        return "หมดเวลาขอข้อมูลตำแหน่ง";
-      default:
-        return "ไม่สามารถระบุตำแหน่งของคุณได้";
-    }
-  }
   switch (err.code) {
     case 1:
-      return "Location permission denied.";
+      return translate(lang, "stations.geoPermissionDenied");
     case 2:
-      return "Location unavailable.";
+      return translate(lang, "stations.geoUnavailable");
     case 3:
-      return "Location request timed out.";
+      return translate(lang, "stations.geoTimeout");
     default:
-      return "Could not determine your location.";
+      return translate(lang, "stations.geoFailed");
   }
 }
 
@@ -148,11 +138,9 @@ export function geoErrorMessage(
  * Format distance in meters into human-readable km or m.
  */
 export function formatDistance(distanceM: number, lang: "en" | "th" = "en"): string {
-  if (lang === "th") {
-    return distanceM >= 1000
-      ? `${(distanceM / 1000).toFixed(1)} กม.`
-      : `${Math.round(distanceM)} ม.`;
+  if (distanceM >= 1000) {
+    return `${(distanceM / 1000).toFixed(1)} ${translate(lang, "units.km")}`;
   }
-  return distanceM >= 1000 ? `${(distanceM / 1000).toFixed(1)} km` : `${Math.round(distanceM)} m`;
+  return `${Math.round(distanceM)} ${translate(lang, "units.m")}`;
 }
 

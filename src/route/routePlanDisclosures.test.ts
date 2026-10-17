@@ -1,11 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { PlanLeg, RoutePlan } from "../sim/protocol";
-import {
-  ESTIMATED_RUN_TIMES_NOTE,
-  SYNTHETIC_SCHEDULE_NOTE,
-  TRANSFER_TIMES_ESTIMATED_NOTE,
-  type LineGeometry,
-} from "../types";
+import type { LineGeometry } from "../types";
+import { en } from "../i18n/locales/en";
 import { planDisclosures } from "./routePlanDisclosures";
 
 function line(overrides: Partial<LineGeometry> = {}): LineGeometry {
@@ -132,9 +128,9 @@ describe("planDisclosures", () => {
     expect(planDisclosures(plan([ride(99)]), ROUTES).synthetic).toBe(false);
   });
 
-  it("uses a distinct note from the two that already exist", () => {
-    expect(TRANSFER_TIMES_ESTIMATED_NOTE).not.toBe(SYNTHETIC_SCHEDULE_NOTE);
-    expect(TRANSFER_TIMES_ESTIMATED_NOTE).not.toBe(ESTIMATED_RUN_TIMES_NOTE);
-    expect(TRANSFER_TIMES_ESTIMATED_NOTE.toLowerCase()).toContain("transfer");
+  it("uses distinct note keys in en locale", () => {
+    expect(en["notes.transferTimesEstimated"]).not.toBe(en["notes.syntheticSchedule"]);
+    expect(en["notes.transferTimesEstimated"]).not.toBe(en["notes.estimatedRunTimes"]);
+    expect(en["notes.transferTimesEstimated"].toLowerCase()).toContain("transfer");
   });
 });

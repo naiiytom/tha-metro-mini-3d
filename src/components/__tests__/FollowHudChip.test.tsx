@@ -66,4 +66,10 @@ describe("FollowHudChip", () => {
 
     expect(onCenter).toHaveBeenCalledTimes(1);
   });
+
+  it("does not render speed badge when speedKmh is undefined", () => {
+    useAppStore.setState({ following: true });
+    render(<FollowHudChip lineName="Sukhumvit Line" trainId={42} />);
+    expect(screen.queryByText(/km\/h/)).toBeNull();
+  });
 });

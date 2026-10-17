@@ -12,12 +12,13 @@ type GeoState =
   | { status: "idle" }
   | { status: "loading" }
   | { status: "ready"; userLocal: [number, number] }
-  | { status: "error"; message: string };
+  | { status: "error"; code: number };
 
 export function StationsTab() {
   const t = useT();
   const stations = useAppStore((s) => s.stations);
   const routes = useAppStore((s) => s.routes);
+  const hiddenRoutes = useAppStore((s) => s.hiddenRoutes);
   const selectStation = useAppStore((s) => s.selectStation);
   const requestFlyTo = useAppStore((s) => s.requestFlyTo);
   const primaryLang = useAppStore((s) => s.primaryLang);
@@ -29,7 +30,7 @@ export function StationsTab() {
     if (requestedRef.current) return;
     requestedRef.current = true;
     if (typeof navigator === "undefined" || !("geolocation" in navigator)) {
-      setGeo({ status: "error", message: t("stations.geoNotSupported") });
+      setGeo({ status: "error", code: 0 });
       return;
     }
     setGeo({ status: "loading" });
@@ -40,21 +41,21 @@ export function StationsTab() {
           userLocal: lngLatToLocal(pos.coords.longitude, pos.coords.latitude),
         });
       },
-      (err) => setGeo({ status: "error", message: geoErrorMessage(err, primaryLang) }),
+      (err) => setGeo({ status: "error", code: err.code }),
       { timeout: 8000, maximumAge: 300_000 },
     );
-  }, [t, primaryLang]);
+  }, []);
 
   const visibleStations = useMemo(() => {
     const list: StationInfo[] = [];
     for (const s of stations) {
-      if (s.x === 0 && s.y === 0) continue;
+      if (hiddenRoutes.includes(s.route_idx)) continue;
       const line = routes[s.route_idx];
       if (line && line.gtfsRouteId === null && line.syntheticSchedule === null) continue;
       list.push(s);
     }
     return list;
-  }, [stations, routes]);
+  }, [stations, routes, hiddenRoutes]);
 
   const nearest = useMemo(() => {
     if (geo.status !== "ready") return null;
@@ -94,7 +95,9 @@ export function StationsTab() {
           <p className="mt-1 text-xs text-ink-muted">{t("stations.findingLocation")}</p>
         )}
         {geo.status === "error" && (
-          <p className="mt-1 text-xs text-ink-muted">{geo.message}</p>
+          <p className="mt-1 text-xs text-ink-muted">
+            {geo.code === 0 ? t("stations.geoNotSupported") : geoErrorMessage({ code: geo.code }, primaryLang)}
+          </p>
         )}
         {geo.status === "ready" && !nearest && (
           <p className="mt-1 text-xs text-ink-muted">{t("stations.noStationsNearby")}</p>

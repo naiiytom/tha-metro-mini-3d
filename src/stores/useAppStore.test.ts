@@ -1,4 +1,4 @@
-﻿import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import type { RoutePlan } from "../sim/protocol";
 import { useAppStore } from "./useAppStore";
 
@@ -66,73 +66,15 @@ describe("train scale", () => {
   });
 });
 
-describe("station search", () => {
-  beforeEach(() => useAppStore.setState({ searchOpen: false, cameraFlightRequest: null }));
+describe("camera flight request", () => {
+  beforeEach(() => useAppStore.setState({ cameraFlightRequest: null }));
 
-  it("defaults to closed with no pending fly-to request", () => {
-    expect(useAppStore.getState().searchOpen).toBe(false);
+  it("defaults to null and sets/clears a fly-to request", () => {
     expect(useAppStore.getState().cameraFlightRequest).toBeNull();
-  });
-
-  it("opens and closes the search panel", () => {
-    useAppStore.getState().setSearchOpen(true);
-    expect(useAppStore.getState().searchOpen).toBe(true);
-    useAppStore.getState().setSearchOpen(false);
-    expect(useAppStore.getState().searchOpen).toBe(false);
-  });
-
-  it("sets and clears a fly-to request", () => {
     useAppStore.getState().requestFlyTo({ lng: 100.5, lat: 13.75 });
     expect(useAppStore.getState().cameraFlightRequest).toEqual({ lng: 100.5, lat: 13.75 });
     useAppStore.getState().clearFlyToRequest();
     expect(useAppStore.getState().cameraFlightRequest).toBeNull();
-  });
-});
-
-describe("search/selection mutual exclusion", () => {
-  beforeEach(() =>
-    useAppStore.setState({
-      searchOpen: false,
-      selectedStation: null,
-      selectedRunIdx: null,
-      following: false,
-    }),
-  );
-
-  it("opening search clears an existing station selection", () => {
-    useAppStore.getState().selectStation({ routeIdx: 0, stationIdx: 1 });
-    useAppStore.getState().setSearchOpen(true);
-    expect(useAppStore.getState().searchOpen).toBe(true);
-    expect(useAppStore.getState().selectedStation).toBeNull();
-  });
-
-  it("opening search clears an existing run selection and drops following", () => {
-    useAppStore.getState().selectRun(5);
-    useAppStore.getState().setFollowing(true);
-    useAppStore.getState().setSearchOpen(true);
-    expect(useAppStore.getState().searchOpen).toBe(true);
-    expect(useAppStore.getState().selectedRunIdx).toBeNull();
-    expect(useAppStore.getState().following).toBe(false);
-  });
-
-  it("closing search does not disturb an unrelated selection", () => {
-    useAppStore.setState({ searchOpen: true });
-    useAppStore.getState().setSearchOpen(false);
-    expect(useAppStore.getState().searchOpen).toBe(false);
-  });
-
-  it("selecting a station closes an open search panel", () => {
-    useAppStore.getState().setSearchOpen(true);
-    useAppStore.getState().selectStation({ routeIdx: 0, stationIdx: 2 });
-    expect(useAppStore.getState().searchOpen).toBe(false);
-    expect(useAppStore.getState().selectedStation).toEqual({ routeIdx: 0, stationIdx: 2 });
-  });
-
-  it("selecting a run closes an open search panel", () => {
-    useAppStore.getState().setSearchOpen(true);
-    useAppStore.getState().selectRun(3);
-    expect(useAppStore.getState().searchOpen).toBe(false);
-    expect(useAppStore.getState().selectedRunIdx).toBe(3);
   });
 });
 
@@ -146,61 +88,15 @@ const PLAN: RoutePlan = {
   legs: [],
 };
 
-describe("route planner store slice", () => {
+describe("route plan store slice", () => {
   beforeEach(() => {
     useAppStore.setState({
-      routePlannerOpen: false,
       routePlan: null,
-      searchOpen: false,
-      selectedRunIdx: null,
-      selectedStation: null,
-      following: false,
     });
   });
 
-  it("defaults to closed with no plan", () => {
-    expect(useAppStore.getState().routePlannerOpen).toBe(false);
+  it("defaults to null plan", () => {
     expect(useAppStore.getState().routePlan).toBeNull();
-  });
-
-  it("opening it clears any selection, follow state, and open search", () => {
-    // Same mutual exclusion setSearchOpen already enforces: without it the
-    // planner stacks on an open TrainInspector/StationBoard and overflows the
-    // mobile bottom-sheet stack.
-    useAppStore.setState({
-      searchOpen: true,
-      selectedRunIdx: 7,
-      selectedStation: { routeIdx: 1, stationIdx: 2 },
-      following: true,
-    });
-    useAppStore.getState().setRoutePlannerOpen(true);
-    const s = useAppStore.getState();
-    expect(s.routePlannerOpen).toBe(true);
-    expect(s.searchOpen).toBe(false);
-    expect(s.selectedRunIdx).toBeNull();
-    expect(s.selectedStation).toBeNull();
-    expect(s.following).toBe(false);
-  });
-
-  it("closing it drops the plan, so the map highlight clears with the panel", () => {
-    useAppStore.getState().setRoutePlannerOpen(true);
-    useAppStore.getState().setRoutePlan(PLAN);
-    useAppStore.getState().setRoutePlannerOpen(false);
-    expect(useAppStore.getState().routePlan).toBeNull();
-  });
-
-  it("selecting a train or a station closes the planner and drops the plan", () => {
-    for (const act of [
-      () => useAppStore.getState().selectRun(3),
-      () => useAppStore.getState().selectStation({ routeIdx: 0, stationIdx: 0 }),
-      () => useAppStore.getState().setSearchOpen(true),
-    ]) {
-      useAppStore.getState().setRoutePlannerOpen(true);
-      useAppStore.getState().setRoutePlan(PLAN);
-      act();
-      expect(useAppStore.getState().routePlannerOpen).toBe(false);
-      expect(useAppStore.getState().routePlan).toBeNull();
-    }
   });
 
   it("setRoutePlan replaces rather than merges, so a new search clears the old highlight", () => {
@@ -213,31 +109,51 @@ describe("route planner store slice", () => {
   });
 });
 
-describe("navigation tabs", () => {
-  beforeEach(() => useAppStore.setState({ activeTab: "lines" }));
+describe("navigation tabs and mutual exclusion", () => {
+  beforeEach(() => {
+    useAppStore.setState({
+      activeTab: "lines",
+      selectedRunIdx: null,
+      selectedStation: null,
+      following: false,
+      routePlan: null,
+    });
+  });
 
   it("defaults activeTab to lines", () => {
     expect(useAppStore.getState().activeTab).toBe("lines");
   });
 
-  it("switches activeTab and synchronizes backward-compatible flags", () => {
+  it("switching activeTab clears train/station selection and following", () => {
+    useAppStore.setState({
+      selectedRunIdx: 5,
+      selectedStation: { routeIdx: 0, stationIdx: 1 },
+      following: true,
+    });
     useAppStore.getState().setActiveTab("stations");
     expect(useAppStore.getState().activeTab).toBe("stations");
-    expect(useAppStore.getState().searchOpen).toBe(true);
-    expect(useAppStore.getState().routePlannerOpen).toBe(false);
+    expect(useAppStore.getState().selectedRunIdx).toBeNull();
+    expect(useAppStore.getState().selectedStation).toBeNull();
+    expect(useAppStore.getState().following).toBe(false);
+  });
 
+  it("switching away from route tab drops the routePlan", () => {
     useAppStore.getState().setActiveTab("route");
-    expect(useAppStore.getState().activeTab).toBe("route");
-    expect(useAppStore.getState().routePlannerOpen).toBe(true);
-    expect(useAppStore.getState().searchOpen).toBe(false);
+    useAppStore.getState().setRoutePlan(PLAN);
+    expect(useAppStore.getState().routePlan).toBe(PLAN);
 
-    useAppStore.getState().setActiveTab("about");
-    expect(useAppStore.getState().activeTab).toBe("about");
-    expect(useAppStore.getState().searchOpen).toBe(false);
-    expect(useAppStore.getState().routePlannerOpen).toBe(false);
+    useAppStore.getState().setActiveTab("lines");
+    expect(useAppStore.getState().routePlan).toBeNull();
+  });
 
-    useAppStore.getState().setActiveTab(null);
-    expect(useAppStore.getState().activeTab).toBeNull();
+  it("selecting a train or a station clears routePlan", () => {
+    useAppStore.getState().setRoutePlan(PLAN);
+    useAppStore.getState().selectRun(3);
+    expect(useAppStore.getState().routePlan).toBeNull();
+
+    useAppStore.getState().setRoutePlan(PLAN);
+    useAppStore.getState().selectStation({ routeIdx: 0, stationIdx: 0 });
+    expect(useAppStore.getState().routePlan).toBeNull();
   });
 
   it("toggleTab collapses if already active or switches if different", () => {

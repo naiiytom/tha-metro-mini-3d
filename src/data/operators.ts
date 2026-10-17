@@ -34,14 +34,14 @@ export const TRANSIT_OPERATORS: TransitOperator[] = [
     nameEn: "MRT Bangkok Metro",
     nameTh: "รถไฟฟ้ามหานคร",
     brandColor: "#1964B7",
-    lineKeys: ["blue", "purple", "yellow", "pink", "orange", "purple-ext"],
+    lineKeys: ["blue", "purple", "yellow", "pink", "orange", "purple-ext", "pink-spur"],
   },
   {
     id: "srt",
     nameEn: "SRT Commuter & Airport Link",
     nameTh: "รถไฟชานเมืองและแอร์พอร์ต เรล ลิงก์",
     brandColor: "#85172C",
-    lineKeys: ["arl", "dark-red", "light-red"],
+    lineKeys: ["arl", "red-dark", "red-light", "dark-red", "light-red"],
   },
   {
     id: "bkk_airport",

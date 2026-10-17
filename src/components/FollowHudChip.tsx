@@ -79,10 +79,8 @@ export function FollowHudChip({
   const resolvedSpeed =
     speedKmh !== undefined
       ? speedKmh
-      : detail
-        ? detail.state === 0
-          ? 0
-          : 56
+      : detail?.state === 0
+        ? 0
         : undefined;
 
   const handleUnfollow = () => {
