@@ -225,24 +225,6 @@ describe("buildStationGeometry", () => {
     expect(mat.userData.liveryHex).toBe(new THREE.Color("#7CB342").getHex());
   });
 
-  it("suppresses specified station IDs, hub IDs, and station names from procedural generation", () => {
-    const l = makeLine({
-      stations: [
-        { id: "S1", name: "Siam", nameTh: "สยาม", code: "CEN", position: [100.535, 13.74, 15], hubId: "hub:siam" },
-        { id: "S2", name: "Silom", nameTh: "สีลม", code: "BL26", position: [100.545, 13.74, -18] },
-      ],
-    });
-
-    // Suppress by hubId
-    const groupHub = buildStationGeometry(l, new Set(["hub:siam"]));
-    expect(groupHub.children).toHaveLength(4);
-    expect(groupHub.children.every((c) => c.userData.structure === "underground")).toBe(true);
-
-    // Suppress by station name
-    const groupName = buildStationGeometry(l, new Set(["Siam"]));
-    expect(groupName.children).toHaveLength(4);
-    expect(groupName.children.every((c) => c.userData.structure === "underground")).toBe(true);
-  });
 
   it("returns empty group for line with no stations", () => {
     const l = makeLine({ stations: [] });

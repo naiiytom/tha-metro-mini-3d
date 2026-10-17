@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { NIGHT_THEME, mixColor, nightFactor, parseColor } from "./basemapTheme";
+import { NIGHT_THEME, mixParsedColor, nightFactor, parseColor } from "./basemapTheme";
 
 /** Relative luminance (simple perceptual weighting) from a "#rrggbb" string. */
 function luminance(hex: string): number {
@@ -127,13 +127,13 @@ describe("night theming composition (regression: t must be applied exactly once)
     const original = "#3355ff";
     const t = 0.5;
 
-    const applied = mixColor(original, NIGHT_THEME.water, t);
-
-    // Independently computed component-by-component, not by calling
-    // mixColor again, so this doesn't just restate the implementation
-    // under test.
     const orig = parseColor(original)!;
     const night = parseColor(NIGHT_THEME.water)!;
+    const applied = mixParsedColor(orig, night, t);
+
+    // Independently computed component-by-component, not by calling
+    // mixParsedColor again, so this doesn't just restate the implementation
+    // under test.
     const direct = `#${[orig.r, orig.g, orig.b]
       .map((c, i) => Math.round(c + ([night.r, night.g, night.b][i] - c) * t))
       .map((v) => v.toString(16).padStart(2, "0"))
@@ -143,26 +143,31 @@ describe("night theming composition (regression: t must be applied exactly once)
   });
 });
 
-describe("mixColor", () => {
+describe("mixParsedColor", () => {
   it("at t=0 returns exactly the original colour, preserving alpha", () => {
-    expect(mixColor("rgba(255, 255, 255, 0.7)", "#0a1220", 0)).toBe("rgba(255, 255, 255, 0.7)");
+    const from = parseColor("rgba(255, 255, 255, 0.7)")!;
+    const to = parseColor("#0a1220")!;
+    expect(mixParsedColor(from, to, 0)).toBe("rgba(255, 255, 255, 0.7)");
   });
 
   it("at t=1 takes the target's hue but keeps the original's alpha", () => {
-    expect(mixColor("rgba(255, 255, 255, 0.7)", "#0a1220", 1)).toBe("rgba(10, 18, 32, 0.7)");
+    const from = parseColor("rgba(255, 255, 255, 0.7)")!;
+    const to = parseColor("#0a1220")!;
+    expect(mixParsedColor(from, to, 1)).toBe("rgba(10, 18, 32, 0.7)");
   });
 
   it("never writes an opacity property — it stays a colour string throughout", () => {
-    // No literal 'opacity' key anywhere in the output shape; alpha travels
-    // only inside the colour string itself, same as the input did.
-    const out = mixColor("#ffffff", "#0a1220", 0.5);
+    const from = parseColor("#ffffff")!;
+    const to = parseColor("#0a1220")!;
+    const out = mixParsedColor(from, to, 0.5);
     expect(out).toMatch(/^#[0-9a-f]{6}$/i);
   });
 
   it("recomputing twice from the same original is stable (no compounding)", () => {
-    const original = "#f8f4f0";
-    const first = mixColor(original, "#0a1220", 0.5);
-    const second = mixColor(original, "#0a1220", 0.5);
+    const from = parseColor("#f8f4f0")!;
+    const to = parseColor("#0a1220")!;
+    const first = mixParsedColor(from, to, 0.5);
+    const second = mixParsedColor(from, to, 0.5);
     expect(first).toBe(second);
   });
 });

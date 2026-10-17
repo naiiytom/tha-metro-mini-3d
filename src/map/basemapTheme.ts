@@ -211,25 +211,3 @@ export function mixParsedColor(from: RgbaColor, to: RgbaColor, t: number): strin
   });
 }
 
-/**
- * Blend a real CSS colour (any form `parseColor` accepts) toward another
- * such colour by `t` (0 = `from` unchanged, 1 = `to`). The caller must
- * always pass the layer's *original* colour as `from` — blending from a
- * previously-blended result compounds every call and drifts the whole map
- * to black. `from`'s alpha is preserved unchanged (a translucent halo stays
- * translucent); only hue/lightness move toward `to`, whose alpha `mixColor`
- * ignores (this module's own night palette is always opaque — day/night is
- * a colour choice, not an opacity one; `*-opacity` paint properties belong
- * to Task 7's underground mode, not this module).
- *
- * Throws if either colour is not one `parseColor` recognises — callers
- * should have already filtered with `parseColor` at classification time,
- * so this should never fire in practice.
- */
-export function mixColor(from: string, to: string, t: number): string {
-  const a = parseColor(from);
-  const b = parseColor(to);
-  if (!a) throw new Error(`unsupported colour: ${from}`);
-  if (!b) throw new Error(`unsupported colour: ${to}`);
-  return mixParsedColor(a, b, t);
-}

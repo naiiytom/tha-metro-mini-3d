@@ -1,7 +1,5 @@
 import * as THREE from "three";
 import type { StationModelOverride } from "../types";
-import { STATION_MODELS } from "../../tools/lines.config.mjs";
-import { normalizedName } from "../stations/stationHubs";
 
 /**
  * Landmark 3D station model loader seam.
@@ -72,80 +70,33 @@ export async function loadStationModel(
   }
 }
 
+function disposeMaterialWithTextures(mat: THREE.Material): void {
+  for (const val of Object.values(mat)) {
+    if (
+      val instanceof THREE.Texture ||
+      (val && typeof val === "object" && "isTexture" in val && (val as { isTexture: boolean }).isTexture)
+    ) {
+      (val as THREE.Texture).dispose();
+    }
+  }
+  mat.dispose();
+}
+
 /**
- * Disposes all geometries and materials attached to a landmark station model tree.
+ * Disposes all geometries, materials, and attached textures in a landmark station model tree.
  */
 export function disposeStationModel(root: THREE.Object3D): void {
+  const disposedMaterials = new Set<THREE.Material>();
   root.traverse((node) => {
     if (node instanceof THREE.Mesh) {
       node.geometry?.dispose();
       const mats = Array.isArray(node.material) ? node.material : [node.material];
-      mats.forEach((m) => m?.dispose());
+      for (const m of mats) {
+        if (m && !disposedMaterials.has(m)) {
+          disposedMaterials.add(m);
+          disposeMaterialWithTextures(m);
+        }
+      }
     }
   });
-}
-
-/**
- * Finds matching station override by station code, hub ID, or station name.
- */
-export function findStationOverride(
-  stationCode: string,
-  hubId: string | null | undefined,
-  overrides: StationModelOverride[] = STATION_MODELS,
-  stationName?: string,
-): StationModelOverride | null {
-  const stopOverride = overrides.find((o) => o.id === stationCode);
-  if (stopOverride) return stopOverride;
-  if (hubId) {
-    const hubOverride = overrides.find((o) => o.id === hubId);
-    if (hubOverride) return hubOverride;
-  }
-  if (stationName) {
-    const norm = normalizedName(stationName);
-    const nameOverride = overrides.find((o) => {
-      const target = normalizedName(o.id.replace(/^hub:/, ""));
-      return target === norm || target.split(/[-\s]+/).includes(norm);
-    });
-    if (nameOverride) return nameOverride;
-  }
-  return null;
-}
-
-/**
- * Identifies all station stops that should be suppressed from procedural generation
- * because either their stop code, station name, or parent hub has an active .glb override.
- */
-export function collectSuppressedStationIds(
-  stations: { id: string | number; code?: string; hubId?: string; name?: string }[],
-  overrides: StationModelOverride[] = STATION_MODELS,
-): Set<string | number> {
-  const suppressed = new Set<string | number>();
-  const activeOverrides = overrides.filter((o) => o.suppressProcedural !== false);
-  if (activeOverrides.length === 0) return suppressed;
-
-  const overrideIds = new Set(activeOverrides.map((o) => o.id));
-  const normOverrideNames = activeOverrides.map((o) =>
-    normalizedName(o.id.replace(/^hub:/, "")),
-  );
-
-  for (const s of stations) {
-    const normName = s.name ? normalizedName(s.name) : "";
-    const isOverridden =
-      overrideIds.has(String(s.id)) ||
-      (Boolean(s.code) && overrideIds.has(s.code!)) ||
-      (Boolean(s.hubId) && overrideIds.has(s.hubId!)) ||
-      (Boolean(normName) &&
-        normOverrideNames.some(
-          (target) => target === normName || target.split(/[-\s]+/).includes(normName),
-        ));
-
-    if (isOverridden) {
-      suppressed.add(s.id);
-      if (s.code) suppressed.add(s.code);
-      if (s.hubId) suppressed.add(s.hubId);
-      if (s.name) suppressed.add(s.name);
-    }
-  }
-
-  return suppressed;
 }

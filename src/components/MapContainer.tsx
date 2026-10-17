@@ -38,14 +38,24 @@ import {
   reconcileStationAltitude,
 } from "../map/coordinates";
 import { SimClient, activeSimClient } from "../sim/SimClient";
-import { DEFAULT_TICK_MS, ECO_TICK_MS, LANE_RUN_IDX, LANE_Z, VEHICLE_STRIDE, type StationInfo } from "../sim/protocol";
+import {
+  DEFAULT_TICK_MS,
+  ECO_TICK_MS,
+  LANE_RUN_IDX,
+  LANE_X,
+  LANE_Y,
+  LANE_YAW,
+  LANE_Z,
+  VEHICLE_STRIDE,
+  type StationInfo,
+} from "../sim/protocol";
 import { formatCountdown } from "../sim/time";
 import { translate } from "../i18n";
 import { useAppStore } from "../stores/useAppStore";
 import { assignStationHubIds, findStationHub } from "../stations/stationHubs";
 import { snapStationsToTrack } from "../map/stationGeometry";
 import network from "../data/network.json";
-import type { NetworkData } from "../types";
+import type { LineGeometry, NetworkData } from "../types";
 
 setWorkerUrl(maplibreWorkerUrl);
 
@@ -187,9 +197,11 @@ export function MapContainer() {
     // why this decides on altitude rather than the track's structure tag.
     let followedAltitudeM: number | null = null;
     let autoUnderground = initialAutoState();
-    const net = network as unknown as NetworkData;
+    const net: NetworkData = structuredClone(network as unknown as NetworkData);
+    const rawLines: LineGeometry[] = structuredClone(net.lines);
     snapStationsToTrack(net.lines);
     assignStationHubIds(net.lines);
+    (net as { _snapped?: boolean })._snapped = true;
 
     // Everything below is RE-CREATED on every style.load (map.setStyle()
     // destroys every custom layer). SimClient/FollowCamera/TrainTooltip and
@@ -205,6 +217,43 @@ export function MapContainer() {
     // the timetable cache, and the rAF loop/click handlers/tooltip are all
     // per-map, not per-style.
     let simInitialised = false;
+
+    // Day/night follows the SIM clock, not wall time (F3.3) — scrubbing to
+    // 22:00 must actually look like 22:00. Updated at ~2 Hz: at 60× warp
+    // that is still under 0.25° of solar motion per step, well below what
+    // is visible, and it keeps trigonometry off the frame path.
+    let lastSunUpdate = 0;
+    const updateSun = (now: number) => {
+      if (now - lastSunUpdate < 500) return;
+      lastSunUpdate = now;
+      const client = activeSimClient.current;
+      if (!client) return;
+      const dir = sunDirection(client.getSimNow());
+      const mode = useAppStore.getState().themeMode;
+      // Direction stays REAL in every mode (verify:mvp6 check 5 reads the
+      // light position); only the palette and the basemap blend use the
+      // mode-effective elevation.
+      const eff = effectiveElevationDeg(mode, dir.elevationDeg);
+      layer?.setSun(dir, skyPalette(eff), eff);
+      layer?.setSkyElevation(eff);
+      binding?.applyThemeElevation(eff);
+      document.documentElement.dataset.theme = effectiveTheme(mode, dir.elevationDeg);
+      // Solar-adaptive glassmorphism easing (spec §1): lerp glass opacity between
+      // 93% (full day, eff >= 0) and 96% (night, eff <= -6) so panels remain
+      // crisp and legible over the map while transitioning with the lighting cycle.
+      {
+        const dayPct = 95;
+        const nightPct = 96;
+        const t = Math.max(0, Math.min(1, (-eff) / 6));
+        const glassPct = Math.round(dayPct + (nightPct - dayPct) * t);
+        document.documentElement.style.setProperty(
+          "--glass-bg",
+          `color-mix(in srgb, var(--surface) ${glassPct}%, transparent)`
+        );
+      }
+    };
+
+    let lastEcoFrame = 0;
 
     /**
      * Resolve any line that declares a `.glb` override and swap the loaded
@@ -271,28 +320,83 @@ export function MapContainer() {
       const { vehicles, count } = client.getInterpolated(performance.now());
       const { selectedRunIdx, following } = useAppStore.getState();
       vehicleManager?.update(vehicles, count, selectedRunIdx);
-      // Read the follow target here (the buffer is already in hand) but move
-      // the camera in the rAF loop — jumpTo() inside render() re-enters
-      // MapLibre's render path.
-      follow.capture(vehicles, count, following ? selectedRunIdx : null);
-      // Unlike follow.capture above, this is NOT gated on `following` — the
-      // tooltip tracks whichever train is selected regardless of camera lock.
-      trainTooltip.capture(vehicles, count, selectedRunIdx);
-      // Followed train's altitude, for the auto-underground decision made in
-      // the rAF loop below. Reading it here is free (the buffer is in hand);
-      // acting on it here is not — setUndergroundMode goes through Zustand,
-      // which must never be written from the render path (§3A.7).
-      followedAltitudeM = null;
-      if (following && selectedRunIdx !== null) {
+
+      // Single-pass scan for the selected vehicle pose, shared across
+      // follow camera, train tooltip, and auto-underground altitude.
+      let targetPos: { x: number; y: number; z: number; yaw: number } | null = null;
+      if (selectedRunIdx !== null) {
         for (let i = 0; i < count; i++) {
-          if (vehicles[i * VEHICLE_STRIDE + LANE_RUN_IDX] === selectedRunIdx) {
-            followedAltitudeM = vehicles[i * VEHICLE_STRIDE + LANE_Z];
+          const base = i * VEHICLE_STRIDE;
+          if (vehicles[base + LANE_RUN_IDX] === selectedRunIdx) {
+            targetPos = {
+              x: vehicles[base + LANE_X],
+              y: vehicles[base + LANE_Y],
+              z: vehicles[base + LANE_Z],
+              yaw: vehicles[base + LANE_YAW],
+            };
             break;
           }
         }
       }
+
+      // Read the follow target here (the buffer is already in hand) but move
+      // the camera in the rAF loop — jumpTo() inside render() re-enters
+      // MapLibre's render path.
+      follow.capture(vehicles, count, following ? selectedRunIdx : null, following ? targetPos : null);
+      // Unlike follow.capture above, this is NOT gated on `following` — the
+      // tooltip tracks whichever train is selected regardless of camera lock.
+      trainTooltip.capture(vehicles, count, selectedRunIdx, targetPos);
+      // Followed train's altitude, for the auto-underground decision made in
+      // the rAF loop below. Reading it here is free (the buffer is in hand);
+      // acting on it here is not — setUndergroundMode goes through Zustand,
+      // which must never be written from the render path (§3A.7).
+      followedAltitudeM = following && targetPos ? targetPos.z : null;
       lastVehicles = vehicles;
       lastCount = count;
+    };
+
+    const applyStationHighlight = (
+      currentLayer: NetworkLayer | null,
+      selectedStation: { routeIdx: number; stationIdx: number } | null,
+      stations: StationInfo[],
+    ) => {
+      if (!currentLayer) return;
+      if (!selectedStation) {
+        currentLayer.setStationHighlight(null);
+        return;
+      }
+      const enrichStop = (st: StationInfo) => {
+        const line = net.lines[st.route_idx];
+        let heading = 0;
+        if (line?.track && line.track.length >= 2) {
+          const trackLocal = line.track.map((p) => {
+            const [x, y] = lngLatAltToLocal([p[0], p[1], p[2]]);
+            return { x, y };
+          });
+          heading = computeStationTangentHeading([st.x, st.y, st.z], trackLocal);
+        }
+        return {
+          x: st.x,
+          y: st.y,
+          z: st.z,
+          heading,
+          vehicleType: line?.vehicleType,
+        };
+      };
+
+      const hub = findStationHub(stations, selectedStation.routeIdx, selectedStation.stationIdx);
+      if (hub && hub.stops.length > 0) {
+        const stops = hub.stops
+          .map((stop) => stations.find((st) => st.route_idx === stop.routeIdx && st.station_idx === stop.stationIdx))
+          .filter((st): st is StationInfo => Boolean(st))
+          .map(enrichStop);
+        currentLayer.setStationHighlight(stops.length > 0 ? stops : null);
+      } else {
+        const station = stations.find(
+          (st) => st.route_idx === selectedStation.routeIdx && st.station_idx === selectedStation.stationIdx,
+        );
+        currentLayer.setStationHighlight(station ? [enrichStop(station)] : null);
+      }
     };
 
     // Visibility/underground/shadows/theme/basemap are all UI state, so they
@@ -364,42 +468,48 @@ export function MapContainer() {
         layer?.setRouteHighlight(highlightSpans(state.routePlan, state.hiddenRoutes));
         map.triggerRepaint();
       }
-      if (state.selectedStation !== prev.selectedStation || state.selectedHubId !== prev.selectedHubId) {
-        if (!state.selectedStation) {
-          layer?.setStationHighlight(null);
-        } else {
-          const enrichStop = (st: StationInfo) => {
-            const line = net.lines[st.route_idx];
-            let heading = 0;
-            if (line?.track && line.track.length >= 2) {
-              const trackLocal = line.track.map((p) => {
-                const [x, y] = lngLatAltToLocal([p[0], p[1], p[2]]);
-                return { x, y };
-              });
-              heading = computeStationTangentHeading([st.x, st.y, st.z], trackLocal);
-            }
-            return {
-              x: st.x,
-              y: st.y,
-              z: st.z,
-              heading,
-              vehicleType: line?.vehicleType,
-            };
-          };
-
-          const hub = findStationHub(state.stations, state.selectedStation.routeIdx, state.selectedStation.stationIdx);
-          if (hub && hub.stops.length > 0) {
-            const stops = hub.stops
-              .map((stop) => state.stations.find((st) => st.route_idx === stop.routeIdx && st.station_idx === stop.stationIdx))
-              .filter((st): st is StationInfo => Boolean(st))
-              .map(enrichStop);
-            layer?.setStationHighlight(stops.length > 0 ? stops : null);
-          } else {
-            const station = state.stations.find(
-              (st) => st.route_idx === state.selectedStation!.routeIdx && st.station_idx === state.selectedStation!.stationIdx,
-            );
-            layer?.setStationHighlight(station ? [enrichStop(station)] : null);
-          }
+      if (
+        state.selectedStation !== prev.selectedStation ||
+        state.selectedHubId !== prev.selectedHubId ||
+        state.primaryLang !== prev.primaryLang
+      ) {
+        lastEcoFrame = 0;
+        applyStationHighlight(layer, state.selectedStation, state.stations);
+        const view = layer?.viewProjection();
+        if (view) {
+          stationBillboards.apply(
+            view,
+            map.getZoom(),
+            {
+              hiddenRoutes: state.hiddenRoutes,
+              selectedStation: state.selectedStation,
+              uiHidden: state.uiHidden,
+              undergroundMode: state.undergroundMode,
+            },
+            state.stations,
+            state.routes,
+            state.primaryLang,
+          );
+        }
+        map.triggerRepaint();
+      }
+      if (state.uiHidden !== prev.uiHidden) {
+        lastEcoFrame = 0;
+        const view = layer?.viewProjection();
+        if (view) {
+          stationBillboards.apply(
+            view,
+            map.getZoom(),
+            {
+              hiddenRoutes: state.hiddenRoutes,
+              selectedStation: state.selectedStation,
+              uiHidden: state.uiHidden,
+              undergroundMode: state.undergroundMode,
+            },
+            state.stations,
+            state.routes,
+            state.primaryLang,
+          );
         }
         map.triggerRepaint();
       }
@@ -455,40 +565,15 @@ export function MapContainer() {
       {
         const s = useAppStore.getState();
         layer.setRouteHighlight(highlightSpans(s.routePlan, s.hiddenRoutes));
-        if (s.selectedStation) {
-          const enrichStop = (st: StationInfo) => {
-            const line = net.lines[st.route_idx];
-            let heading = 0;
-            if (line?.track && line.track.length >= 2) {
-              const trackLocal = line.track.map((p) => {
-                const [x, y] = lngLatAltToLocal([p[0], p[1], p[2]]);
-                return { x, y };
-              });
-              heading = computeStationTangentHeading([st.x, st.y, st.z], trackLocal);
-            }
-            return {
-              x: st.x,
-              y: st.y,
-              z: st.z,
-              heading,
-              vehicleType: line?.vehicleType,
-            };
-          };
+        applyStationHighlight(layer, s.selectedStation, s.stations);
+      }
 
-          const hub = findStationHub(s.stations, s.selectedStation.routeIdx, s.selectedStation.stationIdx);
-          if (hub && hub.stops.length > 0) {
-            const stops = hub.stops
-              .map((stop) => s.stations.find((st) => st.route_idx === stop.routeIdx && st.station_idx === stop.stationIdx))
-              .filter((st): st is StationInfo => Boolean(st))
-              .map(enrichStop);
-            layer.setStationHighlight(stops.length > 0 ? stops : null);
-          } else {
-            const station = s.stations.find(
-              (st) => st.route_idx === s.selectedStation!.routeIdx && st.station_idx === s.selectedStation!.stationIdx,
-            );
-            layer.setStationHighlight(station ? [enrichStop(station)] : null);
-          }
-        }
+      {
+        const c = map.getCenter();
+        const [e, n] = lngLatToLocal(c.lng, c.lat);
+        layer.setSkyCenter(e, n);
+        lastSunUpdate = 0;
+        updateSun(performance.now());
       }
 
       if (simInitialised) {
@@ -518,7 +603,7 @@ export function MapContainer() {
           void sim
             ?.getStations()
             .then((stations) =>
-              useAppStore.getState().setStations(reconcileStationAltitude(stations, net.lines)),
+              useAppStore.getState().setStations(reconcileStationAltitude(stations, rawLines)),
             )
             .catch(() => undefined);
         },
@@ -534,6 +619,8 @@ export function MapContainer() {
         },
       });
       activeSimClient.current = sim;
+      lastSunUpdate = 0;
+      updateSun(performance.now());
 
       // Tooltip content (headsign/next-stop) is UI-rate, not per-frame, so a
       // plain 1 Hz poll is fine — the same query and cadence TrainInspector.tsx
@@ -596,44 +683,8 @@ export function MapContainer() {
         }
       });
 
-      // Day/night follows the SIM clock, not wall time (F3.3) — scrubbing to
-      // 22:00 must actually look like 22:00. Updated at ~2 Hz: at 60× warp
-      // that is still under 0.25° of solar motion per step, well below what
-      // is visible, and it keeps trigonometry off the frame path.
-      let lastSunUpdate = 0;
-      const updateSun = (now: number) => {
-        if (now - lastSunUpdate < 500) return;
-        lastSunUpdate = now;
-        const client = activeSimClient.current;
-        if (!client) return;
-        const dir = sunDirection(client.getSimNow());
-        const mode = useAppStore.getState().themeMode;
-        // Direction stays REAL in every mode (verify:mvp6 check 5 reads the
-        // light position); only the palette and the basemap blend use the
-        // mode-effective elevation.
-        const eff = effectiveElevationDeg(mode, dir.elevationDeg);
-        layer?.setSun(dir, skyPalette(eff), eff);
-        layer?.setSkyElevation(eff);
-        binding?.applyThemeElevation(eff);
-        document.documentElement.dataset.theme = effectiveTheme(mode, dir.elevationDeg);
-        // Solar-adaptive glassmorphism easing (spec §1): lerp glass opacity between
-        // 93% (full day, eff >= 0) and 96% (night, eff <= -6) so panels remain
-        // crisp and legible over the map while transitioning with the lighting cycle.
-        {
-          const dayPct = 95;
-          const nightPct = 96;
-          const t = Math.max(0, Math.min(1, (-eff) / 6));
-          const glassPct = Math.round(dayPct + (nightPct - dayPct) * t);
-          document.documentElement.style.setProperty(
-            "--glass-bg",
-            `color-mix(in srgb, var(--surface) ${glassPct}%, transparent)`
-          );
-        }
-      };
-
       // MapLibre only repaints on demand — keep frames coming while the
       // engine is running.
-      let lastEcoFrame = 0;
       let lastRafTime = performance.now();
       const loop = () => {
         const s = useAppStore.getState();
@@ -666,8 +717,8 @@ export function MapContainer() {
               autoUnderground = d.next;
               if (d.setUndergroundTo !== null) s.setUndergroundMode(d.setUndergroundTo);
             }
-            trainTooltip.apply(map, s.uiHidden);
-            const view = layer?.viewProjection();
+            const view = layer?.viewProjection() ?? null;
+            trainTooltip.apply(map, s.uiHidden, view);
             if (view) {
               stationBillboards.apply(
                 view,
@@ -880,18 +931,21 @@ export function MapContainer() {
     const unsubscribeMap3D = useAppStore.subscribe((state, prev) => {
       if (state.map3D !== prev.map3D) {
         if (isManualPitching) return;
-        isEasingMap3D = true;
-        map.easeTo({
-          pitch: state.map3D ? 55 : 0,
-          duration: 800,
-        });
+        const targetPitch = state.map3D ? 55 : 0;
+        if (Math.abs(map.getPitch() - targetPitch) >= 0.5) {
+          isEasingMap3D = true;
+          map.easeTo({
+            pitch: targetPitch,
+            duration: 800,
+          });
+        }
       }
     });
 
-    const onMapPitchEnd = () => {
+    const onMapPitchEnd = (e?: unknown) => {
       if (isEasingMap3D) {
         isEasingMap3D = false;
-        return;
+        if (!(e as { originalEvent?: unknown })?.originalEvent) return;
       }
       const currentPitch = map.getPitch();
       const is3D = currentPitch >= 10;

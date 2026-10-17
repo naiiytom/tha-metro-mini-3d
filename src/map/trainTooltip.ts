@@ -1,6 +1,7 @@
 import type { Map as MapLibreMap } from "maplibre-gl";
-import { LANE_RUN_IDX, LANE_X, LANE_Y, VEHICLE_STRIDE } from "../sim/protocol";
+import { LANE_RUN_IDX, LANE_X, LANE_Y, LANE_Z, VEHICLE_STRIDE } from "../sim/protocol";
 import { localToLngLat } from "./coordinates";
+import { projectLocal, type ViewProjection } from "./screenProject";
 
 /**
  * Scan an interpolated vehicle buffer for `runIdx`'s current position.
@@ -12,11 +13,11 @@ export function findVehiclePosition(
   vehicles: Float32Array,
   count: number,
   runIdx: number,
-): { x: number; y: number } | null {
+): { x: number; y: number; z: number } | null {
   for (let i = 0; i < count; i++) {
     const o = i * VEHICLE_STRIDE;
     if (vehicles[o + LANE_RUN_IDX] === runIdx) {
-      return { x: vehicles[o + LANE_X], y: vehicles[o + LANE_Y] };
+      return { x: vehicles[o + LANE_X], y: vehicles[o + LANE_Y], z: vehicles[o + LANE_Z] };
     }
   }
   return null;
@@ -61,6 +62,7 @@ export class TrainTooltip {
   private readonly text: HTMLSpanElement;
   private capturedX: number | null = null;
   private capturedY: number | null = null;
+  private capturedZ: number | null = null;
   private selected = false;
 
   constructor(container: HTMLElement) {
@@ -98,29 +100,45 @@ export class TrainTooltip {
    *  `selectedRunIdx` unconditionally (not gated on `following`) — that's
    *  what makes the tooltip track whenever a train is selected, not only
    *  while the camera is locked onto it. */
-  capture(vehicles: Float32Array, count: number, selectedRunIdx: number | null): void {
+  capture(
+    vehicles: Float32Array,
+    count: number,
+    selectedRunIdx: number | null,
+    prefoundPos?: { x: number; y: number; z: number } | null,
+  ): void {
     this.selected = selectedRunIdx !== null;
     // findVehiclePosition returns null both when nothing is selected and
     // when the selected run isn't currently active (finished, or not yet
     // started) — either way there's nowhere to draw the label this frame.
-    const pos = selectedRunIdx === null ? null : findVehiclePosition(vehicles, count, selectedRunIdx);
+    const pos = selectedRunIdx === null
+      ? null
+      : prefoundPos !== undefined
+        ? prefoundPos
+        : findVehiclePosition(vehicles, count, selectedRunIdx);
     this.capturedX = pos?.x ?? null;
     this.capturedY = pos?.y ?? null;
+    this.capturedZ = pos?.z ?? null;
   }
 
   /** Move the label onto the captured position. Call once per rAF, after the
    *  camera itself has been moved for this frame. `uiHidden` mirrors the
    *  store's mobile "hide UI" toggle — without it, this DOM-owned element
    *  (unlike every React-rendered overlay) stayed up under "hide UI", since
-   *  nothing else ever told it to hide. */
-  apply(map: MapLibreMap, uiHidden = false): void {
+   *  nothing else ever told it to hide.
+   *
+   *  When `view` is provided, projects `(capturedX, capturedY, capturedZ)`
+   *  in 3D via `projectLocal` carrying altitude; otherwise falls back to
+   *  `map.project(localToLngLat(...))`. */
+  apply(map: MapLibreMap, uiHidden = false, view: ViewProjection | null = null): void {
     if (uiHidden || !this.selected || this.capturedX === null || this.capturedY === null) {
       this.el.classList.add("hidden");
       return;
     }
-    const p = map.project(localToLngLat(this.capturedX, this.capturedY));
     const canvas = map.getCanvas();
-    if (isOffScreen(p.x, p.y, canvas.clientWidth, canvas.clientHeight, TOOLTIP_OFFSCREEN_MARGIN_PX)) {
+    const p = view && this.capturedZ !== null
+      ? projectLocal(view, this.capturedX, this.capturedY, this.capturedZ)
+      : map.project(localToLngLat(this.capturedX, this.capturedY));
+    if (!p || isOffScreen(p.x, p.y, canvas.clientWidth, canvas.clientHeight, TOOLTIP_OFFSCREEN_MARGIN_PX)) {
       this.el.classList.add("hidden");
       return;
     }
