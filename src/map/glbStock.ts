@@ -53,6 +53,34 @@ function paintFromMaterial(mesh: THREE.Mesh): THREE.BufferGeometry {
   return geometry;
 }
 
+function disposeMaterialWithTextures(mat: THREE.Material): void {
+  for (const val of Object.values(mat)) {
+    if (
+      val instanceof THREE.Texture ||
+      (val && typeof val === "object" && "isTexture" in val && (val as { isTexture: boolean }).isTexture)
+    ) {
+      (val as THREE.Texture).dispose();
+    }
+  }
+  mat.dispose();
+}
+
+function disposeHierarchy(root: THREE.Object3D): void {
+  const disposedMaterials = new Set<THREE.Material>();
+  root.traverse((node) => {
+    if (node instanceof THREE.Mesh) {
+      node.geometry?.dispose();
+      const mats = Array.isArray(node.material) ? node.material : [node.material];
+      for (const m of mats) {
+        if (m && !disposedMaterials.has(m)) {
+          disposedMaterials.add(m);
+          disposeMaterialWithTextures(m);
+        }
+      }
+    }
+  });
+}
+
 /**
  * One merged, vertex-coloured geometry for a line's stock — from its declared
  * `.glb` if it has one, otherwise procedural.
@@ -72,14 +100,18 @@ export async function loadStockGeometry(
     const root = await load(spec.glbUrl);
     root.updateMatrixWorld(true);
     const parts: THREE.BufferGeometry[] = [];
-    root.traverse((node) => {
-      if ((node as THREE.Mesh).isMesh) parts.push(paintFromMaterial(node as THREE.Mesh));
-    });
-    if (parts.length === 0) throw new Error("model contains no mesh");
-    const merged = mergeGeometries(parts);
-    parts.forEach((g) => g.dispose());
-    if (!merged) throw new Error("model meshes could not be merged into one geometry");
-    return merged;
+    try {
+      root.traverse((node) => {
+        if ((node as THREE.Mesh).isMesh) parts.push(paintFromMaterial(node as THREE.Mesh));
+      });
+      if (parts.length === 0) throw new Error("model contains no mesh");
+      const merged = mergeGeometries(parts);
+      if (!merged) throw new Error("model meshes could not be merged into one geometry");
+      return merged;
+    } finally {
+      parts.forEach((g) => g.dispose());
+      disposeHierarchy(root);
+    }
   } catch (error) {
     console.warn(
       `[rolling stock] falling back to procedural geometry for ${spec.glbUrl}:`,

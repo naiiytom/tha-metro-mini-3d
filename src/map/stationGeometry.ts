@@ -64,6 +64,36 @@ export interface SnappedStationInfo {
   structure: Structure;
 }
 
+interface SegmentProjection2D {
+  t: number;
+  projX: number;
+  projY: number;
+  distSq: number;
+}
+
+function projectPointToSegment2D(
+  px: number,
+  py: number,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+): SegmentProjection2D | null {
+  const abX = bx - ax;
+  const abY = by - ay;
+  const lenSq = abX * abX + abY * abY;
+  if (lenSq < 1e-6) return null;
+
+  const t = Math.max(
+    0,
+    Math.min(1, ((px - ax) * abX + (py - ay) * abY) / lenSq),
+  );
+  const projX = ax + t * abX;
+  const projY = ay + t * abY;
+  const distSq = (px - projX) ** 2 + (py - projY) ** 2;
+  return { t, projX, projY, distSq };
+}
+
 /**
  * Snaps a station onto the track polyline of its line, returning its
  * track-centerline ENU position, track tangent heading, and resolved structure.
@@ -96,27 +126,21 @@ export function snapStationToTrack(
   for (let i = 0; i < trackLocal.length - 1; i++) {
     const a = trackLocal[i].pos;
     const b = trackLocal[i + 1].pos;
-    const abX = b[0] - a[0];
-    const abY = b[1] - a[1];
-    const lenSq = abX * abX + abY * abY;
-    if (lenSq < 1e-6) continue;
-
-    const t = Math.max(
-      0,
-      Math.min(
-        1,
-        ((stationLocal[0] - a[0]) * abX + (stationLocal[1] - a[1]) * abY) / lenSq,
-      ),
+    const proj = projectPointToSegment2D(
+      stationLocal[0],
+      stationLocal[1],
+      a[0],
+      a[1],
+      b[0],
+      b[1],
     );
-    const projX = a[0] + t * abX;
-    const projY = a[1] + t * abY;
-    const projZ = a[2] + t * (b[2] - a[2]);
-    const dSq = (stationLocal[0] - projX) ** 2 + (stationLocal[1] - projY) ** 2;
+    if (!proj) continue;
 
-    if (dSq < bestDistSq) {
-      bestDistSq = dSq;
-      bestProj = [projX, projY, projZ];
-      bestHeading = Math.atan2(abY, abX);
+    if (proj.distSq < bestDistSq) {
+      bestDistSq = proj.distSq;
+      const projZ = a[2] + proj.t * (b[2] - a[2]);
+      bestProj = [proj.projX, proj.projY, projZ];
+      bestHeading = Math.atan2(b[1] - a[1], b[0] - a[0]);
 
       const isUg =
         projZ < 0 ||
@@ -174,23 +198,18 @@ export function computeStationTangentHeading(
   for (let i = 0; i < trackPointsLocal.length - 1; i++) {
     const a = trackPointsLocal[i];
     const b = trackPointsLocal[i + 1];
-    const abX = b.x - a.x;
-    const abY = b.y - a.y;
-    const lenSq = abX * abX + abY * abY;
-    if (lenSq < 1e-6) continue;
-
-    const t = Math.max(
-      0,
-      Math.min(
-        1,
-        ((stationPosLocal[0] - a.x) * abX + (stationPosLocal[1] - a.y) * abY) / lenSq,
-      ),
+    const proj = projectPointToSegment2D(
+      stationPosLocal[0],
+      stationPosLocal[1],
+      a.x,
+      a.y,
+      b.x,
+      b.y,
     );
-    const projX = a.x + t * abX;
-    const projY = a.y + t * abY;
-    const dSq = (stationPosLocal[0] - projX) ** 2 + (stationPosLocal[1] - projY) ** 2;
-    if (dSq < bestDistSq) {
-      bestDistSq = dSq;
+    if (!proj) continue;
+
+    if (proj.distSq < bestDistSq) {
+      bestDistSq = proj.distSq;
       bestIdx = i;
     }
   }
@@ -421,12 +440,8 @@ export function suppressStationInMeshGroup(
  * (surface vs. underground) to maintain compatibility with ThreeLayer's underground mode.
  *
  * @param line The line geometry containing stations and track polyline.
- * @param suppressedStopIds Optional set of station IDs or codes overridden by landmark .glb models.
  */
-export function buildStationGeometry(
-  line: LineGeometry,
-  suppressedStopIds?: ReadonlySet<string | number>,
-): THREE.Group {
+export function buildStationGeometry(line: LineGeometry): THREE.Group {
   const group = new THREE.Group();
   group.name = `stations-${line.key}`;
   group.userData.lineKey = line.key;
@@ -440,15 +455,6 @@ export function buildStationGeometry(
   const undergroundItems: StationInstanceData[] = [];
 
   for (const station of line.stations) {
-    if (
-      suppressedStopIds?.has(station.id) ||
-      suppressedStopIds?.has(String(station.id)) ||
-      (station.code && suppressedStopIds?.has(station.code)) ||
-      (station.hubId && suppressedStopIds?.has(station.hubId)) ||
-      (station.name && suppressedStopIds?.has(station.name))
-    ) {
-      continue;
-    }
     const snap = snapStationToTrack(station, line);
 
     const data: StationInstanceData = {

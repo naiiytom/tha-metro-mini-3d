@@ -94,7 +94,7 @@ export class NetworkLayer implements CustomLayerInterface {
   private highlightGroup: THREE.Group | null = null;
   private highlightMaterials: LineMaterial[] = [];
   private stationHighlightGroup: THREE.Group | null = null;
-  private stationHighlightMaterial: THREE.MeshBasicMaterial | null = null;
+  private readonly drawingBufferSize = new THREE.Vector2();
   private landmarkModels: THREE.Object3D[] = [];
   private landmarkLineGroups = new WeakMap<THREE.Object3D, THREE.Group[]>();
   private landmarkMaterialDefaults = new WeakMap<THREE.Material, {
@@ -121,9 +121,10 @@ export class NetworkLayer implements CustomLayerInterface {
     private data: NetworkData,
     private vehicles?: VehicleManager,
   ) {
-    if (this.data?.lines) {
+    if (this.data?.lines && !(this.data as { _snapped?: boolean })._snapped) {
       assignStationHubIds(this.data.lines);
       snapStationsToTrack(this.data.lines);
+      (this.data as { _snapped?: boolean })._snapped = true;
     }
   }
 
@@ -491,18 +492,20 @@ export class NetworkLayer implements CustomLayerInterface {
   private clearStationHighlight(): void {
     if (this.stationHighlightGroup) {
       this.scene?.remove(this.stationHighlightGroup);
+      const disposedMaterials = new Set<THREE.Material>();
       this.stationHighlightGroup.traverse((obj) => {
         if (obj instanceof THREE.Mesh) {
-          obj.geometry.dispose();
+          obj.geometry?.dispose();
           const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
-          mats.forEach((m) => m.dispose());
+          for (const m of mats) {
+            if (m && !disposedMaterials.has(m)) {
+              disposedMaterials.add(m);
+              m.dispose();
+            }
+          }
         }
       });
       this.stationHighlightGroup = null;
-    }
-    if (this.stationHighlightMaterial) {
-      this.stationHighlightMaterial.dispose();
-      this.stationHighlightMaterial = null;
     }
   }
 
@@ -660,7 +663,7 @@ export class NetworkLayer implements CustomLayerInterface {
     this.hasMainMatrix = true;
     this.projection.fromArray(matrix as unknown as number[]).multiply(this.originMatrix);
     this.camera.projectionMatrix = this.projection;
-    const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
+    const size = this.renderer.getDrawingBufferSize(this.drawingBufferSize);
     for (const m of this.lineMaterials) m.resolution.copy(size);
     for (const m of this.highlightMaterials) m.resolution.copy(size);
     this.renderer.resetState();
@@ -670,24 +673,33 @@ export class NetworkLayer implements CustomLayerInterface {
   onRemove(): void {
     this.clearRouteHighlight();
     this.clearStationHighlight();
-    this.scene?.traverse((obj) => {
+    const disposedMaterials = new Set<THREE.Material>();
+    const disposeMesh = (obj: THREE.Object3D) => {
       if (obj instanceof THREE.Mesh) {
-        obj.geometry.dispose();
+        obj.geometry?.dispose();
         const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
-        mats.forEach((m) => m.dispose());
+        for (const m of mats) {
+          if (m && !disposedMaterials.has(m)) {
+            disposedMaterials.add(m);
+            for (const val of Object.values(m)) {
+              if (
+                val instanceof THREE.Texture ||
+                (val && typeof val === "object" && "isTexture" in val && (val as { isTexture: boolean }).isTexture)
+              ) {
+                (val as THREE.Texture).dispose();
+              }
+            }
+            m.dispose();
+          }
+        }
       }
-    });
+    };
+    this.scene?.traverse(disposeMesh);
     this.skyDome?.dispose();
     this.skyDome = null;
     this.shadowCatcher = null;
     for (const model of this.landmarkModels) {
-      model.traverse((o) => {
-        if (o instanceof THREE.Mesh) {
-          o.geometry.dispose();
-          const mats = Array.isArray(o.material) ? o.material : [o.material];
-          mats.forEach((m) => m.dispose());
-        }
-      });
+      model.traverse(disposeMesh);
     }
     this.landmarkModels = [];
     this.scene = null;
@@ -701,6 +713,8 @@ export class NetworkLayer implements CustomLayerInterface {
     // a freshly rebuilt scene from a stale prior value.
     this.undergroundMode = false;
     this.hasMainMatrix = false;
+    this.currentElevationDeg = undefined;
+    this.currentNdotl = 1.0;
     this.sunLight = null;
     this.ambientLight = null;
     this.currentPalette = null;

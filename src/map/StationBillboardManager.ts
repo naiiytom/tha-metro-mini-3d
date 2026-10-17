@@ -198,13 +198,6 @@ export class StationBillboardManager {
     mountParent.appendChild(this.container);
   }
 
-  /**
-   * Imperative selection signal from the bridge (bridge contract section 3.1 step 4).
-   * Pass null to clear.
-   */
-  setSelected(stationKey: string | null): void {
-    this.container.dataset.selectedKey = stationKey ?? "";
-  }
 
   /**
    * Evaluated per rAF frame outside React state.

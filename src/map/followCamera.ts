@@ -81,9 +81,18 @@ export class FollowCamera {
    * Read the selected run's pose out of an interpolated frame. Cheap linear
    * scan — at most MAX_VEHICLES records, and only while following.
    */
-  capture(vehicles: Float32Array, count: number, runIdx: number | null): void {
+  capture(
+    vehicles: Float32Array,
+    count: number,
+    runIdx: number | null,
+    prefoundPose?: { x: number; y: number; yaw: number } | null,
+  ): void {
     if (runIdx === null) {
       this.pose = null;
+      return;
+    }
+    if (prefoundPose !== undefined) {
+      this.pose = prefoundPose ? { ...prefoundPose } : null;
       return;
     }
     for (let i = 0; i < count; i++) {

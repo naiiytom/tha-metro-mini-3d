@@ -314,6 +314,7 @@ export function installFlyoverControls(
 
   const tick = (dtMs: number) => {
     if (dtMs <= 0 || !Number.isFinite(dtMs)) return;
+    if (activeActions.size === 0 && vx === 0 && vy === 0) return;
 
     // Suppress flight entirely and halt velocity when typing in form inputs
     if (isInputActive()) {

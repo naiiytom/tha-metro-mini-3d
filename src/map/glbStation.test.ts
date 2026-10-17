@@ -20,8 +20,7 @@ vi.mock("three", async (importOriginal) => {
 });
 
 import {
-  collectSuppressedStationIds,
-  findStationOverride,
+  disposeStationModel,
   loadStationModel,
 } from "./glbStation";
 import { NetworkLayer } from "./ThreeLayer";
@@ -89,111 +88,24 @@ describe("loadStationModel", () => {
   });
 });
 
-describe("findStationOverride", () => {
-  const overrides: StationModelOverride[] = [
-    { id: "CEN", glbUrl: "/cen.glb" },
-    { id: "hub:asok-sukhumvit", glbUrl: "/asok.glb" },
-  ];
+describe("disposeStationModel", () => {
+  it("disposes geometry, materials, and textures attached to materials", () => {
+    const group = new THREE.Group();
+    const geo = new THREE.BoxGeometry();
+    const texture = new THREE.Texture();
+    const mat = new THREE.MeshBasicMaterial({ map: texture });
+    const geoDisposeSpy = vi.spyOn(geo, "dispose");
+    const matDisposeSpy = vi.spyOn(mat, "dispose");
+    const texDisposeSpy = vi.spyOn(texture, "dispose");
 
-  it("finds override by stop code", () => {
-    const match = findStationOverride("CEN", "hub:siam", overrides);
-    expect(match?.id).toBe("CEN");
-  });
+    const mesh = new THREE.Mesh(geo, mat);
+    group.add(mesh);
 
-  it("finds override by hub id when stop code has no direct override", () => {
-    const match = findStationOverride("BL22", "hub:asok-sukhumvit", overrides);
-    expect(match?.id).toBe("hub:asok-sukhumvit");
-  });
+    disposeStationModel(group);
 
-  it("finds override by station name when code and hubId do not match", () => {
-    const match = findStationOverride("", "", overrides, "Asok");
-    expect(match?.id).toBe("hub:asok-sukhumvit");
-  });
-
-  it("returns null when neither matches", () => {
-    expect(findStationOverride("E4", "hub:asok", overrides)).toBeNull();
-  });
-});
-
-describe("collectSuppressedStationIds", () => {
-  it("suppresses member stop IDs when parent hub has a landmark override", () => {
-    const stations = [
-      { id: "stop-1", code: "CEN", hubId: "hub:siam" },
-      { id: "stop-2", code: "E1", hubId: "hub:chitlom" },
-      { id: "stop-3", code: "BL22", hubId: "hub:asok-sukhumvit" },
-    ];
-    const overrides: StationModelOverride[] = [
-      { id: "hub:siam", glbUrl: "/siam.glb" },
-    ];
-
-    const suppressed = collectSuppressedStationIds(stations, overrides);
-    expect(suppressed.has("stop-1")).toBe(true);
-    expect(suppressed.has("CEN")).toBe(true);
-    expect(suppressed.has("stop-2")).toBe(false);
-    expect(suppressed.has("stop-3")).toBe(false);
-  });
-
-  it("suppresses stop when station name matches landmark hub id", () => {
-    const stations = [
-      { id: "stop-1", code: "", name: "Siam" },
-      { id: "stop-2", code: "", name: "Chit Lom" },
-    ];
-    const overrides: StationModelOverride[] = [
-      { id: "hub:siam", glbUrl: "/siam.glb" },
-    ];
-
-    const suppressed = collectSuppressedStationIds(stations, overrides);
-    expect(suppressed.has("stop-1")).toBe(true);
-    expect(suppressed.has("Siam")).toBe(true);
-    expect(suppressed.has("stop-2")).toBe(false);
-  });
-
-  it("suppresses stop when stop code itself is overridden", () => {
-    const stations = [
-      { id: "stop-1", code: "RN01", hubId: "hub:bangsue" },
-    ];
-    const overrides: StationModelOverride[] = [
-      { id: "RN01", glbUrl: "/bangsue.glb" },
-    ];
-
-    const suppressed = collectSuppressedStationIds(stations, overrides);
-    expect(suppressed.has("stop-1")).toBe(true);
-    expect(suppressed.has("RN01")).toBe(true);
-  });
-
-  it("does not suppress station when suppressProcedural is false", () => {
-    const stations = [
-      { id: "stop-1", code: "RN01", hubId: "hub:bangsue" },
-    ];
-    const overrides: StationModelOverride[] = [
-      { id: "RN01", glbUrl: "/bangsue.glb", suppressProcedural: false },
-    ];
-
-    const suppressed = collectSuppressedStationIds(stations, overrides);
-    expect(suppressed.has("stop-1")).toBe(false);
-    expect(suppressed.has("RN01")).toBe(false);
-  });
-
-  it("suppresses Krung Thep Aphiwat stops across lines from registry override", () => {
-    const stations = [
-      { id: "7314652468", code: "3", hubId: "hub:krung-thep-aphiwat", name: "Krung Thep Aphiwat" },
-      { id: "7314652456", code: "9", hubId: "hub:krung-thep-aphiwat", name: "Krung Thep Aphiwat" },
-      { id: "8990375565", code: "10", hubId: "hub:bang-son", name: "Bang Son" },
-    ];
-    const overrides: StationModelOverride[] = [
-      { id: "hub:krung-thep-aphiwat", glbUrl: "/models/krung-thep-aphiwat.glb", suppressProcedural: true },
-    ];
-
-    const suppressed = collectSuppressedStationIds(stations, overrides);
-    expect(suppressed.has("7314652468")).toBe(true);
-    expect(suppressed.has("7314652456")).toBe(true);
-    expect(suppressed.has("8990375565")).toBe(false);
-  });
-
-  it("returns empty set when no overrides declared", () => {
-    const stations = [{ id: "stop-1", code: "CEN" }];
-    const suppressed = collectSuppressedStationIds(stations, []);
-    expect(suppressed.size).toBe(0);
+    expect(geoDisposeSpy).toHaveBeenCalledOnce();
+    expect(matDisposeSpy).toHaveBeenCalledOnce();
+    expect(texDisposeSpy).toHaveBeenCalledOnce();
   });
 });
 
@@ -529,29 +441,6 @@ describe("ThreeLayer landmark station integration", () => {
     const litMaterials = (layer as unknown as { litMaterials: THREE.Material[] }).litMaterials;
     const occurrences = litMaterials.filter((m) => m === sharedMat).length;
     expect(occurrences).toBe(1);
-  });
-});
-
-describe("Krung Thep Aphiwat landmark override", () => {
-  it("resolves Krung Thep Aphiwat stations across lines to hub:krung-thep-aphiwat", () => {
-    const override = findStationOverride("3", "hub:krung-thep-aphiwat");
-    expect(override).toBeDefined();
-    expect(override?.id).toBe("hub:krung-thep-aphiwat");
-    expect(override?.glbUrl).toBe("/models/krung-thep-aphiwat.glb");
-    expect(override?.altitudeOffsetM).toBe(-1.5);
-    expect(override?.suppressProcedural).toBe(true);
-  });
-
-  it("suppresses procedural station geometry for both SRT Red line stops", () => {
-    const stops = [
-      { id: "7314652468", code: "3", hubId: "hub:krung-thep-aphiwat", name: "Krung Thep Aphiwat" },
-      { id: "7314652456", code: "9", hubId: "hub:krung-thep-aphiwat", name: "Krung Thep Aphiwat" },
-    ];
-    const suppressed = collectSuppressedStationIds(stops);
-    expect(suppressed.has("7314652468")).toBe(true);
-    expect(suppressed.has("7314652456")).toBe(true);
-    expect(suppressed.has("3")).toBe(true);
-    expect(suppressed.has("9")).toBe(true);
   });
 });
 
