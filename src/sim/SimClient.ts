@@ -1,10 +1,18 @@
 import {
   DEFAULT_MAX_TRANSFERS,
   DEFAULT_MAX_WAIT_S,
+  DEFAULT_TICK_MS,
   DEFAULT_TRANSFER_BUFFER_S,
+  ECO_TICK_MS,
   FRAME_FLOATS,
+  LANE_PROGRESS,
+  LANE_ROUTE_IDX,
   LANE_RUN_IDX,
+  LANE_STATE,
+  LANE_X,
+  LANE_Y,
   LANE_YAW,
+  LANE_Z,
   MAX_VEHICLES,
   VEHICLE_STRIDE,
   type MainToWorker,
@@ -63,14 +71,6 @@ function angleDelta(a: number, b: number): number {
   return d;
 }
 
-function indexFrame(data: Float32Array, count: number): Map<number, number> {
-  const map = new Map<number, number>();
-  for (let i = 0; i < count; i++) {
-    map.set(data[i * VEHICLE_STRIDE + LANE_RUN_IDX], i * VEHICLE_STRIDE);
-  }
-  return map;
-}
-
 /**
  * Handle to the live SimClient for UI event handlers (TimeControls). Set by
  * MapContainer; null while the engine is down.
@@ -82,6 +82,8 @@ export class SimClient {
   private frameA: Frame | null = null; // older
   private frameB: Frame | null = null; // newer
   private clock: ClockParams = { clockEpochMs: Date.now(), clockSetAt: performance.now(), warp: 1 };
+  private tickMs = DEFAULT_TICK_MS;
+  private mapPool: Map<number, number>[] = [];
   /** Reused output of getInterpolated(). */
   private outVehicles = new Float32Array(FRAME_FLOATS);
   private disposed = false;
@@ -267,23 +269,32 @@ export class SimClient {
   }
 
   private acceptFrame(simEpochMs: number, count: number, buffer: ArrayBuffer): void {
-    const data = new Float32Array(buffer);
-    const frame: Frame = { simEpochMs, count, data, byRun: indexFrame(data, count) };
     // Clock was rebased backwards (e.g. "Now" reset): drop stale frames.
     if (this.frameB && simEpochMs <= this.frameB.simEpochMs) {
       if (this.frameA) this.recycle(this.frameA);
       this.recycle(this.frameB);
       this.frameA = null;
-      this.frameB = frame;
-      return;
+      this.frameB = null;
+    } else if (this.frameA) {
+      this.recycle(this.frameA); // keep only the last two
+      this.frameA = null;
     }
-    if (this.frameA) this.recycle(this.frameA); // keep only the last two
+
+    const data = new Float32Array(buffer);
+    const byRun = this.mapPool.pop() ?? new Map<number, number>();
+    byRun.clear();
+    for (let i = 0; i < count; i++) {
+      byRun.set(data[i * VEHICLE_STRIDE + LANE_RUN_IDX], i * VEHICLE_STRIDE);
+    }
+    const frame: Frame = { simEpochMs, count, data, byRun };
     this.frameA = this.frameB;
     this.frameB = frame;
   }
 
   private recycle(frame: Frame): void {
     const buffer = frame.data.buffer as ArrayBuffer;
+    frame.byRun.clear();
+    this.mapPool.push(frame.byRun);
     this.post({ kind: "returnBuffer", buffer }, [buffer]);
   }
 
@@ -353,7 +364,9 @@ export class SimClient {
   /** Re-cadence the worker's sim loop (eco mode). Positions are a pure
    *  function of time, so this changes cost, never correctness. */
   setTickMs(tickMs: number): void {
-    this.post({ kind: "tickRate", tickMs } satisfies MainToWorker);
+    const clamped = Math.max(DEFAULT_TICK_MS, Math.min(tickMs, ECO_TICK_MS));
+    this.tickMs = clamped;
+    this.post({ kind: "tickRate", tickMs: clamped } satisfies MainToWorker);
   }
 
   /** Snap the sim clock back to real wall-clock time (keeps current warp). */
@@ -381,8 +394,8 @@ export class SimClient {
       return { vehicles: out, count: b.count };
     }
 
-    // One 10 Hz tick of interpolation delay (in sim ms — scales with warp).
-    const renderSimTime = this.getSimNow(nowPerfMs) - 100 * this.clock.warp;
+    // One tick of interpolation delay (in sim ms — scales with warp).
+    const renderSimTime = this.getSimNow(nowPerfMs) - this.tickMs * this.clock.warp;
     const span = b.simEpochMs - a.simEpochMs;
     const alpha = Math.min(Math.max((renderSimTime - a.simEpochMs) / span, 0), 1.25);
 
@@ -395,11 +408,27 @@ export class SimClient {
       if (oa === undefined) {
         for (let k = 0; k < VEHICLE_STRIDE; k++) out[oo + k] = b.data[ob + k];
       } else {
-        for (let k = 0; k < VEHICLE_STRIDE; k++) {
-          out[oo + k] =
-            k === LANE_YAW
-              ? a.data[oa + k] + angleDelta(a.data[oa + k], b.data[ob + k]) * alpha
-              : a.data[oa + k] + (b.data[ob + k] - a.data[oa + k]) * alpha;
+        out[oo + LANE_X] =
+          a.data[oa + LANE_X] + (b.data[ob + LANE_X] - a.data[oa + LANE_X]) * alpha;
+        out[oo + LANE_Y] =
+          a.data[oa + LANE_Y] + (b.data[ob + LANE_Y] - a.data[oa + LANE_Y]) * alpha;
+        out[oo + LANE_Z] =
+          a.data[oa + LANE_Z] + (b.data[ob + LANE_Z] - a.data[oa + LANE_Z]) * alpha;
+        out[oo + LANE_YAW] =
+          a.data[oa + LANE_YAW] + angleDelta(a.data[oa + LANE_YAW], b.data[ob + LANE_YAW]) * alpha;
+        out[oo + LANE_STATE] = alpha < 1 ? a.data[oa + LANE_STATE] : b.data[ob + LANE_STATE];
+        out[oo + LANE_RUN_IDX] = b.data[ob + LANE_RUN_IDX];
+        out[oo + LANE_ROUTE_IDX] = b.data[ob + LANE_ROUTE_IDX];
+        if (
+          b.data[ob + LANE_PROGRESS] >= a.data[oa + LANE_PROGRESS] &&
+          b.data[ob + LANE_STATE] === 1
+        ) {
+          const clampedAlpha = Math.min(1, Math.max(0, alpha));
+          out[oo + LANE_PROGRESS] =
+            a.data[oa + LANE_PROGRESS] +
+            (b.data[ob + LANE_PROGRESS] - a.data[oa + LANE_PROGRESS]) * clampedAlpha;
+        } else {
+          out[oo + LANE_PROGRESS] = b.data[ob + LANE_PROGRESS];
         }
       }
       n++;
@@ -423,5 +452,6 @@ export class SimClient {
     this.worker.terminate();
     this.frameA = null;
     this.frameB = null;
+    this.mapPool = [];
   }
 }

@@ -300,32 +300,30 @@ impl SimWorld {
             .collect();
 
         let now = sec_of_day as i64;
+        let flat_stop = self.route_index.stop_id(doc, route_idx, station_idx)?;
         // (run_idx, arrival, departure, in_s) — no strings until after sorting.
         let mut candidates: Vec<(usize, i64, i64, i64)> = Vec::new();
-        for (idx, run) in doc.runs.iter().enumerate() {
-            let pattern = &doc.patterns[run.pattern_idx as usize];
-            if pattern.route_idx != route_idx {
-                continue;
-            }
-            // NB: takes the FIRST call at this station. Correct for the Green
-            // Line, where no pattern visits a station twice; a future loop or
-            // branching pattern would need every matching call emitted.
-            let Some(stop) = pattern.stops.iter().find(|s| s.station_idx == station_idx) else {
-                continue;
-            };
-            let flags = active[run.service_idx as usize];
-            for (fi, frame) in frames.iter().enumerate() {
-                if !flags[fi] {
-                    continue;
+        for &(pat_idx, stop_pos) in self.route_index.patterns_at(flat_stop) {
+            let pattern = &doc.patterns[pat_idx as usize];
+            let stop = &pattern.stops[stop_pos as usize];
+            for &run_idx in self.route_index.runs_of(pat_idx) {
+                let idx = run_idx as usize;
+                let run = &doc.runs[idx];
+                let flags = active[run.service_idx as usize];
+                for (fi, frame) in frames.iter().enumerate() {
+                    if !flags[fi] {
+                        continue;
+                    }
+                    // Into the queried day's frame so times are comparable.
+                    let arrival = (run.start_sec + stop.arrival_s) as i64 + frame.to_query_frame;
+                    let in_s = arrival - now;
+                    if !(-GRACE_S..=HORIZON_S).contains(&in_s) {
+                        continue;
+                    }
+                    let departure =
+                        (run.start_sec + stop.departure_s) as i64 + frame.to_query_frame;
+                    candidates.push((idx, arrival, departure, in_s));
                 }
-                // Into the queried day's frame so times are comparable.
-                let arrival = (run.start_sec + stop.arrival_s) as i64 + frame.to_query_frame;
-                let in_s = arrival - now;
-                if !(-GRACE_S..=HORIZON_S).contains(&in_s) {
-                    continue;
-                }
-                let departure = (run.start_sec + stop.departure_s) as i64 + frame.to_query_frame;
-                candidates.push((idx, arrival, departure, in_s));
             }
         }
         candidates.sort_by_key(|c| c.3);
@@ -656,5 +654,29 @@ mod tests {
         assert!(w.run_detail(3, 20260721, 82_800.0).is_none());
         // It IS live on its own service day.
         assert!(w.run_detail(3, 20260722, 700.0).is_some());
+    }
+
+    #[test]
+    fn station_board_emits_multiple_calls_for_loop_pattern_visiting_station_twice() {
+        let mut doc = crate::world::tests_support::synthetic_doc();
+        // Modify pattern 0 to call station 1 twice: 0 -> 1 -> 2 -> 1
+        doc.patterns[0].stops.push(crate::model::PatternStop {
+            station_idx: 1,
+            arrival_s: 300,
+            departure_s: 330,
+            arc_m: 100.0,
+        });
+        let w = SimWorld::from_doc(doc).unwrap();
+        let b = w.station_board(0, 1, WED, 35_900.0, 10).unwrap();
+        // Run 0 has start_sec 36000.
+        // First call at station 1: arrival 36100 (in_s = 200)
+        // Second call at station 1: arrival 36300 (in_s = 400)
+        let calls: Vec<i64> = b
+            .entries
+            .iter()
+            .filter(|e| e.run_idx == 0)
+            .map(|e| e.arrival_sec)
+            .collect();
+        assert_eq!(calls, vec![36_100, 36_300]);
     }
 }

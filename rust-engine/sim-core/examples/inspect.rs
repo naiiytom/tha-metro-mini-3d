@@ -17,7 +17,7 @@ fn main() {
 
     let mut buf = vec![0.0f32; MAX_VEHICLES * VEHICLE_STRIDE];
     let n = world.evaluate(date, sec, &mut buf);
-    let mut per_route = [0usize; 8];
+    let mut per_route = vec![0usize; world.doc().routes.len().max(16)];
     let mut dwell = 0usize;
     for i in 0..n {
         let r = &buf[i * 8..i * 8 + 8];

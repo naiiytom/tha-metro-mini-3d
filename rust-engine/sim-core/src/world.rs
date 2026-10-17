@@ -55,7 +55,7 @@ pub struct SimWorld {
     /// `pattern_dur` is — one pass over the runs plus one small sort per
     /// pattern, sub-millisecond, invisible next to decoding the ~370 KB cache
     /// — and held by value so a query never rebuilds or lazily initialises it.
-    route_index: RouteIndex,
+    pub(crate) route_index: RouteIndex,
     /// True if the last evaluate() hit MAX_VEHICLES and dropped vehicles.
     /// `evaluate` takes `&self` (it's called from a shared reference on the
     /// frame path), so recording this needs interior mutability. `Cell` is

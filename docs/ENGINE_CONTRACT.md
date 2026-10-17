@@ -673,7 +673,7 @@ pub fn plan(doc: &CacheDoc, idx: &RouteIndex, req: &PlanRequest) -> Option<Route
 RAPTOR over the cache. `RouteIndex` (`sim-core/src/route.rs`) is built once in
 `SimWorld::from_doc`, beside `pattern_dur`, and is **not serialized** —
 everything it holds is derived from data the cache already carries, so
-`TMB_VERSION` stays at 3. Each `PatternDoc` is a RAPTOR "route"; a pattern's
+`TMB_VERSION` stays at 4. Each `PatternDoc` is a RAPTOR "route"; a pattern's
 runs are FIFO by construction, which is what makes the per-pattern earliest-trip
 binary search valid. The round index IS the boarding count, so
 earliest-arrival-tied-broken-by-fewest-transfers is the native output.

@@ -129,10 +129,13 @@ describe("wasm ambient typings", () => {
     );
     for (const method of [
       "validation_json",
+      "evaluate",
+      "last_truncated",
       "run_detail_json",
       "station_board_json",
       "stations_json",
       "plan_route_json",
+      "plan_alternatives_json",
     ]) {
       expect(rust, `${method} in lib.rs`).toContain(`pub fn ${method}(`);
       expect(dts, `${method} in pkg.d.ts`).toContain(`${method}(`);
