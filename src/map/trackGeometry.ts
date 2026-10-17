@@ -360,5 +360,3 @@ export function poleTransform(altitudeM: number): { scaleZ: number; centerZ: num
 }
 
 export { buildStationGeometry } from "./stationGeometry";
-
-

@@ -2,7 +2,7 @@
  * Procedural 3D landmark generator for Krung Thep Aphiwat Central Terminal
  * (Bang Sue Grand Station / สถานีกลางกรุงเทพอภิวัฒน์).
  *
- * Generates an architecturally accurate, stylized low-poly glTF binary asset (.glb) with:
+ * Generates a stylized low-poly glTF binary asset (.glb) with:
  * - Sweeping unified gull-wing / wave-curved cantilevered roof spanning 540 m × 196 m.
  * - Longitudinal skylight ribbons and transverse steel arch structural ribs.
  * - 6 island platform decks on Floor 2 (z = 0) flanking the SRT Dark Red (y = +31.5 m)
@@ -18,7 +18,7 @@
 
 import path from "node:path";
 import * as THREE from "three";
-import { exportGlb } from "./generate-landmark-models.mjs";
+import { createSharedMaterials, exportGlb } from "./generate-landmark-models.mjs";
 
 function gullWingRoofZ(y) {
   const absY = Math.abs(y);
@@ -40,92 +40,20 @@ export function buildKrungThepAphiwatScene() {
   const root = new THREE.Group();
   root.name = "KrungThepAphiwatCentralTerminal";
 
-  const matRoof = new THREE.MeshStandardMaterial({
-    color: 0xd7dfe6,
-    roughness: 0.35,
-    metalness: 0.35,
-    name: "mat_roof_shell",
-  });
-
-  const matRoofRib = new THREE.MeshStandardMaterial({
-    color: 0x3a4250,
-    roughness: 0.5,
-    metalness: 0.6,
-    name: "mat_roof_ribs",
-  });
-
-  const matGlass = new THREE.MeshStandardMaterial({
-    color: 0x5d8da8,
-    roughness: 0.1,
-    metalness: 0.3,
-    transparent: true,
-    opacity: 0.65,
-    name: "mat_glass",
-  });
-
-  const matConcrete = new THREE.MeshStandardMaterial({
-    color: 0xb5bdc5,
-    roughness: 0.8,
-    metalness: 0.05,
-    name: "mat_concrete",
-  });
-
-  const matPlinth = new THREE.MeshStandardMaterial({
-    color: 0x6c757d,
-    roughness: 0.7,
-    metalness: 0.1,
-    name: "mat_plinth",
-  });
-
-  const matPlatform = new THREE.MeshStandardMaterial({
-    color: 0x828a92,
-    roughness: 0.85,
-    metalness: 0.05,
-    name: "mat_platform",
-  });
-
-  const matYellowStrip = new THREE.MeshStandardMaterial({
-    color: 0xf3c012,
-    roughness: 0.5,
-    metalness: 0.1,
-    name: "mat_yellow_strip",
-  });
-
-  const matSteel = new THREE.MeshStandardMaterial({
-    color: 0x2d3748,
-    roughness: 0.4,
-    metalness: 0.7,
-    name: "mat_steel",
-  });
-
-  const matSrtRed = new THREE.MeshStandardMaterial({
-    color: 0x991b1b,
-    roughness: 0.45,
-    metalness: 0.25,
-    name: "mat_srt_red",
-  });
-
-  const matClockDial = new THREE.MeshStandardMaterial({
-    color: 0xffffff,
-    roughness: 0.3,
-    emissive: 0x334455,
-    emissiveIntensity: 0.4,
-    name: "mat_clock_dial",
-  });
-
-  const matClockGold = new THREE.MeshStandardMaterial({
-    color: 0xd4af37,
-    roughness: 0.3,
-    metalness: 0.85,
-    name: "mat_clock_gold",
-  });
-
-  const matClockMark = new THREE.MeshStandardMaterial({
-    color: 0x1a202c,
-    roughness: 0.6,
-    metalness: 0.2,
-    name: "mat_clock_mark",
-  });
+  const {
+    matRoof,
+    matRoofRib,
+    matGlass,
+    matConcrete,
+    matPlinth,
+    matPlatform,
+    matYellowStrip,
+    matSteel,
+    matSrtRed,
+    matClockDial,
+    matClockGold,
+    matClockMark,
+  } = createSharedMaterials();
 
   function extrudeProfileAlongX(shape, length, material) {
     const geom = new THREE.ExtrudeGeometry(shape, {

@@ -5,10 +5,11 @@
  * 3. Makkasan (ARL City Air Terminal, massive podium, skybridge & aerodynamic roof)
  * 4. Hua Lamphong (MRT Blue cavern & historic Neo-Renaissance terminal)
  * 5. Mo Chit (BTS Elevated Hub, side platforms, spine piers & MRT pavilions)
+ * 6. Krung Thep Aphiwat (Central Terminal unified gull-wing roof, clock & platforms)
  *
- * Generates accurate, stylized low-poly glTF binary assets (.glb) in public/models/
+ * Generates stylized low-poly glTF binary assets (.glb) in public/models/
  *
- * Run: node tools/generate-landmark-models.mjs
+ * Run: node tools/generate-landmark-models.mjs (or npm run generate:models)
  */
 
 import fs from "node:fs";
@@ -31,7 +32,7 @@ if (typeof globalThis.FileReader === "undefined") {
 // Common Materials Factory
 // =========================================================================
 
-function createSharedMaterials() {
+export function createSharedMaterials() {
   return {
     matConcrete: new THREE.MeshStandardMaterial({
       color: 0xb5bdc5,
@@ -162,6 +163,12 @@ function createSharedMaterials() {
       metalness: 0.2,
       name: "mat_clock_mark",
     }),
+    matSrtRed: new THREE.MeshStandardMaterial({
+      color: 0x991b1b,
+      roughness: 0.45,
+      metalness: 0.25,
+      name: "mat_srt_red",
+    }),
   };
 }
 
@@ -169,7 +176,7 @@ function createSharedMaterials() {
 // Geometry Helper Functions
 // =========================================================================
 
-function createMesh(geometry, material, name) {
+export function createMesh(geometry, material, name) {
   const mesh = new THREE.Mesh(geometry, material);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
@@ -177,7 +184,7 @@ function createMesh(geometry, material, name) {
   return mesh;
 }
 
-function createBoxBounds({ xMin, xMax, yMin, yMax, zMin, zMax, material, name }) {
+export function createBoxBounds({ xMin, xMax, yMin, yMax, zMin, zMax, material, name }) {
   const len = xMax - xMin;
   const wid = yMax - yMin;
   const hgt = zMax - zMin;
@@ -2281,6 +2288,9 @@ export async function exportGlb(scene, outputPath) {
   });
 }
 
+import { buildKrungThepAphiwatScene } from "./generate-aphiwat-model.mjs";
+export { buildKrungThepAphiwatScene };
+
 export async function exportAllLandmarkModels(outputDir = path.resolve("public/models")) {
   const targets = [
     { name: "siam", file: "siam.glb", builder: buildSiamScene },
@@ -2288,6 +2298,7 @@ export async function exportAllLandmarkModels(outputDir = path.resolve("public/m
     { name: "makkasan", file: "makkasan.glb", builder: buildMakkasanScene },
     { name: "hua-lamphong", file: "hua-lamphong.glb", builder: buildHuaLamphongScene },
     { name: "mo-chit", file: "mo-chit.glb", builder: buildMoChitScene },
+    { name: "krung-thep-aphiwat", file: "krung-thep-aphiwat.glb", builder: buildKrungThepAphiwatScene },
   ];
 
   const results = [];
@@ -2302,7 +2313,7 @@ export async function exportAllLandmarkModels(outputDir = path.resolve("public/m
 
 // Direct execution CLI
 if (process.argv[1] && process.argv[1].endsWith("generate-landmark-models.mjs")) {
-  console.log("Generating 5 stylized 3D landmark station models in public/models/...");
+  console.log("Generating 6 stylized 3D landmark station models in public/models/...");
   exportAllLandmarkModels()
     .then((results) => {
       console.log(`\nSuccessfully generated ${results.length} landmark GLB models:`);

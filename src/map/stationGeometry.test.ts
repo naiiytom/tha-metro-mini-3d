@@ -202,7 +202,7 @@ describe("procedural geometry generators", () => {
 describe("buildStationGeometry", () => {
   it("builds separate surface and underground instanced groups for mixed lines", () => {
     const l = makeLine();
-    const group = buildStationGeometry(l);
+    const group = buildStationGeometry(l.stations, l);
 
     expect(group.name).toBe("stations-test-line");
     expect(group.userData.lineKey).toBe("test-line");
@@ -224,7 +224,7 @@ describe("buildStationGeometry", () => {
 
   it("stamps trim material with route liveryHex for night contrast lift", () => {
     const l = makeLine({ color: "#7CB342" });
-    const group = buildStationGeometry(l);
+    const group = buildStationGeometry(l.stations, l);
 
     const trims = group.children.find(
       (c) => c.userData.isTrim && (c as THREE.InstancedMesh).count > 0,
@@ -235,10 +235,9 @@ describe("buildStationGeometry", () => {
     expect(mat.userData.liveryHex).toBe(new THREE.Color("#7CB342").getHex());
   });
 
-
   it("applies polygonOffset on underground platform materials to prevent z-fighting with track decks", () => {
     const l = makeLine();
-    const group = buildStationGeometry(l);
+    const group = buildStationGeometry(l.stations, l);
     const ugPlatforms = group.children.find(
       (c) => c.name === "station-platforms" && c.userData.structure === "underground",
     ) as THREE.InstancedMesh;
@@ -251,7 +250,7 @@ describe("buildStationGeometry", () => {
 
   it("returns empty group for line with no stations", () => {
     const l = makeLine({ stations: [] });
-    const group = buildStationGeometry(l);
+    const group = buildStationGeometry(l.stations, l);
     expect(group.children).toHaveLength(0);
   });
 });
@@ -299,7 +298,7 @@ describe("suppressStationInMeshGroup", () => {
         { id: "S2", name: "Station 2", nameTh: "สถานี 2", code: "E1", position: [100.545, 13.74, 15] },
       ],
     });
-    const group = buildStationGeometry(l);
+    const group = buildStationGeometry(l.stations, l);
 
     const platforms = group.getObjectByName("station-platforms") as THREE.InstancedMesh;
     expect(platforms).toBeDefined();
@@ -338,7 +337,7 @@ describe("suppressStationInMeshGroup", () => {
         { id: "S1", name: "Station 1", nameTh: "สถานี 1", code: "CEN", position: [100.535, 13.74, 15], hubId: "hub:siam" },
       ],
     });
-    const group = buildStationGeometry(l);
+    const group = buildStationGeometry(l.stations, l);
     const platforms = group.getObjectByName("station-platforms") as THREE.InstancedMesh;
 
     suppressStationInMeshGroup(group, new Set(["hub:siam"]));
@@ -354,7 +353,7 @@ describe("suppressStationInMeshGroup", () => {
         { id: 101, name: "Siam", nameTh: "สยาม", code: "", position: [100.535, 13.74, 15] },
       ],
     });
-    const group = buildStationGeometry(l);
+    const group = buildStationGeometry(l.stations, l);
     const platforms = group.getObjectByName("station-platforms") as THREE.InstancedMesh;
 
     suppressStationInMeshGroup(group, new Set(["Siam"]));
@@ -370,7 +369,7 @@ describe("suppressStationInMeshGroup", () => {
         { id: 12345, name: "Siam", nameTh: "สยาม", code: "", position: [100.535, 13.74, 15] },
       ],
     });
-    const group = buildStationGeometry(l);
+    const group = buildStationGeometry(l.stations, l);
     const platforms = group.getObjectByName("station-platforms") as THREE.InstancedMesh;
 
     suppressStationInMeshGroup(group, new Set(["12345"]));
@@ -475,4 +474,3 @@ describe("snapStationsToTrack on real network data", () => {
     expect(snap.structure).toBe("elevated");
   });
 });
-

@@ -483,7 +483,7 @@ describe("ThreeLayer landmark station integration", () => {
     expect(occurrences).toBe(1);
   });
 
-  it("matches every configured STATION_MODELS entry against real network.json stations", async () => {
+  it("matches every configured STATION_MODELS entry against real network.json stations with accurate position and structure", async () => {
     const { STATION_MODELS } = await import("../../tools/lines.config.mjs");
     const realNetwork = (await import("../data/network.json")).default as unknown as NetworkData;
     const net: NetworkData = structuredClone(realNetwork);
@@ -495,6 +495,8 @@ describe("ThreeLayer landmark station integration", () => {
     layer.onAdd(mockMap, mockGl);
 
     expect(STATION_MODELS.length).toBeGreaterThanOrEqual(6);
+    const positions: Record<string, { x: number; y: number; z: number; structure: string }> = {};
+
     for (const override of STATION_MODELS) {
       const modelGroup = new THREE.Group();
       modelGroup.add(new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), new THREE.MeshStandardMaterial()));
@@ -503,13 +505,40 @@ describe("ThreeLayer landmark station integration", () => {
         modelGroup.position.x !== 0 || modelGroup.position.y !== 0,
         `expected ${override.id} to snap to a real station in network.json`,
       ).toBe(true);
+      positions[override.id] = {
+        x: modelGroup.position.x,
+        y: modelGroup.position.y,
+        z: modelGroup.position.z,
+        structure: String(modelGroup.userData.structure),
+      };
     }
+
     expect(warnSpy).not.toHaveBeenCalled();
     warnSpy.mockRestore();
+
+    // Hua Lamphong is placed at underground track level (z = -18 m + 1.5 m marker offset = -16.5 m)
+    const hl = positions["hub:hua-lamphong"];
+    expect(hl).toBeDefined();
+    expect(hl.structure).toBe("underground");
+    expect(hl.z).toBeCloseTo(-16.5, 0);
+
+    // Krung Thep Aphiwat is placed at elevated track level (z = 15 m + 1.5 m marker offset = 16.5 m)
+    const kta = positions["hub:krung-thep-aphiwat"];
+    expect(kta).toBeDefined();
+    expect(kta.structure).toBe("elevated");
+    expect(kta.z).toBeCloseTo(16.5, 0);
+
+    // Suvarnabhumi is underground ARL terminus
+    const bkk = positions["A1"];
+    expect(bkk).toBeDefined();
+    expect(bkk.structure).toBe("underground");
+    expect(bkk.z).toBeLessThan(0);
+
+    // Siam, Makkasan, and Mo Chit are elevated
+    expect(positions["hub:siam"]?.structure).toBe("elevated");
+    expect(positions["A6"]?.structure).toBe("elevated");
+    expect(positions["N8"]?.structure).toBe("elevated");
+
     layer.onRemove();
   });
 });
-
-
-
-

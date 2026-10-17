@@ -321,4 +321,3 @@ describe("buildStationGeometry(stations, line)", () => {
     expect(group.children.length).toBeGreaterThan(0);
   });
 });
-

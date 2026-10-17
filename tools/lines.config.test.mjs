@@ -424,7 +424,7 @@ describe("STATION_MODELS override registry", () => {
     expect(() => assertStationModelsValid([{ id: "A", glbUrl: "/a.glb", suppressProcedural: "yes" }])).toThrow(/must be a boolean/);
   });
 
-  it("builds an architecturally accurate Krung Thep Aphiwat scene with gull-wing roof, suspended Royal Clock, and clear SRT Red track channels at y = ±31.5m", async () => {
+  it("builds a stylized low-poly Krung Thep Aphiwat scene with gull-wing roof, suspended Royal Clock, and clear SRT Red track channels at y = ±31.5m", async () => {
     const THREE = await import("three");
     const { buildKrungThepAphiwatScene } = await import("./generate-aphiwat-model.mjs");
     const scene = buildKrungThepAphiwatScene();
@@ -450,5 +450,33 @@ describe("STATION_MODELS override registry", () => {
       expect(box.min.y < -31.5 && box.max.y > -31.5, `${child.name} collides with red-light at y=-31.5`).toBe(false);
     }
   });
-});
 
+  it("builds valid stylized 3D scenes for all registered landmark models", async () => {
+    const THREE = await import("three");
+    const {
+      buildSiamScene,
+      buildSuvarnabhumiScene,
+      buildMakkasanScene,
+      buildHuaLamphongScene,
+      buildMoChitScene,
+    } = await import("./generate-landmark-models.mjs");
+
+    const builders = [
+      { name: "Siam", fn: buildSiamScene },
+      { name: "Suvarnabhumi", fn: buildSuvarnabhumiScene },
+      { name: "Makkasan", fn: buildMakkasanScene },
+      { name: "Hua Lamphong", fn: buildHuaLamphongScene },
+      { name: "Mo Chit", fn: buildMoChitScene },
+    ];
+
+    for (const b of builders) {
+      const scene = b.fn();
+      expect(scene, `${b.name} scene should be defined`).toBeDefined();
+      expect(scene.children.length, `${b.name} scene should have children`).toBeGreaterThan(0);
+      scene.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(scene);
+      expect(box.isEmpty(), `${b.name} bounding box should not be empty`).toBe(false);
+      expect(box.max.x - box.min.x, `${b.name} length should be > 50m`).toBeGreaterThan(50);
+    }
+  });
+});

@@ -299,8 +299,8 @@ export function createTrimGeometry(
  * (for underground), normalized to z in [-0.5, 0.5] so poleTransform(z) scales it from z=0 to platform.
  */
 export function createColumnGeometry(
-  structure: Structure = "elevated",
-  dims: StationDimensions = STATION_DIMENSIONS.heavy,
+  structure: Structure,
+  dims: StationDimensions,
 ): THREE.BufferGeometry {
   if (structure === "underground") {
     const mezzanine = new THREE.BoxGeometry(dims.lengthM * 0.45, dims.widthM * 0.85, 0.18);
@@ -473,15 +473,7 @@ export function suppressStationInMeshGroup(
  * Builds procedural 3D station models for a transit line, split by structure band
  * (surface vs. underground) to maintain compatibility with ThreeLayer's underground mode.
  */
-export function buildStationGeometry(line: LineGeometry): THREE.Group;
-export function buildStationGeometry(stations: Station[], line: LineGeometry): THREE.Group;
-export function buildStationGeometry(
-  stationsOrLine: Station[] | LineGeometry,
-  maybeLine?: LineGeometry,
-): THREE.Group {
-  const line = Array.isArray(stationsOrLine) ? maybeLine! : stationsOrLine;
-  const stations = Array.isArray(stationsOrLine) ? stationsOrLine : line.stations;
-
+export function buildStationGeometry(stations: Station[], line: LineGeometry): THREE.Group {
   const group = new THREE.Group();
   group.name = `stations-${line.key}`;
   group.userData.lineKey = line.key;

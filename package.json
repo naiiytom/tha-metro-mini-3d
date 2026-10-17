@@ -19,6 +19,7 @@
     "rust:fmt": "cargo fmt --manifest-path rust-engine/Cargo.toml --all",
     "rust:lint": "cargo clippy --manifest-path rust-engine/Cargo.toml --workspace --all-targets",
     "screenshot": "node tools/screenshot.mjs",
+    "generate:models": "node tools/generate-landmark-models.mjs",
     "check:bundle": "node tools/check-bundle.mjs"
   },
   "dependencies": {

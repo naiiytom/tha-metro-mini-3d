@@ -584,7 +584,12 @@ export class NetworkLayer implements CustomLayerInterface {
         }
       }
 
-      isUnderground = cz < 0 || matchingStops[0].station.position[2] < 0;
+      isUnderground =
+        cz < 0 ||
+        matchingStops.some(
+          ({ station, line }) =>
+            station.position[2] < 0 || line.structure === "underground",
+        );
     }
 
     model.userData.structure = isUnderground ? "underground" : "elevated";
