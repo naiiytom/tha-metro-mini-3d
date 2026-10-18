@@ -2,390 +2,204 @@
  * Procedural 3D landmark generator for Krung Thep Aphiwat Central Terminal
  * (Bang Sue Grand Station / สถานีกลางกรุงเทพอภิวัฒน์).
  *
- * Generates an accurate, stylized low-poly glTF binary asset (.glb) with:
- * - Triple barrel-vault arched canopy roofs spanning 380 m along track axis.
- * - Longitudinal ridge skylights and transverse steel arch structural ribs.
- * - Elevated track platform decks (Floor 2, z = 0 relative to deck).
- * - Full-height concourse podium (Floor 1, z = -15 m to -1.5 m) with entrance glazing.
- * - Ground piers and viaduct approach portal bents.
- * - East facade grand entrance portico with canopy cantilever.
- * - Central Royal Clock Tower (z = -15 m to +28 m) with circular clock dial and gold bezel.
+ * Generates a stylized low-poly glTF binary asset (.glb) with:
+ * - Sweeping unified gull-wing / wave-curved cantilevered roof spanning 540 m × 196 m.
+ * - Longitudinal skylight ribbons and transverse steel arch structural ribs.
+ * - 6 island platform decks on Floor 2 (z = 0) flanking the SRT Dark Red (y = +31.5 m)
+ *   and SRT Light Red (y = -31.5 m) track alignments without collision.
+ * - Full-height concourse podium (Floor 1, z = -15 m to -1.5 m) with glazed curtain walls
+ *   and inclined V-strut colonnades along the East and South drop-off plazas.
+ * - Iconic circular Royal Clock (with the Thai numeral ๙ at 9 o'clock) suspended
+ *   beneath the grand entrance arch canopy.
  *
  * Run: node tools/generate-aphiwat-model.mjs
  * Output: public/models/krung-thep-aphiwat.glb
  */
 
-import fs from "node:fs";
 import path from "node:path";
 import * as THREE from "three";
-import { GLTFExporter } from "three/addons/exporters/GLTFExporter.js";
+import { createSharedMaterials, exportGlb } from "./generate-landmark-models.mjs";
 
-// Polyfill FileReader for Node.js GLTFExporter binary export
-if (typeof globalThis.FileReader === "undefined") {
-  class FileReader {
-    async readAsArrayBuffer(blob) {
-      this.result = await blob.arrayBuffer();
-      if (this.onloadend) this.onloadend();
-    }
+function gullWingRoofZ(y) {
+  const absY = Math.abs(y);
+  // Central vaulted hall (|y| <= 28): rises to z = 21.0 m at center
+  if (absY <= 28) {
+    return 21.0 - 4.2 * (absY / 28) ** 2;
   }
-  globalThis.FileReader = FileReader;
+  // Side platform wings (28 < |y| <= 68): secondary wave arch peaking at z = 17.6 m around |y| = 42
+  if (absY <= 68) {
+    const t = (absY - 28) / 40;
+    return 16.8 + Math.sin(t * Math.PI) * 1.4 - t * 6.8;
+  }
+  // Cantilevered drop-off eaves (68 < |y| <= 98): gentle upward gull-wing flare at tip
+  const t = (absY - 68) / 30;
+  return 10.0 - t * 3.8 + t * t * 1.6;
 }
 
 export function buildKrungThepAphiwatScene() {
   const root = new THREE.Group();
   root.name = "KrungThepAphiwatCentralTerminal";
 
-  // --- Materials ---
-  const matRoof = new THREE.MeshStandardMaterial({
-    color: 0xd7dfe6,
-    roughness: 0.35,
-    metalness: 0.35,
-    name: "mat_roof_shell",
-  });
+  const {
+    matRoof,
+    matRoofRib,
+    matGlass,
+    matConcrete,
+    matPlinth,
+    matPlatform,
+    matYellowStrip,
+    matSteel,
+    matSrtRed,
+    matClockDial,
+    matClockGold,
+    matClockMark,
+  } = createSharedMaterials();
 
-  const matRoofRib = new THREE.MeshStandardMaterial({
-    color: 0x3a4250,
-    roughness: 0.5,
-    metalness: 0.6,
-    name: "mat_roof_ribs",
-  });
-
-  const matGlass = new THREE.MeshStandardMaterial({
-    color: 0x5d8da8,
-    roughness: 0.1,
-    metalness: 0.3,
-    transparent: true,
-    opacity: 0.65,
-    name: "mat_glass",
-  });
-
-  const matConcrete = new THREE.MeshStandardMaterial({
-    color: 0xb5bdc5,
-    roughness: 0.8,
-    metalness: 0.05,
-    name: "mat_concrete",
-  });
-
-  const matPlinth = new THREE.MeshStandardMaterial({
-    color: 0x6c757d,
-    roughness: 0.7,
-    metalness: 0.1,
-    name: "mat_plinth",
-  });
-
-  const matPlatform = new THREE.MeshStandardMaterial({
-    color: 0x828a92,
-    roughness: 0.85,
-    metalness: 0.05,
-    name: "mat_platform",
-  });
-
-  const matYellowStrip = new THREE.MeshStandardMaterial({
-    color: 0xf3c012,
-    roughness: 0.5,
-    metalness: 0.1,
-    name: "mat_yellow_strip",
-  });
-
-  const matSteel = new THREE.MeshStandardMaterial({
-    color: 0x2d3748,
-    roughness: 0.4,
-    metalness: 0.7,
-    name: "mat_steel",
-  });
-
-  const matClockDial = new THREE.MeshStandardMaterial({
-    color: 0xffffff,
-    roughness: 0.3,
-    emissive: 0x334455,
-    emissiveIntensity: 0.4,
-    name: "mat_clock_dial",
-  });
-
-  const matClockGold = new THREE.MeshStandardMaterial({
-    color: 0xd4af37,
-    roughness: 0.3,
-    metalness: 0.85,
-    name: "mat_clock_gold",
-  });
-
-  const matClockMark = new THREE.MeshStandardMaterial({
-    color: 0x1a202c,
-    roughness: 0.6,
-    metalness: 0.2,
-    name: "mat_clock_mark",
-  });
-
-  // --- Helper: Barrel Vault Extrusion ---
-  function createBarrelVaultMesh({
-    length,
-    width,
-    peakHeight,
-    baseHeight = 0,
-    thickness = 0.6,
-    centerY = 0,
-    segments = 24,
-    material,
-  }) {
-    const shape = new THREE.Shape();
-    // Parabolic / smooth arc profile in local (y, z)
-    for (let i = 0; i <= segments; i++) {
-      const t = i / segments;
-      const y = -width / 2 + t * width;
-      const z = peakHeight * (1 - (2 * y / width) ** 2);
-      if (i === 0) shape.moveTo(y, z);
-      else shape.lineTo(y, z);
-    }
-    for (let i = segments; i >= 0; i--) {
-      const t = i / segments;
-      const y = -width / 2 + t * width;
-      const z = Math.max(0, peakHeight * (1 - (2 * y / width) ** 2) - thickness);
-      shape.lineTo(y, z);
-    }
-    shape.closePath();
-
+  function extrudeProfileAlongX(shape, length, material) {
     const geom = new THREE.ExtrudeGeometry(shape, {
       depth: length,
       bevelEnabled: false,
     });
-
-    // Map extruded coordinates: (x_shape, y_shape, z_extrude) -> (X_len, Y_width, Z_height)
     const pos = geom.attributes.position;
     for (let i = 0; i < pos.count; i++) {
-      const x = pos.getX(i);
-      const y = pos.getY(i);
-      const z = pos.getZ(i);
-      pos.setXYZ(i, z - length / 2, x + centerY, y + baseHeight);
+      const yShape = pos.getX(i);
+      const zShape = pos.getY(i);
+      const xExtrude = pos.getZ(i);
+      pos.setXYZ(i, xExtrude - length / 2, yShape, zShape);
     }
     pos.needsUpdate = true;
     geom.computeVertexNormals();
-
     const mesh = new THREE.Mesh(geom, material);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     return mesh;
   }
 
-  // --- Helper: Skylight Ribbon along Arch Crest ---
-  function createSkylightMesh({
-    length,
-    ribbonWidth,
-    archWidth,
-    peakHeight,
-    baseHeight = 0,
-    centerY = 0,
-    segments = 8,
-  }) {
-    const shape = new THREE.Shape();
-    for (let i = 0; i <= segments; i++) {
-      const t = i / segments;
-      const y = -ribbonWidth / 2 + t * ribbonWidth;
-      const z = peakHeight * (1 - (2 * y / archWidth) ** 2) + 0.15;
-      if (i === 0) shape.moveTo(y, z);
-      else shape.lineTo(y, z);
-    }
-    for (let i = segments; i >= 0; i--) {
-      const t = i / segments;
-      const y = -ribbonWidth / 2 + t * ribbonWidth;
-      const z = peakHeight * (1 - (2 * y / archWidth) ** 2) + 0.05;
-      shape.lineTo(y, z);
-    }
-    shape.closePath();
-
-    const geom = new THREE.ExtrudeGeometry(shape, {
-      depth: length * 0.96,
-      bevelEnabled: false,
-    });
-    const pos = geom.attributes.position;
-    const len = length * 0.96;
-    for (let i = 0; i < pos.count; i++) {
-      const x = pos.getX(i);
-      const y = pos.getY(i);
-      const z = pos.getZ(i);
-      pos.setXYZ(i, z - len / 2, x + centerY, y + baseHeight);
-    }
-    pos.needsUpdate = true;
-    geom.computeVertexNormals();
-
-    const mesh = new THREE.Mesh(geom, matGlass);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    return mesh;
-  }
-
   // =========================================================================
-  // 1. Triple Barrel-Vault Canopy Roofs
+  // 1. Unified Sweeping Gull-Wing Roof (540 m × 196 m, max z = 21.8 m)
   // =========================================================================
   const roofGroup = new THREE.Group();
   roofGroup.name = "RoofCanopies";
 
-  // Center Arch (Grand Central Platform Hall)
-  const centerArch = createBarrelVaultMesh({
-    length: 380,
-    width: 44,
-    peakHeight: 20,
-    baseHeight: 0,
-    thickness: 0.7,
-    centerY: 0,
-    segments: 24,
-    material: matRoof,
-  });
-  centerArch.name = "CenterRoofArch";
-  roofGroup.add(centerArch);
+  const roofLength = 540;
+  const roofHalfW = 98;
+  const roofSegments = 48;
+  const roofThickness = 0.75;
 
-  // Center Skylight
-  const centerSkylight = createSkylightMesh({
-    length: 380,
-    ribbonWidth: 9,
-    archWidth: 44,
-    peakHeight: 20,
-    baseHeight: 0,
-    centerY: 0,
-    segments: 8,
-  });
-  centerSkylight.name = "CenterSkylight";
-  roofGroup.add(centerSkylight);
+  const roofShape = new THREE.Shape();
+  for (let i = 0; i <= roofSegments; i++) {
+    const y = -roofHalfW + (i / roofSegments) * (roofHalfW * 2);
+    const z = gullWingRoofZ(y);
+    if (i === 0) roofShape.moveTo(y, z);
+    else roofShape.lineTo(y, z);
+  }
+  for (let i = roofSegments; i >= 0; i--) {
+    const y = -roofHalfW + (i / roofSegments) * (roofHalfW * 2);
+    const z = gullWingRoofZ(y) - roofThickness;
+    roofShape.lineTo(y, z);
+  }
+  roofShape.closePath();
 
-  // East Arch (SRT Light Red & Intercity East)
-  const eastArch = createBarrelVaultMesh({
-    length: 360,
-    width: 38,
-    peakHeight: 16.5,
-    baseHeight: 0,
-    thickness: 0.6,
-    centerY: -39,
-    segments: 20,
-    material: matRoof,
-  });
-  eastArch.name = "EastRoofArch";
-  roofGroup.add(eastArch);
+  const mainRoofMesh = extrudeProfileAlongX(roofShape, roofLength, matRoof);
+  mainRoofMesh.name = "MainGullWingRoof";
+  roofGroup.add(mainRoofMesh);
 
-  const eastSkylight = createSkylightMesh({
-    length: 360,
-    ribbonWidth: 6,
-    archWidth: 38,
-    peakHeight: 16.5,
-    baseHeight: 0,
-    centerY: -39,
-    segments: 6,
-  });
-  eastSkylight.name = "EastSkylight";
-  roofGroup.add(eastSkylight);
+  // Longitudinal skylight ribbons along the central crown and side vaults
+  for (const [skyCenterY, skyHalfW, skyName] of [
+    [0, 6, "CenterSkylight"],
+    [-31.5, 4.5, "EastSkylight"],
+    [31.5, 4.5, "WestSkylight"],
+  ]) {
+    const skyShape = new THREE.Shape();
+    const segs = 8;
+    for (let i = 0; i <= segs; i++) {
+      const y = skyCenterY - skyHalfW + (i / segs) * (skyHalfW * 2);
+      const z = gullWingRoofZ(y) + 0.18;
+      if (i === 0) skyShape.moveTo(y, z);
+      else skyShape.lineTo(y, z);
+    }
+    for (let i = segs; i >= 0; i--) {
+      const y = skyCenterY - skyHalfW + (i / segs) * (skyHalfW * 2);
+      const z = gullWingRoofZ(y) + 0.04;
+      skyShape.lineTo(y, z);
+    }
+    skyShape.closePath();
+    const skyMesh = extrudeProfileAlongX(skyShape, roofLength * 0.94, matGlass);
+    skyMesh.name = skyName;
+    roofGroup.add(skyMesh);
+  }
 
-  // West Arch (SRT Dark Red & Intercity West)
-  const westArch = createBarrelVaultMesh({
-    length: 360,
-    width: 38,
-    peakHeight: 16.5,
-    baseHeight: 0,
-    thickness: 0.6,
-    centerY: 39,
-    segments: 20,
-    material: matRoof,
-  });
-  westArch.name = "WestRoofArch";
-  roofGroup.add(westArch);
+  // SRT crimson-red fascia accent bands along the gull-wing eave edges (y = ±98)
+  for (const sign of [-1, 1]) {
+    const fasciaGeom = new THREE.BoxGeometry(roofLength, 0.8, 0.9);
+    fasciaGeom.translate(0, sign * roofHalfW, gullWingRoofZ(roofHalfW) - 0.2);
+    roofGroup.add(new THREE.Mesh(fasciaGeom, matSrtRed));
+  }
 
-  const westSkylight = createSkylightMesh({
-    length: 360,
-    ribbonWidth: 6,
-    archWidth: 38,
-    peakHeight: 16.5,
-    baseHeight: 0,
-    centerY: 39,
-    segments: 6,
-  });
-  westSkylight.name = "WestSkylight";
-  roofGroup.add(westSkylight);
-
-  // Roof Valley Gutters connecting arches
-  const eastGutterGeom = new THREE.BoxGeometry(370, 3, 0.8);
-  eastGutterGeom.translate(0, -20.5, 0.4);
-  roofGroup.add(new THREE.Mesh(eastGutterGeom, matRoofRib));
-
-  const westGutterGeom = new THREE.BoxGeometry(370, 3, 0.8);
-  westGutterGeom.translate(0, 20.5, 0.4);
-  roofGroup.add(new THREE.Mesh(westGutterGeom, matRoofRib));
-
-  // Cantilever Eaves over side facades
-  const eastEaveGeom = new THREE.BoxGeometry(350, 10, 0.5);
-  eastEaveGeom.translate(0, -63, 2.0);
-  roofGroup.add(new THREE.Mesh(eastEaveGeom, matRoof));
-
-  const westEaveGeom = new THREE.BoxGeometry(350, 8, 0.5);
-  westEaveGeom.translate(0, 62, 2.0);
-  roofGroup.add(new THREE.Mesh(westEaveGeom, matRoof));
-
-  // Transverse Arch Ribs (structural steel cadence every 25 m)
-  const ribXPositions = [-170, -145, -120, -95, -70, -45, -20, 0, 20, 45, 70, 95, 120, 145, 170];
-  for (const rx of ribXPositions) {
-    // Center arch rib
-    const ribGeom = new THREE.BoxGeometry(1.4, 44.4, 0.8);
-    ribGeom.translate(rx, 0, 19.8);
-    roofGroup.add(new THREE.Mesh(ribGeom, matRoofRib));
-
-    // East arch rib
-    const eastRibGeom = new THREE.BoxGeometry(1.4, 38.4, 0.8);
-    eastRibGeom.translate(rx, -39, 16.4);
-    roofGroup.add(new THREE.Mesh(eastRibGeom, matRoofRib));
-
-    // West arch rib
-    const westRibGeom = new THREE.BoxGeometry(1.4, 38.4, 0.8);
-    westRibGeom.translate(rx, 39, 16.4);
-    roofGroup.add(new THREE.Mesh(westRibGeom, matRoofRib));
+  // Transverse structural steel arch ribs every 30 m
+  for (let rx = -240; rx <= 240; rx += 30) {
+    const ribShape = new THREE.Shape();
+    for (let i = 0; i <= 24; i++) {
+      const y = -roofHalfW + (i / 24) * (roofHalfW * 2);
+      const z = gullWingRoofZ(y) + 0.35;
+      if (i === 0) ribShape.moveTo(y, z);
+      else ribShape.lineTo(y, z);
+    }
+    for (let i = 24; i >= 0; i--) {
+      const y = -roofHalfW + (i / 24) * (roofHalfW * 2);
+      const z = gullWingRoofZ(y) - 0.25;
+      ribShape.lineTo(y, z);
+    }
+    ribShape.closePath();
+    const ribMesh = extrudeProfileAlongX(ribShape, 1.4, matRoofRib);
+    ribMesh.position.x = rx;
+    roofGroup.add(ribMesh);
   }
 
   root.add(roofGroup);
 
   // =========================================================================
-  // 2. Platform Decks & Tracks (Floor 2, z = -1.5 m to 0)
+  // 2. Platform Decks (Floor 2, z = -1.2 to 0) with clear y = ±31.5 m track ways
   // =========================================================================
   const platformGroup = new THREE.Group();
   platformGroup.name = "PlatformDecks";
 
-  const deckLength = 370;
-
-  // Platform definitions [centerY, width, name]
+  const deckLength = 500;
+  // SRT Light Red runs at y = -31.5 m; SRT Dark Red runs at y = +31.5 m.
+  // Platforms flank both tracks cleanly without overlapping y = ±31.5 m.
   const platformDefs = [
-    { y: -36, w: 14, name: "Platform_East_SRT_LightRed" },
-    { y: -10, w: 12, name: "Platform_Intercity_East" },
-    { y: 10, w: 12, name: "Platform_Intercity_West" },
-    { y: 36, w: 14, name: "Platform_West_SRT_DarkRed" },
+    { y: -44, w: 12, name: "Platform_East_Outer_SRT_LightRed" },
+    { y: -19, w: 12, name: "Platform_East_Inner_SRT_LightRed" },
+    { y: -5.5, w: 8, name: "Platform_Intercity_East" },
+    { y: 5.5, w: 8, name: "Platform_Intercity_West" },
+    { y: 19, w: 12, name: "Platform_West_Inner_SRT_DarkRed" },
+    { y: 44, w: 12, name: "Platform_West_Outer_SRT_DarkRed" },
   ];
 
   for (const p of platformDefs) {
-    // Main concrete deck slab
     const slabGeom = new THREE.BoxGeometry(deckLength, p.w, 1.2);
     slabGeom.translate(0, p.y, -0.6);
     const slabMesh = new THREE.Mesh(slabGeom, matPlatform);
     slabMesh.name = p.name;
     platformGroup.add(slabMesh);
 
-    // Yellow safety tactile edge strips (along both platform edges)
-    const yEdgeL = p.y - p.w / 2 + 0.3;
-    const yEdgeR = p.y + p.w / 2 - 0.3;
-
-    const stripGeomL = new THREE.BoxGeometry(deckLength, 0.4, 0.05);
-    stripGeomL.translate(0, yEdgeL, 0.02);
-    platformGroup.add(new THREE.Mesh(stripGeomL, matYellowStrip));
-
-    const stripGeomR = new THREE.BoxGeometry(deckLength, 0.4, 0.05);
-    stripGeomR.translate(0, yEdgeR, 0.02);
-    platformGroup.add(new THREE.Mesh(stripGeomR, matYellowStrip));
+    for (const edgeSign of [-1, 1]) {
+      const edgeY = p.y + edgeSign * (p.w / 2 - 0.35);
+      const stripGeom = new THREE.BoxGeometry(deckLength, 0.4, 0.05);
+      stripGeom.translate(0, edgeY, 0.02);
+      platformGroup.add(new THREE.Mesh(stripGeom, matYellowStrip));
+    }
   }
 
-  // Ballast / Track slabs between and alongside platforms
-  const ballastDefs = [
-    { y: -50, w: 12 },
-    { y: -23, w: 10 },
-    { y: 0, w: 6 },
-    { y: 23, w: 10 },
-    { y: 50, w: 12 },
-  ];
-  for (const b of ballastDefs) {
-    const ballastGeom = new THREE.BoxGeometry(deckLength, b.w, 0.8);
-    ballastGeom.translate(0, b.y, -1.0);
-    platformGroup.add(new THREE.Mesh(ballastGeom, matPlinth));
+  // Sub-track viaduct deck slabs beneath track channels (z = -1.6 to -0.8)
+  for (const [trackY, trackW] of [
+    [-31.5, 13],
+    [0, 3],
+    [31.5, 13],
+  ]) {
+    const bedGeom = new THREE.BoxGeometry(deckLength, trackW, 0.8);
+    bedGeom.translate(0, trackY, -1.2);
+    platformGroup.add(new THREE.Mesh(bedGeom, matPlinth));
   }
 
   root.add(platformGroup);
@@ -396,31 +210,40 @@ export function buildKrungThepAphiwatScene() {
   const concourseGroup = new THREE.Group();
   concourseGroup.name = "ConcoursePodium";
 
-  // Massive main concourse hall building
-  const concourseBody = new THREE.BoxGeometry(350, 108, 13.5);
+  const concourseBody = new THREE.BoxGeometry(470, 132, 13.5);
   concourseBody.translate(0, 0, -8.25);
   concourseGroup.add(new THREE.Mesh(concourseBody, matConcrete));
 
-  // Ground plinth foundation slab (z = -15.5 to -15.0)
-  const groundPlinth = new THREE.BoxGeometry(360, 126, 0.6);
-  groundPlinth.translate(0, -3, -15.3);
+  const groundPlinth = new THREE.BoxGeometry(500, 168, 0.6);
+  groundPlinth.translate(0, 0, -15.3);
   concourseGroup.add(new THREE.Mesh(groundPlinth, matPlinth));
 
-  // East Facade Ground Glazing Ribbon (z = -14.5 to -3.0, y = -54.2)
-  const eastGlazing = new THREE.BoxGeometry(330, 0.6, 10.5);
-  eastGlazing.translate(0, -54.2, -8.5);
-  concourseGroup.add(new THREE.Mesh(eastGlazing, matGlass));
+  // East & West glazed concourse curtain walls (y = ±66.3)
+  for (const sign of [-1, 1]) {
+    const glazing = new THREE.BoxGeometry(450, 0.6, 11.0);
+    glazing.translate(0, sign * 66.3, -8.2);
+    concourseGroup.add(new THREE.Mesh(glazing, matGlass));
+  }
 
-  // West Facade Ground Glazing Ribbon (z = -14.5 to -3.0, y = 54.2)
-  const westGlazing = new THREE.BoxGeometry(330, 0.6, 10.5);
-  westGlazing.translate(0, 54.2, -8.5);
-  concourseGroup.add(new THREE.Mesh(westGlazing, matGlass));
+  // Inclined V-strut steel tree columns supporting the East & West gull-wing eaves
+  for (let cx = -210; cx <= 210; cx += 35) {
+    for (const side of [-1, 1]) {
+      const baseY = side * 78;
+      for (const splay of [-1, 1]) {
+        const strut = new THREE.CylinderGeometry(0.45, 0.55, 24.5, 8);
+        strut.rotateX(Math.PI / 2);
+        const mesh = new THREE.Mesh(strut, matSteel);
+        mesh.position.set(cx + splay * 3.5, baseY + side * 4, -3.5);
+        mesh.rotation.x = side * 0.32;
+        mesh.rotation.y = splay * 0.18;
+        concourseGroup.add(mesh);
+      }
+    }
+  }
 
-  // Concrete support piers extending beyond concourse at track approach portals
-  const portalX = [-182, -172, 172, 182];
-  const portalY = [-48, -24, 0, 24, 48];
-  for (const px of portalX) {
-    for (const py of portalY) {
+  // Viaduct portal piers at North & South track approaches
+  for (const px of [-258, -242, 242, 258]) {
+    for (const py of [-44, -19, 0, 19, 44]) {
       const pierGeom = new THREE.BoxGeometry(4.0, 3.5, 13.5);
       pierGeom.translate(px, py, -8.25);
       concourseGroup.add(new THREE.Mesh(pierGeom, matConcrete));
@@ -430,134 +253,109 @@ export function buildKrungThepAphiwatScene() {
   root.add(concourseGroup);
 
   // =========================================================================
-  // 4. North & South Gable End Facades (Train Entrance Portals)
+  // 4. North & South Gable End Portals (with open track bays at y = ±31.5 m)
   // =========================================================================
   const portalGroup = new THREE.Group();
   portalGroup.name = "GablePortals";
 
   for (const sign of [-1, 1]) {
-    const gx = sign * 185;
+    const gx = sign * 260;
+    // Upper glazed arch curtain above train clearance (z = 8.5 m to 19.5 m)
+    const upperCurtain = new THREE.BoxGeometry(0.8, 128, 11.0);
+    upperCurtain.translate(gx, 0, 14.0);
+    portalGroup.add(new THREE.Mesh(upperCurtain, matGlass));
 
-    // Center glazed curtain screen with portal cutout
-    const centerScreen = new THREE.BoxGeometry(0.8, 44, 18);
-    centerScreen.translate(gx, 0, 9);
-    portalGroup.add(new THREE.Mesh(centerScreen, matGlass));
+    // Vertical glazed screens over platform islands (leaving y = ±31.5 m open for trains)
+    for (const [py, pw] of [
+      [-52, 20],
+      [-12, 18],
+      [12, 18],
+      [52, 20],
+    ]) {
+      const pillarScreen = new THREE.BoxGeometry(0.8, pw, 8.5);
+      pillarScreen.translate(gx, py, 4.25);
+      portalGroup.add(new THREE.Mesh(pillarScreen, matGlass));
+    }
 
-    // East screen
-    const eastScreen = new THREE.BoxGeometry(0.8, 38, 15);
-    eastScreen.translate(gx, -39, 7.5);
-    portalGroup.add(new THREE.Mesh(eastScreen, matGlass));
-
-    // West screen
-    const westScreen = new THREE.BoxGeometry(0.8, 38, 15);
-    westScreen.translate(gx, 39, 7.5);
-    portalGroup.add(new THREE.Mesh(westScreen, matGlass));
-
-    // Structural portal arch frames
-    const centerPortalArch = new THREE.BoxGeometry(1.6, 44.8, 1.2);
-    centerPortalArch.translate(gx, 0, 18.5);
-    portalGroup.add(new THREE.Mesh(centerPortalArch, matSteel));
-
-    const eastPortalArch = new THREE.BoxGeometry(1.6, 38.8, 1.2);
-    eastPortalArch.translate(gx, -39, 15.2);
-    portalGroup.add(new THREE.Mesh(eastPortalArch, matSteel));
-
-    const westPortalArch = new THREE.BoxGeometry(1.6, 38.8, 1.2);
-    westPortalArch.translate(gx, 39, 15.2);
-    portalGroup.add(new THREE.Mesh(westPortalArch, matSteel));
+    // Steel portal arch header beam spanning across the gable facade
+    const portalHeader = new THREE.BoxGeometry(1.8, 136, 1.2);
+    portalHeader.translate(gx, 0, 8.5);
+    portalGroup.add(new THREE.Mesh(portalHeader, matSteel));
   }
 
   root.add(portalGroup);
 
   // =========================================================================
-  // 5. Grand East Facade, Entrance Portico & Clock Tower
+  // 5. Grand Entrance Portico & Suspended Royal Clock (with Thai numeral ๙)
   // =========================================================================
   const landmarkGroup = new THREE.Group();
-  landmarkGroup.name = "EastFacadeAndClockTower";
+  landmarkGroup.name = "EastFacadeAndRoyalClock";
 
-  // Grand Entrance Portico (Drop-off canopy extending east from y = -54 to -72)
-  const porticoRoof = new THREE.BoxGeometry(130, 18, 0.8);
-  porticoRoof.translate(0, -63, -5.0);
-  landmarkGroup.add(new THREE.Mesh(porticoRoof, matRoof));
-
-  // Glazed skylights on portico roof
-  const porticoGlass = new THREE.BoxGeometry(110, 10, 0.3);
-  porticoGlass.translate(0, -63, -4.6);
-  landmarkGroup.add(new THREE.Mesh(porticoGlass, matGlass));
-
-  // V-struts supporting portico
-  const strutX = [-50, -25, 25, 50];
-  for (const sx of strutX) {
-    const strutGeom = new THREE.CylinderGeometry(0.4, 0.4, 10, 8);
-    strutGeom.translate(sx, -70, -10);
-    landmarkGroup.add(new THREE.Mesh(strutGeom, matSteel));
-  }
-
-  // --- Central Clock Tower ---
-  // Tower body rising from ground z = -15 m to z = 28 m (total height 43 m)
-  const towerBody = new THREE.BoxGeometry(16, 8, 43);
-  towerBody.translate(0, -60, 6.5);
-  landmarkGroup.add(new THREE.Mesh(towerBody, matConcrete));
-
-  // Tower architectural pilasters & crown stepping
-  const towerCrown1 = new THREE.BoxGeometry(17.6, 9.6, 1.5);
-  towerCrown1.translate(0, -60, 28.5);
-  landmarkGroup.add(new THREE.Mesh(towerCrown1, matSteel));
-
-  const towerCrown2 = new THREE.BoxGeometry(14.0, 7.0, 2.0);
-  towerCrown2.translate(0, -60, 30.0);
-  landmarkGroup.add(new THREE.Mesh(towerCrown2, matConcrete));
-
-  const towerPinnacle = new THREE.CylinderGeometry(0.3, 0.8, 6.0, 8);
-  towerPinnacle.translate(0, -60, 34.0);
-  landmarkGroup.add(new THREE.Mesh(towerPinnacle, matClockGold));
-
-  // Decorative vertical recess grooves along tower front
-  for (const gx of [-5.5, 5.5]) {
-    const grooveGeom = new THREE.BoxGeometry(1.2, 0.4, 34);
-    grooveGeom.translate(gx, -64.1, 8.0);
-    landmarkGroup.add(new THREE.Mesh(grooveGeom, matSteel));
-  }
-
-  // Station identity sign backing panel
-  const signBacking = new THREE.BoxGeometry(12, 0.4, 2.5);
-  signBacking.translate(0, -64.2, 12.0);
+  // Station name fascia backing board beneath the East central arch
+  const signBacking = new THREE.BoxGeometry(64, 0.8, 2.8);
+  signBacking.translate(0, -82.0, 7.2);
   landmarkGroup.add(new THREE.Mesh(signBacking, matSteel));
 
-  // --- Royal Clock Face (Iconic circular dial facing East) ---
+  const signCrimsonTrim = new THREE.BoxGeometry(66, 0.9, 0.45);
+  signCrimsonTrim.translate(0, -82.1, 5.7);
+  landmarkGroup.add(new THREE.Mesh(signCrimsonTrim, matSrtRed));
+
+  // --- Royal Clock (Suspended under the grand roof arch at y = -82.5 m, z = 12.2 m) ---
   const clockGroup = new THREE.Group();
   clockGroup.name = "RoyalClock";
 
-  const clockRadius = 4.2;
-  const clockY = -64.25;
-  const clockZ = 21.0;
+  const clockRadius = 3.8;
+  const clockY = -82.5;
+  const clockZ = 12.2;
 
-  // Outer Gold Bezel
+  // Twin steel suspension struts connecting clock housing to the gull-wing roof arch
+  for (const sx of [-1.4, 1.4]) {
+    const hanger = new THREE.CylinderGeometry(0.22, 0.22, 4.2, 8);
+    hanger.rotateX(Math.PI / 2);
+    hanger.translate(sx, clockY + 0.3, clockZ + clockRadius + 1.4);
+    clockGroup.add(new THREE.Mesh(hanger, matSteel));
+  }
+
   const bezelGeom = new THREE.TorusGeometry(clockRadius, 0.35, 12, 32);
   bezelGeom.rotateX(Math.PI / 2);
   bezelGeom.translate(0, clockY, clockZ);
   clockGroup.add(new THREE.Mesh(bezelGeom, matClockGold));
 
-  // Inner Bezel accent ring
-  const innerBezelGeom = new THREE.TorusGeometry(clockRadius * 0.85, 0.12, 8, 32);
+  const innerBezelGeom = new THREE.TorusGeometry(clockRadius * 0.86, 0.12, 8, 32);
   innerBezelGeom.rotateX(Math.PI / 2);
   innerBezelGeom.translate(0, clockY - 0.05, clockZ);
   clockGroup.add(new THREE.Mesh(innerBezelGeom, matClockGold));
 
-  // White Dial Face Disk
-  const dialGeom = new THREE.CylinderGeometry(clockRadius, clockRadius, 0.2, 32);
+  const dialGeom = new THREE.CylinderGeometry(clockRadius, clockRadius, 0.25, 32);
   dialGeom.rotateX(Math.PI / 2);
   dialGeom.translate(0, clockY - 0.02, clockZ);
   clockGroup.add(new THREE.Mesh(dialGeom, matClockDial));
 
-  // 12-Hour Markers
   for (let h = 0; h < 12; h++) {
+    // Position 9 (9 o'clock, angle = 3*PI/2) carries the distinctive gold Thai numeral ๙
+    if (h === 9) {
+      const numeral9 = new THREE.Group();
+      numeral9.name = "ThaiNumeral9";
+      const rDist = clockRadius * 0.72;
+      const nx = -rDist;
+      const nz = clockZ;
+      const loopGeom = new THREE.TorusGeometry(0.42, 0.1, 8, 16);
+      loopGeom.rotateX(Math.PI / 2);
+      loopGeom.translate(nx, clockY - 0.16, nz);
+      numeral9.add(new THREE.Mesh(loopGeom, matClockGold));
+      const tailGeom = new THREE.BoxGeometry(0.75, 0.12, 0.16);
+      tailGeom.rotateY(0.45);
+      tailGeom.translate(nx + 0.15, clockY - 0.16, nz + 0.38);
+      numeral9.add(new THREE.Mesh(tailGeom, matClockGold));
+      clockGroup.add(numeral9);
+      continue;
+    }
+
     const angle = (h / 12) * Math.PI * 2;
     const isMajor = h % 3 === 0;
-    const markLength = isMajor ? 0.9 : 0.55;
-    const markWidth = isMajor ? 0.22 : 0.12;
-
-    const rDist = clockRadius * 0.76;
+    const markLength = isMajor ? 0.85 : 0.5;
+    const markWidth = isMajor ? 0.2 : 0.12;
+    const rDist = clockRadius * 0.75;
     const mx = Math.sin(angle) * rDist;
     const mz = Math.cos(angle) * rDist;
 
@@ -567,25 +365,21 @@ export function buildKrungThepAphiwatScene() {
     clockGroup.add(new THREE.Mesh(markGeom, matClockMark));
   }
 
-  // Clock Hands (Set to ~10:10 classic aesthetic time)
-  // Hour hand (pointing to ~10 o'clock)
-  const hourAngle = (10 / 12) * Math.PI * 2 + (10 / 60) * (Math.PI * 2 / 12);
-  const hourHandGeom = new THREE.BoxGeometry(0.3, 0.1, 2.2);
-  hourHandGeom.translate(0, 0, 1.0);
+  const hourAngle = (10 / 12) * Math.PI * 2 + (10 / 60) * ((Math.PI * 2) / 12);
+  const hourHandGeom = new THREE.BoxGeometry(0.28, 0.1, 2.0);
+  hourHandGeom.translate(0, 0, 0.9);
   hourHandGeom.rotateY(-hourAngle);
   hourHandGeom.translate(0, clockY - 0.18, clockZ);
   clockGroup.add(new THREE.Mesh(hourHandGeom, matClockMark));
 
-  // Minute hand (pointing to ~2 o'clock / 10 minutes)
   const minuteAngle = (10 / 60) * Math.PI * 2;
-  const minuteHandGeom = new THREE.BoxGeometry(0.2, 0.1, 3.2);
-  minuteHandGeom.translate(0, 0, 1.5);
+  const minuteHandGeom = new THREE.BoxGeometry(0.18, 0.1, 2.9);
+  minuteHandGeom.translate(0, 0, 1.35);
   minuteHandGeom.rotateY(-minuteAngle);
   minuteHandGeom.translate(0, clockY - 0.22, clockZ);
   clockGroup.add(new THREE.Mesh(minuteHandGeom, matClockMark));
 
-  // Clock center boss / cap
-  const centerBossGeom = new THREE.CylinderGeometry(0.45, 0.45, 0.25, 16);
+  const centerBossGeom = new THREE.CylinderGeometry(0.4, 0.4, 0.25, 16);
   centerBossGeom.rotateX(Math.PI / 2);
   centerBossGeom.translate(0, clockY - 0.24, clockZ);
   clockGroup.add(new THREE.Mesh(centerBossGeom, matClockGold));
@@ -593,38 +387,20 @@ export function buildKrungThepAphiwatScene() {
   landmarkGroup.add(clockGroup);
   root.add(landmarkGroup);
 
+  root.traverse((obj) => {
+    if (obj instanceof THREE.Mesh) {
+      obj.castShadow = true;
+      obj.receiveShadow = true;
+    }
+  });
+
   return root;
 }
 
 export async function exportKrungThepAphiwatGlb(outputPath) {
-  const scene = buildKrungThepAphiwatScene();
-
-  const exporter = new GLTFExporter();
-  return new Promise((resolve, reject) => {
-    exporter.parse(
-      scene,
-      (gltf) => {
-        try {
-          const dir = path.dirname(outputPath);
-          if (!fs.existsSync(dir)) {
-            fs.mkdirSync(dir, { recursive: true });
-          }
-          const buffer = Buffer.from(gltf);
-          fs.writeFileSync(outputPath, buffer);
-          resolve({ byteLength: buffer.byteLength, scene });
-        } catch (err) {
-          reject(err);
-        }
-      },
-      (error) => {
-        reject(error);
-      },
-      { binary: true },
-    );
-  });
+  return exportGlb(buildKrungThepAphiwatScene(), outputPath);
 }
 
-// Direct execution CLI
 if (process.argv[1] && process.argv[1].endsWith("generate-aphiwat-model.mjs")) {
   const targetPath = path.resolve("public/models/krung-thep-aphiwat.glb");
   console.log(`Generating Krung Thep Aphiwat 3D landmark model -> ${targetPath}...`);

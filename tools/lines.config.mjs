@@ -1112,10 +1112,43 @@ export function assertRegistryValid(lines = LINES) {
  */
 export const STATION_MODELS = [
   {
+    // Targets the two SRT Red Line stations ("Krung Thep Aphiwat", ids 7314652468 & 7314652456).
+    // Note: The broader interchange hub ID is "hub:bang-sue-krung-thep-aphiwat", which also
+    // includes the underground MRT Blue Line Bang Sue stop 300 m away. Targeting
+    // "hub:krung-thep-aphiwat" matches the station names, centering the landmark terminal on the
+    // Red Line viaducts without pulling the origin toward MRT Bang Sue or suppressing it.
     id: "hub:krung-thep-aphiwat",
     glbUrl: "/models/krung-thep-aphiwat.glb",
-    scale: [1, 1, 1],
-    headingOffsetDeg: 0,
+    altitudeOffsetM: -1.5,
+    suppressProcedural: true,
+  },
+  {
+    id: "hub:siam",
+    glbUrl: "/models/siam.glb",
+    altitudeOffsetM: -1.5,
+    suppressProcedural: true,
+  },
+  {
+    id: "A1",
+    glbUrl: "/models/suvarnabhumi.glb",
+    altitudeOffsetM: -1.5,
+    suppressProcedural: true,
+  },
+  {
+    id: "A6",
+    glbUrl: "/models/makkasan.glb",
+    altitudeOffsetM: -1.5,
+    suppressProcedural: true,
+  },
+  {
+    id: "hub:hua-lamphong",
+    glbUrl: "/models/hua-lamphong.glb",
+    altitudeOffsetM: -1.5,
+    suppressProcedural: true,
+  },
+  {
+    id: "N8",
+    glbUrl: "/models/mo-chit.glb",
     altitudeOffsetM: -1.5,
     suppressProcedural: true,
   },

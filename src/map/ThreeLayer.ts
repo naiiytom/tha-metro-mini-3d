@@ -209,7 +209,7 @@ export class NetworkLayer implements CustomLayerInterface {
       const { line: centerline, material } = buildTrackLine(line);
       group.add(centerline);
       this.lineMaterials.push(material);
-      group.add(buildStationGeometry(line));
+      group.add(buildStationGeometry(line.stations, line));
       scene.add(group);
       this.lineGroups.push(group);
     }
@@ -576,7 +576,7 @@ export class NetworkLayer implements CustomLayerInterface {
           targetIds.add(station.id);
           targetIds.add(String(station.id));
           if (station.code) targetIds.add(station.code);
-          if (station.hubId) targetIds.add(station.hubId);
+          if (station.hubId && station.hubId === overrideId) targetIds.add(station.hubId);
           if (station.name) targetIds.add(station.name);
         }
         for (const group of this.lineGroups) {
@@ -584,7 +584,12 @@ export class NetworkLayer implements CustomLayerInterface {
         }
       }
 
-      isUnderground = cz < 0 || matchingStops[0].station.position[2] < 0;
+      isUnderground =
+        cz < 0 ||
+        matchingStops.some(
+          ({ station, line }) =>
+            station.position[2] < 0 || line.structure === "underground",
+        );
     }
 
     model.userData.structure = isUnderground ? "underground" : "elevated";

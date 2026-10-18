@@ -29,6 +29,7 @@ Node.js is required but **not on the system PATH** on this machine — a portabl
   - **`npm run data:fetch -- <key>` OVERWRITES `src/data/network.json` with ONLY the fetched line(s), it does not merge.** `fetch-network.mjs`'s `main()` builds `const lines = []` from only the CLI-selected keys — a single-line fetch (e.g. `npm run data:fetch -- blue`) replaces the whole committed 12-line file with a one-line file, destroying the other 11 lines' data on disk. Found and worked around during MVP 7 Task 3 (fetched to a scratch understanding, hand-merged only the new entry, verified every other line byte-identical) rather than trusting the literal command. There is no guard against this in `fetch-network.mjs` today — always re-fetch the WHOLE registry (no args) unless you are prepared to hand-merge the result, and never run a bare single-key fetch directly against the committed file without a backup (`git stash` or a copy) first.
 - `node tools/inspect-gtfs.mjs <extracted-gtfs-dir>` — read-only: print every route in an extracted GTFS feed (id, agency, names, colour, trip count, frequency-based or not) — the fastest way to populate a new `tools/lines.config.mjs` entry or sanity-check the feed before wiring one up
 - `node tools/screenshot.mjs [url] [outDir]` — headless-Edge screenshots from several camera poses (uses `puppeteer-core`, installed with `--no-save`; in dev builds the map instance is exposed as `window.__map` for this)
+- `npm run generate:models` — rebuild all 6 stylized low-poly 3D landmark station `.glb` models in `public/models/` (Siam, Suvarnabhumi, Makkasan, Hua Lamphong, Mo Chit, Krung Thep Aphiwat) via `tools/generate-landmark-models.mjs` (individual generator `tools/generate-aphiwat-model.mjs` also supported)
 - `node tools/extract-stations.mjs <extracted-gtfs-dir>` — **legacy, MVP 1/2-era only.** Hardcoded to the old two-branch `src/data/green-line.json` schema (`doc.branches.sukhumvit`/`.silom`), which no longer exists — `fetch-network.mjs` now fetches station positions itself (from OSM stop nodes) for every registry line. Left in the tree for history; do not wire it into the MVP 5+ pipeline.
 
 Rust toolchain (`stable-x86_64-pc-windows-gnu` — chosen because no MSVC build tools exist on this machine; plus `wasm32-unknown-unknown`, wasm-pack 0.13.1) lives at `%USERPROFILE%\.cargo\bin`, also **not on PATH**:
@@ -389,6 +390,7 @@ The rest of the operational/pre-revenue classification was **re-verified against
 - Initial bundle ≤ 5 MB compressed (including the binary timetable); GLTF models lazy-load with LOD (still not built as of MVP 6, deliberately deferred — see SRS §4 F3.1; the current network uses procedural `ConsistSpec` geometry, not GLTF, and that satisfies the visual-distinctness intent for v1.0). **As of MVP 6:** `npm run check:bundle` reports **0.96 MB gzip / 5.00 MB budget (19% used)** for the full production build (`dist/` + `network.tmb`), up from MVP 5's ≈0.85 MB — comfortable headroom. `src/data/network.json` was measured at **135,038 bytes** raw (up from 134,568 before the gradient-limit + Mo Chit fixes in `b4c1cb9`, which changed the altitude channel and one station's position) and deliberately **kept** as a static import baked into the main JS chunk rather than moved to an async fetch — still comfortably under the ~150 KB threshold that would have justified the extra failure mode.
 - **As of MVP 7 (2026-08-05):** `npm run check:bundle` reports **1.03 MB gzip / 5.00 MB budget (21% used)** for the full production build — up from 1.01 MB after Orange/Purple Phase 2 landed, from MVP 7's added UI/control-surface code (theme tri-state, basemap style cycle, auto-underground, sky dome, eco mode) and its CSS. Still comfortable headroom against the 5 MB budget.
 - **As of the custom-rolling-stock branch (2026-08-23):** **1.08 MB gzip / 5.00 MB budget (22% used)** — 1.06 MB for the per-line stock geometry itself, plus a 12.5 KB gzip `GLTFLoader` chunk that appears only because the `.glb` seam is now actually wired in (see the `glbUrl` note above). That chunk is lazy and is never fetched at runtime while no line declares `glbUrl`.
+- **As of landmark 3D station models (2026-10-17):** **1.30 MB gzip / 5.00 MB budget (26% used)** — includes the 6 committed landmark `.glb` models (~1.7 MB uncompressed total on disk in `public/models/`, loaded on demand via `loadStationModel` rather than bundled into JS).
 - Browser matrix: Chrome 90+, Safari 15+, Firefox 88+, Edge (Chromium) — WebGL 2.0 + WebAssembly baseline. **As of MVP 6:** Chrome, Firefox, and Edge were each driven against the real dev server via `puppeteer-core` against their real installed binaries (CDP for Chrome/Edge, WebDriver BiDi for Firefox) — a genuine browser engine and automation protocol, but not a human clicking through a visible window; all three passed the same 9-point smoke check (engine ready, base map renders, all 10 lines present, trains move, a real canvas click selects the correct run, the underground toggle flips both store and DOM state, zero console/page errors). **Safari 15 is UNTESTED** — unavailable on this Windows machine; no attempt was made to fake or simulate a pass.
 - OpenStreetMap-derived geometry requires ODbL attribution; any scraped fallback data must respect the source's ToS and is preprocessor-only, never live in the client.
 
@@ -427,5 +429,28 @@ Delivered roadmap item 7 (#65, #66, #67, #68, #69): end-to-end bilingual English
   - Run `npm test` to verify key and token interpolation parity (`dictionary.test.ts`).
   - Run `npm run check:bundle` to ensure dictionary expansion remains within the 5 MB gzip budget (measured 1.11 MB gzip total, well within the 5.00 MB NF2 budget).
 
+## Implementation notes (Custom 3D Station Models & Landmark Assets, 2026-10-17)
 
+Delivered custom 3D station models and landmark `.glb` overrides (#81): procedural platform/canopy geometry reflecting track structure, stop-level suppression in multi-station hubs, and 6 stylized low-poly landmark station models.
 
+- **Procedural platform and canopy geometry**:
+  - Replaced simple cylinder markers with track-aligned procedural platform decks, support columns/access shafts, and arched canopies via `buildStationGeometry(stations, line)` in `src/map/stationGeometry.ts` (re-exported from `src/map/trackGeometry.ts`).
+  - Elevated lines render viaduct platform decks, ground-anchored support columns, and curved canopy roofs.
+  - Underground stations render platform decks at negative elevation with `polygonOffset` (`factor: -1, units: -1`) to prevent z-fighting with underground track decks, paired with subterranean mezzanine boxes and twin stairwell access shafts oriented along the track tangent.
+  - Draw calls stay O(lines) via `InstancedMesh` grouped by structure band (`surface` vs `underground`) to maintain full opacity transitions in underground view mode.
+- **Stop-level override targeting in `ThreeLayer.ts`**:
+  - `addLandmarkModel(model, override)` matches overrides by stop code, station ID, hub ID, or station name.
+  - When an override targets a single stop within an interchange hub (e.g. `A6` Makkasan in `hub:makkasan-phetchaburi`, or `N8` Mo Chit in `hub:chatuchak-park-mo-chit`), procedural geometry is suppressed only for that specific stop, avoiding accidental suppression of sibling stops in the same hub.
+- **Track-snapped altitude & heading alignment**:
+  - `snapStationsToTrack(lines)` in `stationGeometry.ts` updates station coordinates to the true track altitude and tangent heading on startup.
+  - Hua Lamphong sits at track level z = -18 m (cz < 0, classified as `underground`), placing its MRT cavern platform underground and its historic terminal building at surface level (z = 0 to 18 m).
+  - Krung Thep Aphiwat sits at elevated viaduct level z = 15 m (cz > 0, classified as `elevated`), with its platform top flush with the SRT Dark Red and Light Red track decks (z = 15 m).
+- **Landmark `.glb` station models**:
+  - Six stylized low-poly landmark assets registered in `STATION_MODELS` (`tools/lines.config.mjs`):
+    - `hub:krung-thep-aphiwat` (`krung-thep-aphiwat.glb`): 540 m × 196 m unified gull-wing roof, suspended Royal Clock with Thai numeral ๙, and 6 island platforms with clean lateral clearance for SRT Dark Red (y = +31.5 m) and Light Red (y = -31.5 m) alignments.
+    - `hub:siam` (`siam.glb`): 2-level stacked BTS interchange hub with concourse and skywalks.
+    - `A1` (`suvarnabhumi.glb`): Underground ARL terminus beneath Helmut Jahn concourse hall.
+    - `A6` (`makkasan.glb`): Elevated ARL City Air Terminal podium, skybridge, and roof vault.
+    - `hub:hua-lamphong` (`hua-lamphong.glb`): Underground MRT Blue Line cavern paired with the historic Neo-Renaissance train shed.
+    - `N8` (`mo-chit.glb`): Elevated BTS side-platform station with concourse and ground MRT entrance pavilions.
+  - Generated via `npm run generate:models` (`tools/generate-landmark-models.mjs`).

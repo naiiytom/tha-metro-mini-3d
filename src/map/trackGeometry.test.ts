@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { DECK_PROFILE, buildTrackDeck, buildTrackLine, poleTransform, splitByStructure } from "./trackGeometry";
-import type { LineGeometry, TrackPoint } from "../types";
+import { DECK_PROFILE, buildStationGeometry, buildTrackDeck, buildTrackLine, poleTransform, splitByStructure } from "./trackGeometry";
+import type { LineGeometry, Station, TrackPoint } from "../types";
 
 describe("deck profile by structure", () => {
   it("gives an at-grade line a shallow slab, not a viaduct box", () => {
@@ -301,5 +301,23 @@ describe("station support poles", () => {
     // scale 0 collapses the geometry and produces NaN normals.
     const { scaleZ } = poleTransform(0.5);
     expect(scaleZ).toBeGreaterThan(0);
+  });
+});
+
+describe("buildStationGeometry(stations, line)", () => {
+  it("builds procedural station geometry from an explicit stations array and line", () => {
+    const stations: Station[] = [
+      { id: "S1", name: "Station 1", nameTh: "สถานี 1", code: "S1", position: [100.535, 13.74, 15] },
+    ];
+    const l = preRevenueLine({
+      track: [
+        [100.53, 13.74, 15, "elevated"],
+        [100.54, 13.74, 15, "elevated"],
+      ],
+      stations: [],
+    });
+    const group = buildStationGeometry(stations, l);
+    expect(group.name).toBe("stations-t");
+    expect(group.children.length).toBeGreaterThan(0);
   });
 });
