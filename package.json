@@ -40,7 +40,7 @@
     "@vitejs/plugin-react": "^6.1.2",
     "adm-zip": "^0.6.1",
     "jsdom": "^30.1.2",
-    "tailwindcss": "^4.3.3",
+    "tailwindcss": "^4.3.5",
     "typescript": "~7.0.2",
     "vite": "^8.3.5",
     "vitest": "^5.0.5"
