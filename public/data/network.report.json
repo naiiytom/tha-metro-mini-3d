@@ -1,7 +1,7 @@
 {
-  "bytes": 604731,
-  "feed_version": "20260821",
-  "gzip_bytes": 352053,
+  "bytes": 604717,
+  "feed_version": "20261113",
+  "gzip_bytes": 352033,
   "interchanges": [
     {
       "a": "sukhumvit/Samrong",
@@ -56,7 +56,7 @@
       "b": "blue/Tao Poon"
     },
     {
-      "a": "arl/ARL Makkasan",
+      "a": "arl/Makkasan",
       "b": "blue/Phetchaburi"
     },
     {
@@ -85,21 +85,21 @@
     },
     {
       "a": "red-dark/Krung Thep Aphiwat",
-      "b": "blue/MRT BANG SUE"
+      "b": "blue/Bang Sue"
     },
     {
       "a": "red-light/Krung Thep Aphiwat",
-      "b": "blue/MRT BANG SUE"
+      "b": "blue/Bang Sue"
     }
   ],
   "large_snap_exceptions": [
     {
       "gtfs_stop_id": "359",
       "route_id": "2436",
-      "snap_m": 554.7298250815825
+      "snap_m": 554.7298251292005
     }
   ],
-  "max_snap_m": 109.47373318622579,
+  "max_snap_m": 109.47373322967643,
   "pattern_arc_fallbacks": 0,
   "patterns": 64,
   "peak_concurrent": 285,
@@ -272,22 +272,22 @@
     {
       "gtfs_stop_id": "13627",
       "line": "blue",
-      "snap_m": 109.47373318622579
+      "snap_m": 109.47373322967643
     },
     {
       "gtfs_stop_id": "352",
       "line": "blue",
-      "snap_m": 61.11812032496024
+      "snap_m": 61.1181207202535
     },
     {
       "gtfs_stop_id": "359",
       "line": "pink",
-      "snap_m": 554.7298250815825
+      "snap_m": 554.7298251292005
     },
     {
       "gtfs_stop_id": "13608",
       "line": "sukhumvit",
-      "snap_m": 63.92498328970017
+      "snap_m": 63.92498338141022
     }
   ],
   "stations": 198
