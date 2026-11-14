@@ -850,31 +850,10 @@ pub fn plan(doc: &CacheDoc, idx: &RouteIndex, req: &PlanRequest) -> Option<Route
     )
 }
 
-/// Plan alternative itineraries across RAPTOR rounds.
-/// Returns top 3 non-dominated plans sorted by `arrive_sec` ascending.
-///
-/// The per-round loop just below re-implements `finish()`'s "pick the best
-/// target label by effective arrival, charging the transfer buffer for a far
-/// complex member" scan almost line-for-line (compare against `finish()`,
-/// further down in this file) — deliberately, not by oversight. `finish()`
-/// picks the single global-best label across ALL rounds (fewest transfers as
-/// its native RAPTOR tie-break); this function needs the best label AT EACH
-/// FIXED ROUND `k` instead, one candidate plan per round, so the final
-/// non-dominated set can actually contain real fewest-transfers-vs-fastest-
-/// arrival alternatives. `finish()` has no way to scope itself to one round,
-/// so this can't just call `finish()` in a loop over round-limited slices.
-/// The ~15-line effective-arrival/transfer-buffer arithmetic is intentionally
-/// duplicated rather than extracted into a shared helper: the duplication is
-/// small and entirely localized to these two functions, and factoring it out
-/// would trade one form of complexity (two near-identical loops, easy to
-/// read side by side) for another (an extra indirection plus a tuple-shaped
-/// return type threaded through both call sites) without a real safety win —
-/// both copies are exercised by this file's own tests
-/// (`ride_legs_are_self_consistent_in_time_and_arc`,
-/// `alternatives_are_distinct_and_ordered_fastest_first`, and the `finish`-
-/// specific tests below), so drift between them would be caught either way.
 /// Pick the best target label in a single round by effective arrival
-/// (raw arrival plus the walk buffer for a far complex member).
+/// (raw arrival plus the walk buffer for a far complex member). Shared by
+/// `finish()` (best across all rounds) and `plan_alternatives()` (one
+/// candidate per round).
 fn best_in_round(
     labels: &[Option<Label>],
     target_stops: &[(usize, f64)],
@@ -897,6 +876,8 @@ fn best_in_round(
     best
 }
 
+/// Plan alternative itineraries: the best plan at each RAPTOR round, filtered
+/// to the non-dominated set, at most 3, sorted by `arrive_sec` ascending.
 pub fn plan_alternatives(doc: &CacheDoc, idx: &RouteIndex, req: &PlanRequest) -> Vec<RoutePlan> {
     let Some(raptor) = compute_raptor_rounds(doc, idx, req) else {
         return Vec::new();

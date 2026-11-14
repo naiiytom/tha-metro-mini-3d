@@ -8,28 +8,15 @@
  *   2. Browser auto-detection: Thai-browser ("th*") -> "th", else "en"
  */
 
+import {
+  browserStorage,
+  type ReadableStorage,
+  type WritableStorage,
+} from "../utils/storage";
+
 export type PrimaryLanguage = "en" | "th";
 
 export const PRIMARY_LANG_KEY = "tmm3d.lang";
-
-export type ReadableStorage = Pick<Storage, "getItem">;
-export type WritableStorage = Pick<Storage, "setItem">;
-
-export const NOOP_STORAGE: WritableStorage & ReadableStorage = {
-  getItem: () => null,
-  setItem: () => {},
-};
-
-export function browserStorage(): WritableStorage & ReadableStorage {
-  try {
-    if (typeof localStorage !== "undefined") {
-      return localStorage;
-    }
-    return NOOP_STORAGE;
-  } catch {
-    return NOOP_STORAGE;
-  }
-}
 
 export function parsePrimaryLang(raw: string | null): PrimaryLanguage | null {
   if (raw === "en" || raw === "th") return raw;

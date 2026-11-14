@@ -46,7 +46,6 @@ npm run check:bundle        # NF2 bundle-budget gate: sums gzip size of dist/ + 
 
 > **The browser acceptance harnesses were deleted on 2026-08-09** — all 13 `tools/verify-*.mjs` scripts (camera, kinematics, closeup, perf, mvp4-7, mobile, train-tooltip, legibility, station-search, spur-apm) and their `npm run verify:*` entries, by explicit decision. **`npm test`, `cargo test` and `npm run check:bundle` are the only automated checks that remain**, and none of them exercises rendering, interaction, or performance. Two of the removed harnesses were deliberately-failing gates whose numbers remain the honest current state: NF1 peak concurrency (measured 250, target ≥300) and WCAG night legibility (15 line/time samples below the 3:1 floor). Verifying anything visual or behavioural now means running the app and looking at it — which is exactly how the three MVP 6 defects were found before those harnesses existed.
 
-`tools/extract-stations.mjs` is **legacy, MVP 1/2-era only** and is not wired up as an npm script — it reads the old two-branch `src/data/green-line.json` schema, which no longer exists. `tools/fetch-network.mjs` now fetches station positions for every registry line itself. The file is left in the tree for history only; do not resurrect it as a pipeline step.
 
 ### Rust engine
 

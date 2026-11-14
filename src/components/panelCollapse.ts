@@ -13,8 +13,7 @@
  */
 export const PANEL_COLLAPSE_KEY = "tmm3d.lineSelector.collapsed";
 
-type ReadableStorage = Pick<Storage, "getItem">;
-type WritableStorage = Pick<Storage, "setItem">;
+import type { ReadableStorage, WritableStorage } from "../utils/storage";
 
 export function loadCollapsed(storage: ReadableStorage, isMobile: boolean): boolean {
   // Mobile still defaults collapsed: the panel competes with the bottom-sheet
@@ -36,41 +35,6 @@ export function saveCollapsed(storage: WritableStorage, collapsed: boolean): voi
     storage.setItem(PANEL_COLLAPSE_KEY, collapsed ? "true" : "false");
   } catch {
     // Preference not persisted; the session still works.
-  }
-}
-
-/**
- * Safe accessor for the `localStorage` global itself.
- *
- * `loadCollapsed`/`saveCollapsed`/`hasStoredPreference` above each guard
- * their OWN body in try/catch, but every call site still has to REFERENCE
- * `localStorage` to produce the argument they pass in — and in some real
- * configurations (blocked site data, a sandboxed iframe, certain
- * private-mode browsers) merely reading `window.localStorage` throws a
- * `SecurityError`. That throw happens evaluating the call site's argument
- * expression, before any of these guarded function bodies ever run — so a
- * bare `loadCollapsed(localStorage, ...)` inside a `useState` initializer
- * (as `LineSelector.tsx` does) can white-screen the whole app: a render-time
- * throw with no Error Boundary above it in that tree.
- *
- * Returns a no-op stub on failure rather than `null`, so every call site can
- * pass the result straight through without an extra null check — the three
- * functions above already accept a `Pick<Storage, ...>`-shaped parameter,
- * and a stub satisfies that shape with the same "does nothing, never throws"
- * behavior their own catch blocks fall back to.
- */
-const NOOP_STORAGE: WritableStorage & ReadableStorage = {
-  getItem: () => null,
-  setItem: () => {},
-};
-
-export function browserStorage(): WritableStorage & ReadableStorage {
-  try {
-    // Referencing the global is the operation that can throw — `localStorage`
-    // is a getter on `window`, not a plain binding.
-    return localStorage;
-  } catch {
-    return NOOP_STORAGE;
   }
 }
 

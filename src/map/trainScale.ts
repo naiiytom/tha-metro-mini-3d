@@ -20,23 +20,13 @@ export const TRAIN_SCALES: readonly TrainScaleOption[] = [
   { scale: 5, label: "5x", hint: "5x scale — maximum visibility for high altitudes and small screens" },
 ];
 
+import {
+  browserStorage,
+  type ReadableStorage,
+  type WritableStorage,
+} from "../utils/storage";
+
 export const TRAIN_SCALE_KEY = "tmm3d.view.trainScale";
-
-type ReadableStorage = Pick<Storage, "getItem">;
-type WritableStorage = Pick<Storage, "setItem">;
-
-const NOOP_STORAGE: WritableStorage & ReadableStorage = {
-  getItem: () => null,
-  setItem: () => {},
-};
-
-export function browserStorage(): WritableStorage & ReadableStorage {
-  try {
-    return localStorage;
-  } catch {
-    return NOOP_STORAGE;
-  }
-}
 
 export function parseTrainScale(raw: string | null): TrainScale {
   if (raw === "1.5") return 1.5;

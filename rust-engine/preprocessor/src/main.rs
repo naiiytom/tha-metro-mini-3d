@@ -447,6 +447,7 @@ struct Args {
     track: PathBuf,
     out: PathBuf,
     report: Option<PathBuf>,
+    allow_older_feed: bool,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -454,6 +455,7 @@ fn parse_args() -> Result<Args, String> {
     let mut track = None;
     let mut out = None;
     let mut report = None;
+    let mut allow_older_feed = false;
     let mut it = std::env::args().skip(1);
     while let Some(flag) = it.next() {
         let mut val = |name: &str| it.next().ok_or(format!("{name} needs a value"));
@@ -462,6 +464,7 @@ fn parse_args() -> Result<Args, String> {
             "--track" => track = Some(PathBuf::from(val("--track")?)),
             "--out" => out = Some(PathBuf::from(val("--out")?)),
             "--report" => report = Some(PathBuf::from(val("--report")?)),
+            "--allow-older-feed" => allow_older_feed = true,
             other => return Err(format!("unknown flag '{other}'")),
         }
     }
@@ -470,7 +473,25 @@ fn parse_args() -> Result<Args, String> {
         track: track.ok_or("--track is required")?,
         out: out.ok_or("--out is required")?,
         report,
+        allow_older_feed,
     })
+}
+
+/// Refuse to build from a GTFS feed older than the one the existing report was
+/// built from: a stale `.gtfs-cache` would otherwise roll the committed
+/// timetable back silently (nearly happened once — see CLAUDE.md, Mo Chit
+/// regeneration notes). Only all-digit (`YYYYMMDD`) versions are compared.
+fn check_feed_not_older(new: &str, previous_report: Option<&str>) -> Result<(), String> {
+    let prev = previous_report
+        .and_then(|r| serde_json::from_str::<serde_json::Value>(r).ok())
+        .and_then(|v| v.get("feed_version")?.as_str().map(str::to_owned));
+    match (new.parse::<u64>(), prev.as_deref().map(str::parse::<u64>)) {
+        (Ok(n), Some(Ok(p))) if n < p => Err(format!(
+            "GTFS feed_version {new} is OLDER than the existing report's {p}; re-run \
+             `npm run data:fetch-gtfs`, or pass --allow-older-feed to roll back on purpose"
+        )),
+        _ => Ok(()),
+    }
 }
 
 /// Resolve one line's `estimatedRunTimes` basis, if it declares one.
@@ -539,16 +560,73 @@ fn main() -> ExitCode {
     }
 }
 
+fn write_file_with_parent(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| format!("mkdir {}: {e}", dir.display()))?;
+    }
+    std::fs::write(path, bytes).map_err(|e| format!("write {}: {e}", path.display()))
+}
+
 fn run() -> Result<(), String> {
     let args = parse_args()?;
-    let gtfs_dir: &Path = &args.gtfs;
 
-    // ---- Load inputs -------------------------------------------------------
     let track_json = std::fs::read_to_string(&args.track)
         .map_err(|e| format!("cannot read {}: {e}", args.track.display()))?;
     let track_file: TrackFile =
         serde_json::from_str(&track_json).map_err(|e| format!("bad track JSON: {e}"))?;
 
+    let feed = load_feed(&args.gtfs, &track_file)?;
+    if !args.allow_older_feed {
+        let previous = args
+            .report
+            .as_deref()
+            .and_then(|p| std::fs::read_to_string(p).ok());
+        check_feed_not_older(&feed.feed_version, previous.as_deref())?;
+    }
+
+    let generated_unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let (doc, diag) = build_cache(&track_file, feed, generated_unix)?;
+
+    let bytes = bincode::serde::encode_to_vec(&doc, bincode::config::standard())
+        .map_err(|e| format!("bincode encode failed: {e}"))?;
+    write_file_with_parent(&args.out, &bytes)?;
+
+    let report = build_report(&bytes, diag)?;
+    let report_str = serde_json::to_string_pretty(&report).unwrap();
+    if let Some(path) = &args.report {
+        write_file_with_parent(path, report_str.as_bytes())?;
+    }
+    println!("{report_str}");
+    Ok(())
+}
+
+/// Every GTFS table the build reads, already filtered to the simulated routes.
+/// Keeping file I/O here lets `build_cache` run on an in-memory feed in tests.
+struct Feed {
+    feed_version: String,
+    trips: Vec<gtfs::TripRow>,
+    /// From the UNFILTERED trip set (before the per-line exclude filter).
+    service_ids: HashSet<String>,
+    stop_times: HashMap<String, Vec<gtfs::StopTimeRow>>,
+    frequencies: Vec<gtfs::FrequencyRow>,
+    calendar: HashMap<String, gtfs::CalendarRow>,
+    calendar_dates: gtfs::CalendarExceptions,
+    stop_rows: HashMap<String, gtfs::StopRow>,
+}
+
+/// Build-time diagnostics that go into network.report.json, not the cache.
+struct Diagnostics {
+    max_snap_m: f64,
+    large_snap_exceptions: Vec<serde_json::Value>,
+    snap_warnings: Vec<serde_json::Value>,
+    pattern_arc_fallback_count: usize,
+    run_time_repairs: serde_json::Map<String, serde_json::Value>,
+}
+
+fn load_feed(gtfs_dir: &Path, track_file: &TrackFile) -> Result<Feed, String> {
     // Deduped: two lines may legitimately share one route_id now (the Pink
     // trunk and its IMPACT Link spur both sit on "2436"), and the reads below
     // — routes.txt membership, read_trips — must see that id once, not twice.
@@ -572,7 +650,7 @@ fn run() -> Result<(), String> {
             return Err(format!("route_id '{id}' not found in routes.txt"));
         }
     }
-    let mut trips = gtfs::read_trips(gtfs_dir, &simulated_route_ids)?;
+    let trips = gtfs::read_trips(gtfs_dir, &simulated_route_ids)?;
     if trips.is_empty() {
         return Err("no trips found for the simulated routes".into());
     }
@@ -581,7 +659,41 @@ fn run() -> Result<(), String> {
     let stop_times = gtfs::read_stop_times(gtfs_dir, &trip_ids)?;
     let frequencies = gtfs::read_frequencies(gtfs_dir, &trip_ids)?;
     let calendar = gtfs::read_calendar(gtfs_dir, &service_ids)?;
-    let mut calendar_dates = gtfs::read_calendar_dates(gtfs_dir, &service_ids)?;
+    let calendar_dates = gtfs::read_calendar_dates(gtfs_dir, &service_ids)?;
+    let all_stop_ids: HashSet<String> = stop_times
+        .values()
+        .flat_map(|rows| rows.iter().map(|r| r.stop_id.clone()))
+        .collect();
+    let stop_rows = gtfs::read_stops(gtfs_dir, &all_stop_ids)?;
+    Ok(Feed {
+        feed_version,
+        trips,
+        service_ids,
+        stop_times,
+        frequencies,
+        calendar,
+        calendar_dates,
+        stop_rows,
+    })
+}
+
+/// The pure half of the pipeline: registry + in-memory feed -> cache document
+/// plus report diagnostics. Every hard-fail gate lives in here.
+fn build_cache(
+    track_file: &TrackFile,
+    feed: Feed,
+    generated_unix: i64,
+) -> Result<(CacheDoc, Diagnostics), String> {
+    let Feed {
+        feed_version,
+        mut trips,
+        service_ids,
+        stop_times,
+        frequencies,
+        calendar,
+        mut calendar_dates,
+        stop_rows,
+    } = feed;
 
     // ---- Trip -> registry line ---------------------------------------------
     // Resolved up front, BEFORE the exclude filter below, because exclusion is
@@ -651,12 +763,10 @@ fn run() -> Result<(), String> {
         }
     }
 
-    let all_stop_ids: HashSet<String> = stop_times
+    for id in stop_times
         .values()
-        .flat_map(|rows| rows.iter().map(|r| r.stop_id.clone()))
-        .collect();
-    let stop_rows = gtfs::read_stops(gtfs_dir, &all_stop_ids)?;
-    for id in &all_stop_ids {
+        .flat_map(|rows| rows.iter().map(|r| &r.stop_id))
+    {
         if !stop_rows.contains_key(id) {
             return Err(format!(
                 "unknown stop id '{id}' (in stop_times but not stops.txt)"
@@ -1353,15 +1463,11 @@ fn run() -> Result<(), String> {
         }
     }
 
-    // ---- Encode + write ----------------------------------------------------
     let doc = CacheDoc {
         magic: TMB_MAGIC,
         version: TMB_VERSION,
-        feed_version: feed_version.clone(),
-        generated_unix: std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0),
+        feed_version,
+        generated_unix,
         origin_lng: ORIGIN_LNG_LAT.0,
         origin_lat: ORIGIN_LNG_LAT.1,
         routes,
@@ -1369,21 +1475,34 @@ fn run() -> Result<(), String> {
         patterns,
         runs,
     };
-    let bytes = bincode::serde::encode_to_vec(&doc, bincode::config::standard())
-        .map_err(|e| format!("bincode encode failed: {e}"))?;
-    if let Some(dir) = args.out.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| format!("mkdir {}: {e}", dir.display()))?;
-    }
-    std::fs::write(&args.out, &bytes).map_err(|e| format!("write {}: {e}", args.out.display()))?;
+    let diag = Diagnostics {
+        max_snap_m,
+        large_snap_exceptions,
+        snap_warnings,
+        pattern_arc_fallback_count,
+        run_time_repairs,
+    };
+    Ok((doc, diag))
+}
 
+/// network.report.json, computed from the ENCODED bytes (decoded back through
+/// sim-core, so the report is also a round-trip self-check).
+fn build_report(bytes: &[u8], diag: Diagnostics) -> Result<serde_json::Value, String> {
+    let Diagnostics {
+        max_snap_m,
+        large_snap_exceptions,
+        mut snap_warnings,
+        pattern_arc_fallback_count,
+        run_time_repairs,
+    } = diag;
     let gzip_bytes = {
         let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
-        gz.write_all(&bytes).map_err(|e| e.to_string())?;
+        gz.write_all(bytes).map_err(|e| e.to_string())?;
         gz.finish().map_err(|e| e.to_string())?.len()
     };
 
     // ---- Cross-check through sim-core + report -----------------------------
-    let world = SimWorld::from_bytes(&bytes).map_err(|e| format!("self-check failed: {e}"))?;
+    let world = SimWorld::from_bytes(bytes).map_err(|e| format!("self-check failed: {e}"))?;
     let v = world.validation();
     let per_route: Vec<serde_json::Value> = world
         .doc()
@@ -1457,7 +1576,7 @@ fn run() -> Result<(), String> {
     // PR #14 — it was undermining that PR's own "byte-identical" diff claim).
     sort_snap_warnings(&mut snap_warnings);
 
-    let report = serde_json::json!({
+    Ok(serde_json::json!({
         "feed_version": v.feed_version,
         "stations": v.stations,
         "patterns": v.patterns,
@@ -1491,16 +1610,7 @@ fn run() -> Result<(), String> {
         "peak_concurrent_weekday": {"date": PEAK_SAMPLE_WEEKDAY, "peak": weekday_peak, "time": weekday_peak_sec},
         "peak_concurrent_weekend": {"date": PEAK_SAMPLE_WEEKEND, "peak": weekend_peak, "time": weekend_peak_sec},
         "run_time_repairs": run_time_repairs,
-    });
-    let report_str = serde_json::to_string_pretty(&report).unwrap();
-    if let Some(path) = &args.report {
-        if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir).map_err(|e| format!("mkdir {}: {e}", dir.display()))?;
-        }
-        std::fs::write(path, &report_str).map_err(|e| format!("write {}: {e}", path.display()))?;
-    }
-    println!("{report_str}");
-    Ok(())
+    }))
 }
 
 /// Cross-route walking connections, from station ENU distance plus a manual
@@ -1875,6 +1985,17 @@ fn check_track_gradient(
 mod tests {
     use super::*;
 
+    #[test]
+    fn an_older_feed_than_the_existing_report_is_refused() {
+        let report = r#"{"feed_version":"20260821"}"#;
+        assert!(check_feed_not_older("20260808", Some(report)).is_err());
+        assert!(check_feed_not_older("20260821", Some(report)).is_ok());
+        assert!(check_feed_not_older("20260901", Some(report)).is_ok());
+        // No report yet, or a non-date version: nothing to compare against.
+        assert!(check_feed_not_older("20260808", None).is_ok());
+        assert!(check_feed_not_older("v2", Some(report)).is_ok());
+    }
+
     /// A two-line network file, minimal but structurally real.
     ///
     /// Uses a double-hash raw-string delimiter: the JSON contains `"#111111"`
@@ -2012,6 +2133,80 @@ mod tests {
             parse_hex_color("#1234567").is_err(),
             "7 digits must not silently truncate"
         );
+    }
+
+    /// Whole pipeline, no files: registry + in-memory feed -> cache -> report,
+    /// then a train is actually moving on the decoded result. Guards the
+    /// wiring between the stages, which the per-helper tests cannot see.
+    #[test]
+    fn build_cache_turns_a_tiny_feed_into_a_cache_a_train_runs_on() {
+        let track: TrackFile = serde_json::from_str(
+            r##"{"lines":[{"key":"a","name":"A","color":"#111111","structure":"elevated",
+             "vehicleType":"heavy","gtfsRouteId":"1",
+             "track":[[100.50,13.7,15.0],[100.51,13.7,15.0],[100.52,13.7,15.0]],
+             "stations":[
+               {"id":"n1","name":"West","nameTh":"ตะวันตก","code":"A1","position":[100.50,13.7,15.0]},
+               {"id":"n2","name":"East","nameTh":"ตะวันออก","code":"A2","position":[100.52,13.7,15.0]}]}]}"##,
+        )
+        .unwrap();
+        let st = |stop: &str, seq, arr, dep| gtfs::StopTimeRow {
+            arrival_s: arr,
+            departure_s: dep,
+            stop_id: stop.into(),
+            stop_sequence: seq,
+        };
+        let stop = |name: &str, lon| gtfs::StopRow {
+            name: name.into(),
+            lat: 13.7,
+            lon,
+        };
+        let feed = Feed {
+            feed_version: "20260101".into(),
+            trips: vec![gtfs::TripRow {
+                route_id: "1".into(),
+                service_id: "daily".into(),
+                trip_id: "t1".into(),
+                headsign: "East".into(),
+                direction_id: 0,
+            }],
+            service_ids: HashSet::from(["daily".to_string()]),
+            stop_times: HashMap::from([(
+                "t1".to_string(),
+                vec![st("g1", 1, 28_800, 28_830), st("g2", 2, 29_000, 29_000)],
+            )]),
+            frequencies: vec![],
+            calendar: HashMap::from([(
+                "daily".to_string(),
+                gtfs::CalendarRow {
+                    weekday_mask: 0x7F,
+                    start_date: 20260101,
+                    end_date: 20261231,
+                },
+            )]),
+            calendar_dates: Default::default(),
+            stop_rows: HashMap::from([
+                ("g1".to_string(), stop("West", 100.50)),
+                ("g2".to_string(), stop("East", 100.52)),
+            ]),
+        };
+
+        let (doc, diag) = build_cache(&track, feed, 0).unwrap();
+        assert_eq!(doc.routes.len(), 1);
+        assert_eq!(doc.routes[0].stations.len(), 2);
+        assert_eq!(doc.runs.len(), 1);
+        assert_eq!(
+            doc.routes[0].stations[0].code, "A1",
+            "registry enrichment reached the cache"
+        );
+
+        let bytes = bincode::serde::encode_to_vec(&doc, bincode::config::standard()).unwrap();
+        let report = build_report(&bytes, diag).unwrap();
+        assert_eq!(report["runs"], 1);
+
+        // 08:01:30 on a Wednesday: between the two stops, so in transit.
+        let world = SimWorld::from_bytes(&bytes).unwrap();
+        let mut out = vec![0.0f32; sim_core::world::MAX_VEHICLES * sim_core::world::VEHICLE_STRIDE];
+        assert_eq!(world.evaluate(20260304, 28_890.0, &mut out), 1);
     }
 
     #[test]

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 // maplibre-gl v6 ships named exports only — there is no default export.
-import { Map as MapLibreMap, NavigationControl, setWorkerUrl, type MapMouseEvent } from "maplibre-gl";
+import { Map as MapLibreMap, NavigationControl, setWorkerUrl } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 // v6 locates its tile worker with `new URL(\`./${name}\`, import.meta.url)` —
 // a dynamic specifier no bundler can rewrite, so after bundling it points at a
@@ -14,12 +14,12 @@ import { styleUrl } from "../map/basemapStyles";
 import { installCameraControls } from "../map/cameraControls";
 import { installFlyoverControls } from "../map/flyoverControls";
 import { FollowCamera } from "../map/followCamera";
-import { pickAt } from "../map/selection";
+import { installMapPicking } from "../map/mapPicking";
+import { installTooltipContent } from "../map/tooltipContent";
 import { highlightSpans } from "../map/routeHighlight";
 import { skyPalette, sunDirection } from "../map/sun";
 import { bindStyle, type StyleBinding } from "../map/styleBinding";
 import { TrainTooltip } from "../map/trainTooltip";
-import { MOBILE_BREAKPOINT_QUERY } from "../hooks/useIsMobile";
 import { effectiveElevationDeg } from "../map/themeMode";
 import { effectiveTheme } from "../map/effectiveTheme";
 import { resolveStock, type StockSpec } from "../map/rollingStock";
@@ -28,12 +28,11 @@ import { disposeStationModel, loadStationModel } from "../map/glbStation";
 import { computeStationTangentHeading } from "../map/stationGeometry";
 import { STATION_MODELS } from "../../tools/lines.config.mjs";
 import { VehicleManager } from "../map/VehicleManager";
-import { offsetCenterForSheet } from "../map/viewportOffset";
+import { easeToLngLat } from "../map/viewportOffset";
 import { StationBillboardManager } from "../map/StationBillboardManager";
 import {
   lngLatAltToLocal,
   lngLatToLocal,
-  localToLngLat,
   ORIGIN_LNG_LAT,
   reconcileStationAltitude,
 } from "../map/coordinates";
@@ -49,8 +48,6 @@ import {
   VEHICLE_STRIDE,
   type StationInfo,
 } from "../sim/protocol";
-import { formatCountdown } from "../sim/time";
-import { translate } from "../i18n";
 import { useAppStore } from "../stores/useAppStore";
 import { assignStationHubIds, findStationHub } from "../stations/stationHubs";
 import { snapStationsToTrack } from "../map/stationGeometry";
@@ -138,8 +135,7 @@ export function MapContainer() {
     });
     map.addControl(new NavigationControl({ visualizePitch: true }), "top-right");
     let sim: SimClient | null = null;
-    let unsubscribeTooltipSelection: (() => void) | null = null;
-    let tooltipTimer: ReturnType<typeof setInterval> | null = null;
+    let disposeTooltipContent: (() => void) | null = null;
     let rafId = 0;
     // style.load fires asynchronously; if effect cleanup runs first (a React
     // StrictMode double-invoke, or a fast unmount before tiles finish
@@ -229,8 +225,8 @@ export function MapContainer() {
       if (!client) return;
       const dir = sunDirection(client.getSimNow());
       const mode = useAppStore.getState().themeMode;
-      // Direction stays REAL in every mode (verify:mvp6 check 5 reads the
-      // light position); only the palette and the basemap blend use the
+      // Direction stays REAL in every mode (the light position tracks the
+      // sim clock); only the palette and the basemap blend use the
       // mode-effective elevation.
       const eff = effectiveElevationDeg(mode, dir.elevationDeg);
       layer?.setSun(dir, skyPalette(eff), eff);
@@ -599,12 +595,22 @@ export function MapContainer() {
           // altitude its 3D platform is actually drawn at (`snapped track z +
           // STATION_MARKER_HEIGHT_M`) rather than `network.json`'s stale
           // line-level nominal altitude.
-          void sim
-            ?.getStations()
-            .then((stations) =>
-              useAppStore.getState().setStations(reconcileStationAltitude(stations, net.lines)),
-            )
-            .catch(() => undefined);
+          // Retried once: without this list, clicks, search and the route
+          // planner are all dead for the session, so a single timeout must
+          // not be swallowed.
+          const loadStations = (retry: boolean): void => {
+            sim
+              ?.getStations()
+              .then((stations) =>
+                useAppStore.getState().setStations(reconcileStationAltitude(stations, net.lines)),
+              )
+              .catch((err: unknown) => {
+                if (disposed) return;
+                if (retry) loadStations(false);
+                else console.error("[sim] station list failed to load", err);
+              });
+          };
+          loadStations(true);
         },
         onError: (message) => useAppStore.getState().setEngineStatus("error", message),
         onClock: (params) => useAppStore.getState().setClock(params),
@@ -621,66 +627,7 @@ export function MapContainer() {
       lastSunUpdate = 0;
       updateSun(performance.now());
 
-      // Tooltip content (headsign/next-stop) is UI-rate, not per-frame, so a
-      // plain 1 Hz poll is fine — the same query and cadence TrainInspector.tsx
-      // already runs when its own panel is open. Deliberately duplicated
-      // rather than shared: a small, independent poll matches the existing
-      // TrainInspector/StationBoard precedent and avoids new cross-component
-      // cache plumbing for one short string.
-      //
-      // The placeholder ("Train {idx}") is only ever written on a selection
-      // change, not on every poll tick — mirroring TrainInspector.tsx, whose
-      // placeholder reset lives in the `selectedRunIdx === null` branch of its
-      // effect, outside the poll body. Writing it unconditionally here too
-      // used to flash the resolved label back to the placeholder once a
-      // second, since every poll's `await` momentarily left the tooltip
-      // showing the reset text before the real detail came back.
-      const refreshTooltipContent = async (showPlaceholder: boolean) => {
-        const state = useAppStore.getState();
-        const selectedRunIdx = state.selectedRunIdx;
-        const primaryLang = state.primaryLang;
-        const client = activeSimClient.current;
-        if (selectedRunIdx === null || !client) return;
-        if (showPlaceholder) {
-          const placeholder = translate(primaryLang, "tooltip.trainFallback", {
-            runIdx: selectedRunIdx,
-          });
-          trainTooltip.setContent("#94a3b8", placeholder);
-        }
-        try {
-          const detail = await client.getRunDetail(selectedRunIdx, client.getSimNow());
-          // Bail on a stale response after the user re-selected mid-flight —
-          // same guard TrainInspector.tsx's own poll uses.
-          if (useAppStore.getState().selectedRunIdx !== selectedRunIdx) return;
-          if (!detail) {
-            const ended = translate(primaryLang, "tooltip.tripEnded");
-            trainTooltip.setContent("#94a3b8", ended);
-            return;
-          }
-          const color = `#${detail.color_rgb.toString(16).padStart(6, "0")}`;
-          const headsign =
-            primaryLang === "th" && detail.headsign_th ? detail.headsign_th : detail.headsign;
-          const next =
-            detail.next_station !== null && detail.next_arrival_in_s !== null
-              ? translate(primaryLang, "tooltip.nextArrival", {
-                  station: detail.next_station,
-                  time: formatCountdown(detail.next_arrival_in_s, primaryLang),
-                })
-              : "";
-          trainTooltip.setContent(color, `${headsign}${next}`);
-        } catch {
-          // Worker torn down mid-flight; the next poll or selection re-queries.
-        }
-      };
-      tooltipTimer = setInterval(() => void refreshTooltipContent(false), 1000);
-      unsubscribeTooltipSelection = useAppStore.subscribe((state, prev) => {
-        if (
-          state.selectedRunIdx !== prev.selectedRunIdx ||
-          state.primaryLang !== prev.primaryLang
-        ) {
-          void refreshTooltipContent(state.selectedRunIdx !== prev.selectedRunIdx);
-        }
-      });
+      disposeTooltipContent = installTooltipContent(trainTooltip);
 
       // MapLibre only repaints on demand — keep frames coming while the
       // engine is running.
@@ -747,100 +694,18 @@ export function MapContainer() {
         // style.load, so effect cleanup already unsubscribed it — nothing to
         // do for it here.)
         cancelAnimationFrame(rafId);
-        if (tooltipTimer !== null) clearInterval(tooltipTimer);
-        unsubscribeTooltipSelection?.();
+        disposeTooltipContent?.();
         flyover.dispose();
         sim?.dispose();
         if (activeSimClient.current === sim) activeSimClient.current = null;
       }
     });
 
-    // Click to select a train or station. Uses the most recent interpolated
-    // buffer — the same poses that are on screen.
-    const onMapClick = (e: { point: { x: number; y: number } }) => {
-      const { stations, selectRun, selectStation, hiddenRoutes, map3D, trainScale } =
-        useAppStore.getState();
-      const view = layer?.viewProjection();
-      if (!view) return;
-      const hit = pickAt(
-        view,
-        lastVehicles,
-        lastCount,
-        stations,
-        e.point,
-        hiddenRoutes,
-        map.getZoom(),
-        map3D,
-        trainScale,
-      );
-      if (!hit) {
-        // Clicking empty map clears the selection, like clicking away from
-        // anything else.
-        selectRun(null);
-        selectStation(null);
-        return;
-      }
-      if (hit.type === "vehicle") {
-        selectRun(hit.runIdx);
-      } else {
-        selectStation({ routeIdx: hit.routeIdx, stationIdx: hit.stationIdx });
-        const s = stations.find(
-          (st) => st.route_idx === hit.routeIdx && st.station_idx === hit.stationIdx,
-        );
-        if (s) {
-          const pos = localToLngLat(s.x, s.y);
-          const isMobile = window.matchMedia(MOBILE_BREAKPOINT_QUERY).matches;
-          const center: [number, number] = isMobile
-            ? offsetCenterForSheet([pos.lng, pos.lat], map, 0.4)
-            : [pos.lng, pos.lat];
-          map.easeTo({
-            center,
-            zoom: 16,
-            pitch: map3D ? 55 : 0,
-            duration: 800,
-          });
-        }
-      }
-    };
-    map.on("click", onMapClick);
-
-    // Hover affordance: without it a user cannot tell a missed click from a
-    // click on nothing, which is most of why #25 read as "hard to click"
-    // rather than "offset by 23px".
-    let hoverQueued = false;
-    let hoverRafId = 0;
-    let lastHoverPoint: { x: number; y: number } | null = null;
-    const onMouseMove = (e: MapMouseEvent) => {
-      lastHoverPoint = { x: e.point.x, y: e.point.y };
-      if (hoverQueued) return;
-      hoverQueued = true;
-      hoverRafId = requestAnimationFrame(() => {
-        hoverQueued = false;
-        const point = lastHoverPoint;
-        const view = layer?.viewProjection();
-        if (!point || !view) return;
-        // Skip the write entirely mid-drag: an inline `style.cursor` set
-        // directly on the canvas wins over MapLibre's own class-driven
-        // grab/grabbing cursor on the CONTAINER, so writing "pointer" here
-        // while dragPan is active fights MapLibre's own cursor for the
-        // duration of the drag.
-        if (map.dragPan.isActive()) return;
-        const { stations, hiddenRoutes, map3D, trainScale } = useAppStore.getState();
-        const hit = pickAt(
-          view,
-          lastVehicles,
-          lastCount,
-          stations,
-          point,
-          hiddenRoutes,
-          map.getZoom(),
-          map3D,
-          trainScale,
-        );
-        map.getCanvas().style.cursor = hit ? "pointer" : "";
-      });
-    };
-    map.on("mousemove", onMouseMove);
+    const disposePicking = installMapPicking(
+      map,
+      () => layer?.viewProjection() ?? null,
+      () => ({ data: lastVehicles, count: lastCount }),
+    );
 
     // Panning while following would fight the per-frame jumpTo, so the first
     // user drag hands control back (Mini Tokyo 3D does the same).
@@ -865,14 +730,6 @@ export function MapContainer() {
     };
     map.on("dragstart", onDragStart);
     map.on("drag", onDrag);
-
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      const store = useAppStore.getState();
-      store.selectRun(null);
-      store.selectStation(null);
-    };
-    window.addEventListener("keydown", onKeyDown);
 
     // Releasing follow must also clear the smoothed bearing, or the next
     // follow starts from a stale heading. Switching the followed train while
@@ -906,11 +763,7 @@ export function MapContainer() {
     const unsubscribeFlyTo = useAppStore.subscribe((state, prev) => {
       if (state.cameraFlightRequest && state.cameraFlightRequest !== prev.cameraFlightRequest) {
         const { lng, lat } = state.cameraFlightRequest;
-        const isMobile = window.matchMedia(MOBILE_BREAKPOINT_QUERY).matches;
-        const center: [number, number] = isMobile
-          ? offsetCenterForSheet([lng, lat], map, 0.4)
-          : [lng, lat];
-        map.easeTo({ center, zoom: 16, pitch: state.map3D ? 55 : 0, duration: 800 });
+        easeToLngLat(map, [lng, lat], state.map3D);
         useAppStore.getState().clearFlyToRequest();
       }
     });
@@ -965,25 +818,21 @@ export function MapContainer() {
     const debugRequested =
       typeof window !== "undefined" && new URLSearchParams(window.location.search).get("debug") === "1";
     if (import.meta.env.DEV || debugRequested) {
-      // dev/debug-only handles for tools/screenshot.mjs (and previously the
-      // browser acceptance harnesses, removed 2026-08-09)
+      // dev/debug-only handles for the tools/screenshot.mjs, capture-*.mjs
+      // and calibrate-night-lift.mjs scripts
       const dev = window as unknown as {
         __map?: MapLibreMap;
         __sim?: typeof activeSimClient;
         __store?: typeof useAppStore;
-        __localToLngLat?: typeof localToLngLat;
       };
       dev.__map = map;
       dev.__sim = activeSimClient;
-      // verify-mvp4.mjs needs these to drive selection and to convert engine
-      // ENU positions into screen pixels for a real click.
       dev.__store = useAppStore;
-      dev.__localToLngLat = localToLngLat;
     }
     return () => {
       disposed = true;
       cancelAnimationFrame(rafId);
-      cancelAnimationFrame(hoverRafId);
+      disposePicking();
       controls.dispose();
       flyover.dispose();
       unsubscribeFollow();
@@ -991,17 +840,12 @@ export function MapContainer() {
       unsubscribeSheetDetentSync();
       unsubscribeMap3D();
       unsubscribeVisibility();
-      if (tooltipTimer !== null) clearInterval(tooltipTimer);
-      unsubscribeTooltipSelection?.();
+      disposeTooltipContent?.();
       trainTooltip.dispose();
       stationBillboards.dispose();
       map.off("pitchend", onMapPitchEnd);
-      map.off("click", onMapClick);
-      map.off("mousemove", onMouseMove);
-      map.getCanvas().style.cursor = "";
       map.off("dragstart", onDragStart);
       map.off("drag", onDrag);
-      window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("recenter-follow-camera", onRecenterCamera);
       activeSimClient.current = null;
       sim?.dispose();

@@ -4,7 +4,7 @@ import { activeSimClient } from "../sim/SimClient";
 import { findStationHub } from "../stations/stationHubs";
 import { formatCountdown, formatServiceSec } from "../sim/time";
 import { useAppStore } from "../stores/useAppStore";
-import { formatBilingualHub, formatBilingualStation, resolveLineName } from "../utils/stationTypography";
+import { formatBilingualHub, formatBilingualStation, resolveHeadsign, resolveLineName } from "../utils/stationTypography";
 import { useT } from "../i18n";
 
 /** `${route_idx}:${station_idx}` — the natural key for cross-route station lookup. */
@@ -165,7 +165,7 @@ export function StationBoard() {
                       style={{ background: routes[e.route_idx]?.color ?? "#64748b" }}
                     />
                     <span className="font-medium text-ink">
-                      {primaryLang === "th" && e.headsign_th ? e.headsign_th : (e.headsign || e.destination)}
+                      {resolveHeadsign(e, primaryLang)}
                     </span>
                     <span className="ml-1 text-ink-muted">
                       {formatServiceSec(e.departure_sec)}

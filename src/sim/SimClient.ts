@@ -1,3 +1,4 @@
+import { assetUrl } from "../utils/assetUrl";
 import {
   DEFAULT_MAX_TRANSFERS,
   DEFAULT_MAX_WAIT_S,
@@ -111,7 +112,7 @@ export class SimClient {
 
   private async load(): Promise<void> {
     try {
-      const res = await fetch("/data/network.tmb");
+      const res = await fetch(assetUrl("/data/network.tmb"));
       if (!res.ok) throw new Error(`network.tmb: HTTP ${res.status}`);
       const cache = await res.arrayBuffer();
       if (this.disposed) return;
@@ -307,7 +308,7 @@ export class SimClient {
     if (truncated) this.everTruncated = true;
   }
 
-  /** Rolling-window sim-tick stats for the NF1 perf harness (verify:perf). */
+  /** Rolling-window sim-tick stats (NF1). Reachable from devtools via `window.__sim` in dev / `?debug=1`. */
   getEvalStats(): {
     samples: number;
     meanMs: number;

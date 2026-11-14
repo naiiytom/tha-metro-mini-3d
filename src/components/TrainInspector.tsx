@@ -3,7 +3,7 @@ import type { RunDetail, StationInfo } from "../sim/protocol";
 import { activeSimClient } from "../sim/SimClient";
 import { formatCountdown, formatServiceSec } from "../sim/time";
 import { useAppStore } from "../stores/useAppStore";
-import { formatBilingualStation, resolveLineName } from "../utils/stationTypography";
+import { formatBilingualStation, formatRgbHex, resolveHeadsign, resolveLineName } from "../utils/stationTypography";
 import { useT } from "../i18n";
 
 /** `${route_idx}:${station_idx}` — the natural key for cross-route station lookup. */
@@ -74,7 +74,7 @@ export function TrainInspector() {
 
   if (selectedRunIdx === null) return null;
 
-  const color = detail ? `#${detail.color_rgb.toString(16).padStart(6, "0")}` : "#94a3b8";
+  const color = detail ? formatRgbHex(detail.color_rgb) : "#94a3b8";
 
   return (
     <div
@@ -88,9 +88,7 @@ export function TrainInspector() {
         />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold text-ink">
-            {detail
-              ? (primaryLang === "th" && detail.headsign_th ? detail.headsign_th : detail.headsign)
-              : t("inspector.trainFallback")}
+            {detail ? resolveHeadsign(detail, primaryLang) : t("inspector.trainFallback")}
           </p>
           <p className="truncate text-xs text-ink-muted">
             {detail
