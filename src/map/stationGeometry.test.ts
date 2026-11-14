@@ -279,6 +279,17 @@ describe("buildStationHighlightFrame", () => {
     expect(second.rotation.z).toBeCloseTo(Math.PI / 4);
   });
 
+  it("places highlight frames below ground for underground station altitudes", () => {
+    const group = buildStationHighlightFrame([
+      { x: -1747, y: -910, z: -16.5, heading: 0, vehicleType: "heavy" as const },
+    ]);
+    expect(group.children).toHaveLength(1);
+    const frame = group.children[0] as THREE.Mesh;
+    // Underground platform (-16.5) + canopyHeightM (6.5) + 2.5 = -7.5 m (below ground)
+    expect(frame.position.z).toBeCloseTo(-7.5);
+    expect(frame.position.z).toBeLessThan(0);
+  });
+
   it("returns empty group for empty stops array", () => {
     const group = buildStationHighlightFrame([]);
     expect(group.children).toHaveLength(0);

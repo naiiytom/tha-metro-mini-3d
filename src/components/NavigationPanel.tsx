@@ -44,6 +44,7 @@ export function NavigationPanel() {
 
   const { sheetRef, handleRef, contentRef, snapTo, translateY } = useBottomSheet({
     initialDetent: sheetDetent,
+    peekHeight: 140,
     onDetentChange: setSheetDetent,
   });
 
