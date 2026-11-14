@@ -281,7 +281,7 @@ pub fn read_calendar(
 }
 
 /// service_id -> (added_dates, removed_dates).
-type CalendarExceptions = HashMap<String, (Vec<u32>, Vec<u32>)>;
+pub type CalendarExceptions = HashMap<String, (Vec<u32>, Vec<u32>)>;
 
 pub fn read_calendar_dates(
     dir: &Path,
