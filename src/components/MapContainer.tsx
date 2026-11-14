@@ -55,7 +55,7 @@ import { useAppStore } from "../stores/useAppStore";
 import { assignStationHubIds, findStationHub } from "../stations/stationHubs";
 import { snapStationsToTrack } from "../map/stationGeometry";
 import network from "../data/network.json";
-import type { LineGeometry, NetworkData } from "../types";
+import type { NetworkData } from "../types";
 
 setWorkerUrl(maplibreWorkerUrl);
 
@@ -198,7 +198,6 @@ export function MapContainer() {
     let followedAltitudeM: number | null = null;
     let autoUnderground = initialAutoState();
     const net: NetworkData = structuredClone(network as unknown as NetworkData);
-    const rawLines: LineGeometry[] = structuredClone(net.lines);
     snapStationsToTrack(net.lines);
     assignStationHubIds(net.lines);
     (net as { _snapped?: boolean })._snapped = true;
@@ -593,17 +592,17 @@ export function MapContainer() {
           const s = useAppStore.getState();
           s.setValidation(validation);
           s.setEngineStatus("ready");
-          // Static station list, fetched once — powers click hit-testing and
-          // the station board's indices (contract §7). `z` is reconciled to
-          // the ALTITUDE THE MARKER IS ACTUALLY DRAWN AT (network.json's
-          // static per-station altitude via `buildMarkerPair`), not the
-          // engine's more "correct" per-point track altitude — click/hover
-          // picking must agree with what's on screen. See
-          // `reconcileStationAltitude`'s own doc comment (src/map/coordinates.ts).
+          // Static station list, fetched once — powers click hit-testing,
+          // selection highlights, and station billboards (contract §7). `z` is
+          // reconciled against `net.lines` (already snapped to the track via
+          // `snapStationsToTrack`), so every station's `z` matches the
+          // altitude its 3D platform is actually drawn at (`snapped track z +
+          // STATION_MARKER_HEIGHT_M`) rather than `network.json`'s stale
+          // line-level nominal altitude.
           void sim
             ?.getStations()
             .then((stations) =>
-              useAppStore.getState().setStations(reconcileStationAltitude(stations, rawLines)),
+              useAppStore.getState().setStations(reconcileStationAltitude(stations, net.lines)),
             )
             .catch(() => undefined);
         },
