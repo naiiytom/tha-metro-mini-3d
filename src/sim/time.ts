@@ -5,8 +5,6 @@ import { DAY_SEC } from "./bangkok";
 
 /** Bangkok service-time formatting shared by the UI panels. */
 
-export * from "./bangkok";
-
 /**
  * Format seconds-since-service-day-midnight as HH:MM. Values past midnight
  * (a run that spills into the next day) wrap, so 25:10 renders as 01:10.

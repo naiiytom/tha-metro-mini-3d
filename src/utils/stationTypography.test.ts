@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { formatBilingualHub, formatBilingualStation, resolveLineName } from "./stationTypography";
+import {
+  formatBilingualHub,
+  formatBilingualStation,
+  formatRgbHex,
+  resolveHeadsign,
+  resolveLineName,
+} from "./stationTypography";
 
 describe("formatBilingualHub", () => {
   const hub = { nameEn: "Asok / Sukhumvit", nameTh: "อโศก / สุขุมวิท" };
@@ -78,6 +84,19 @@ describe("resolveLineName", () => {
 
   it("returns fallback string when route is null/undefined", () => {
     expect(resolveLineName(null, "th", "Default")).toBe("Default");
+  });
+});
+
+describe("resolveHeadsign & formatRgbHex", () => {
+  it("picks headsign_th in Thai mode and falls back to headsign/destination", () => {
+    expect(resolveHeadsign({ headsign: "Mo Chit", headsign_th: "หมอชิต" }, "th")).toBe("หมอชิต");
+    expect(resolveHeadsign({ headsign: "Mo Chit", headsign_th: "หมอชิต" }, "en")).toBe("Mo Chit");
+    expect(resolveHeadsign({ headsign: "", headsign_th: "", destination: "Kheha" }, "th")).toBe("Kheha");
+  });
+
+  it("zero-pads packed RGB integers to 6-digit CSS hex", () => {
+    expect(formatRgbHex(0x00a859)).toBe("#00a859");
+    expect(formatRgbHex(0xff0000)).toBe("#ff0000");
   });
 });
 

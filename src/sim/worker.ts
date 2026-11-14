@@ -17,7 +17,7 @@ import {
   type WorkerToMain,
   type RoutePlan,
 } from "./protocol";
-import { BANGKOK_OFFSET_MS } from "./bangkok";
+import { bangkokFields } from "./bangkok";
 
 /**
  * Dedicated module worker running the wasm sim engine (ENGINE_CONTRACT.md §5).
@@ -50,21 +50,6 @@ const post = (msg: WorkerToMain, transfer: Transferable[] = []): void =>
     msg,
     transfer,
   );
-
-/** Split an epoch-ms instant into the Bangkok service-day fields the engine takes. */
-function bangkokFields(simEpochMs: number): { dateYyyymmdd: number; secOfDay: number } {
-  // Shift to Bangkok local, then read the wall-clock fields with UTC getters.
-  const local = new Date(simEpochMs + BANGKOK_OFFSET_MS);
-  return {
-    dateYyyymmdd:
-      local.getUTCFullYear() * 10_000 + (local.getUTCMonth() + 1) * 100 + local.getUTCDate(),
-    secOfDay:
-      local.getUTCHours() * 3600 +
-      local.getUTCMinutes() * 60 +
-      local.getUTCSeconds() +
-      local.getUTCMilliseconds() / 1000,
-  };
-}
 
 function tick(): void {
   if (!engine) return;

@@ -13,7 +13,7 @@
  */
 export const PANEL_COLLAPSE_KEY = "tmm3d.lineSelector.collapsed";
 
-import { browserStorage, type ReadableStorage, type WritableStorage } from "../i18n/persistence";
+import type { ReadableStorage, WritableStorage } from "../utils/storage";
 
 export function loadCollapsed(storage: ReadableStorage, isMobile: boolean): boolean {
   // Mobile still defaults collapsed: the panel competes with the bottom-sheet
@@ -37,12 +37,6 @@ export function saveCollapsed(storage: WritableStorage, collapsed: boolean): voi
     // Preference not persisted; the session still works.
   }
 }
-
-/**
- * Safe accessor for the `localStorage` global (merely reading it can throw a
- * `SecurityError` with blocked site data) — shared with the language setting.
- */
-export { browserStorage };
 
 /**
  * Whether a preference has been stored at all, guarded the same way as

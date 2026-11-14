@@ -3,7 +3,7 @@ import type { RunDetail } from "../sim/protocol";
 import { activeSimClient } from "../sim/SimClient";
 import { useAppStore } from "../stores/useAppStore";
 import { useT } from "../i18n";
-import { resolveLineName } from "../utils/stationTypography";
+import { formatRgbHex, resolveLineName } from "../utils/stationTypography";
 
 export interface FollowHudChipProps {
   lineName?: string;
@@ -74,7 +74,7 @@ export function FollowHudChip({
 
   const resolvedLineColor =
     lineColor ??
-    (detail ? `#${detail.color_rgb.toString(16).padStart(6, "0")}` : undefined);
+    (detail ? formatRgbHex(detail.color_rgb) : undefined);
 
   const resolvedSpeed =
     speedKmh !== undefined

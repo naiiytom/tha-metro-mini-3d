@@ -1,10 +1,9 @@
 import type { Map as MapLibreMap, MapMouseEvent } from "maplibre-gl";
-import { MOBILE_BREAKPOINT_QUERY } from "../hooks/useIsMobile";
 import { useAppStore } from "../stores/useAppStore";
 import { localToLngLat } from "./coordinates";
 import type { ViewProjection } from "./screenProject";
 import { pickAt, type Picked } from "./selection";
-import { offsetCenterForSheet } from "./viewportOffset";
+import { easeToLngLat } from "./viewportOffset";
 
 /**
  * Pointer selection on the map: click selects a train or station (empty map
@@ -45,11 +44,7 @@ export function installMapPicking(
     );
     if (!s) return;
     const pos = localToLngLat(s.x, s.y);
-    const isMobile = window.matchMedia(MOBILE_BREAKPOINT_QUERY).matches;
-    const center: [number, number] = isMobile
-      ? offsetCenterForSheet([pos.lng, pos.lat], map, 0.4)
-      : [pos.lng, pos.lat];
-    map.easeTo({ center, zoom: 16, pitch: map3D ? 55 : 0, duration: 800 });
+    easeToLngLat(map, [pos.lng, pos.lat], map3D);
   };
 
   // Hover affordance: without it a user cannot tell a missed click from a

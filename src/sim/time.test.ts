@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   bangkokDayStartMs,
+  bangkokFields,
   bangkokSecOfDay,
   DAY_MS,
+} from "./bangkok";
+import {
   formatCountdown,
   formatServiceSec,
 } from "./time";
@@ -95,5 +98,16 @@ describe("bangkok day arithmetic", () => {
     }
     // One millisecond into the next day rolls over.
     expect(bangkokDayStartMs(start + DAY_MS)).toBe(start + DAY_MS);
+  });
+
+  it("splits an instant into Bangkok YYYYMMDD and seconds of day", () => {
+    expect(bangkokFields(NOON_ISH)).toEqual({
+      dateYyyymmdd: 20260730,
+      secOfDay: 12 * 3600 + 34 * 60 + 56,
+    });
+    expect(bangkokFields(bangkokDayStartMs(NOON_ISH))).toEqual({
+      dateYyyymmdd: 20260730,
+      secOfDay: 0,
+    });
   });
 });

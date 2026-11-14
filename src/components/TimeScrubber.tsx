@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { activeSimClient } from "../sim/SimClient";
-import { bangkokDayStartMs, bangkokSecOfDay, DAY_SEC, formatServiceSec } from "../sim/time";
+import { bangkokDayStartMs, bangkokSecOfDay, DAY_SEC } from "../sim/bangkok";
+import { formatServiceSec } from "../sim/time";
 import { useAppStore } from "../stores/useAppStore";
 import { useT } from "../i18n";
 

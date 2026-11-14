@@ -19,3 +19,14 @@ export function bangkokDayStartMs(epochMs: number): number {
 export function bangkokSecOfDay(epochMs: number): number {
   return (epochMs - bangkokDayStartMs(epochMs)) / 1000;
 }
+
+/** Split an epoch-ms instant into the Bangkok service-day fields the engine takes. */
+export function bangkokFields(simEpochMs: number): { dateYyyymmdd: number; secOfDay: number } {
+  // Shift to Bangkok local, then read the wall-clock fields with UTC getters.
+  const local = new Date(simEpochMs + BANGKOK_OFFSET_MS);
+  return {
+    dateYyyymmdd:
+      local.getUTCFullYear() * 10_000 + (local.getUTCMonth() + 1) * 100 + local.getUTCDate(),
+    secOfDay: bangkokSecOfDay(simEpochMs),
+  };
+}

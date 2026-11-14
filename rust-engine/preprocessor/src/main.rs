@@ -560,6 +560,13 @@ fn main() -> ExitCode {
     }
 }
 
+fn write_file_with_parent(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| format!("mkdir {}: {e}", dir.display()))?;
+    }
+    std::fs::write(path, bytes).map_err(|e| format!("write {}: {e}", path.display()))
+}
+
 fn run() -> Result<(), String> {
     let args = parse_args()?;
 
@@ -585,18 +592,12 @@ fn run() -> Result<(), String> {
 
     let bytes = bincode::serde::encode_to_vec(&doc, bincode::config::standard())
         .map_err(|e| format!("bincode encode failed: {e}"))?;
-    if let Some(dir) = args.out.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| format!("mkdir {}: {e}", dir.display()))?;
-    }
-    std::fs::write(&args.out, &bytes).map_err(|e| format!("write {}: {e}", args.out.display()))?;
+    write_file_with_parent(&args.out, &bytes)?;
 
     let report = build_report(&bytes, diag)?;
     let report_str = serde_json::to_string_pretty(&report).unwrap();
     if let Some(path) = &args.report {
-        if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir).map_err(|e| format!("mkdir {}: {e}", dir.display()))?;
-        }
-        std::fs::write(path, &report_str).map_err(|e| format!("write {}: {e}", path.display()))?;
+        write_file_with_parent(path, report_str.as_bytes())?;
     }
     println!("{report_str}");
     Ok(())

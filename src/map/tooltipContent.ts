@@ -2,6 +2,7 @@ import { translate } from "../i18n";
 import { activeSimClient } from "../sim/SimClient";
 import { formatCountdown } from "../sim/time";
 import { useAppStore } from "../stores/useAppStore";
+import { formatRgbHex, resolveHeadsign } from "../utils/stationTypography";
 import type { TrainTooltip } from "./trainTooltip";
 
 const PLACEHOLDER_COLOR = "#94a3b8";
@@ -36,9 +37,8 @@ export function installTooltipContent(tooltip: TrainTooltip): () => void {
         tooltip.setContent(PLACEHOLDER_COLOR, translate(primaryLang, "tooltip.tripEnded"));
         return;
       }
-      const color = `#${detail.color_rgb.toString(16).padStart(6, "0")}`;
-      const headsign =
-        primaryLang === "th" && detail.headsign_th ? detail.headsign_th : detail.headsign;
+      const color = formatRgbHex(detail.color_rgb);
+      const headsign = resolveHeadsign(detail, primaryLang);
       const next =
         detail.next_station !== null && detail.next_arrival_in_s !== null
           ? translate(primaryLang, "tooltip.nextArrival", {

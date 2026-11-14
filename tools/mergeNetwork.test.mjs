@@ -15,5 +15,6 @@ describe("mergeFetchedLines", () => {
 
   it("throws rather than dropping a registry line it has no data for", () => {
     expect(() => mergeFetchedLines(["a", "b", "c", "d"], [{ key: "b" }], existing)).toThrow(/d/);
+    expect(() => mergeFetchedLines(["a", "b", "c"], [{ key: "b" }], { lines: [] })).toThrow(/a, c/);
   });
 });

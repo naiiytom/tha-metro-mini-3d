@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { ReadableStorage, WritableStorage } from "../utils/storage";
 import {
   PRIMARY_LANG_KEY,
   detectBrowserLanguage,
@@ -6,8 +7,6 @@ import {
   parsePrimaryLang,
   resolveInitialLanguage,
   savePrimaryLang,
-  type ReadableStorage,
-  type WritableStorage,
 } from "./persistence";
 
 describe("persistence helpers (Seam C)", () => {

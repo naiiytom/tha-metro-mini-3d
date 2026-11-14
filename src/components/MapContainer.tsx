@@ -20,7 +20,6 @@ import { highlightSpans } from "../map/routeHighlight";
 import { skyPalette, sunDirection } from "../map/sun";
 import { bindStyle, type StyleBinding } from "../map/styleBinding";
 import { TrainTooltip } from "../map/trainTooltip";
-import { MOBILE_BREAKPOINT_QUERY } from "../hooks/useIsMobile";
 import { effectiveElevationDeg } from "../map/themeMode";
 import { effectiveTheme } from "../map/effectiveTheme";
 import { resolveStock, type StockSpec } from "../map/rollingStock";
@@ -29,7 +28,7 @@ import { disposeStationModel, loadStationModel } from "../map/glbStation";
 import { computeStationTangentHeading } from "../map/stationGeometry";
 import { STATION_MODELS } from "../../tools/lines.config.mjs";
 import { VehicleManager } from "../map/VehicleManager";
-import { offsetCenterForSheet } from "../map/viewportOffset";
+import { easeToLngLat } from "../map/viewportOffset";
 import { StationBillboardManager } from "../map/StationBillboardManager";
 import {
   lngLatAltToLocal,
@@ -765,11 +764,7 @@ export function MapContainer() {
     const unsubscribeFlyTo = useAppStore.subscribe((state, prev) => {
       if (state.cameraFlightRequest && state.cameraFlightRequest !== prev.cameraFlightRequest) {
         const { lng, lat } = state.cameraFlightRequest;
-        const isMobile = window.matchMedia(MOBILE_BREAKPOINT_QUERY).matches;
-        const center: [number, number] = isMobile
-          ? offsetCenterForSheet([lng, lat], map, 0.4)
-          : [lng, lat];
-        map.easeTo({ center, zoom: 16, pitch: state.map3D ? 55 : 0, duration: 800 });
+        easeToLngLat(map, [lng, lat], state.map3D);
         useAppStore.getState().clearFlyToRequest();
       }
     });

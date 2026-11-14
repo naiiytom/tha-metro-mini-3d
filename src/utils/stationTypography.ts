@@ -81,3 +81,25 @@ export function resolveLineName(
   return route.name || fallback;
 }
 
+export interface HeadsignSource {
+  headsign: string;
+  headsign_th?: string;
+  destination?: string;
+}
+
+/** Resolves a trip/departure headsign in the user's primary language. */
+export function resolveHeadsign(
+  source: HeadsignSource,
+  primaryLang: PrimaryLanguage = "en",
+): string {
+  if (primaryLang === "th" && source.headsign_th) {
+    return source.headsign_th;
+  }
+  return source.headsign || source.destination || "";
+}
+
+/** Formats a packed 24-bit RGB integer (`RunDetail.color_rgb`) as `#rrggbb`. */
+export function formatRgbHex(colorRgb: number): string {
+  return `#${colorRgb.toString(16).padStart(6, "0")}`;
+}
+

@@ -553,8 +553,10 @@ async function main() {
   let finalLines = lines;
   let preservedHandPatches = undefined;
 
-  if (only.length > 0 && existsSync(OUT_PATH)) {
-    const existing = JSON.parse(await readFile(OUT_PATH, "utf8"));
+  if (only.length > 0) {
+    const existing = existsSync(OUT_PATH)
+      ? JSON.parse(await readFile(OUT_PATH, "utf8"))
+      : { lines: [] };
     const merged = mergeFetchedLines(
       LINES.map((l) => l.key),
       lines,
