@@ -17,6 +17,7 @@ import {
   type WorkerToMain,
   type RoutePlan,
 } from "./protocol";
+import { BANGKOK_OFFSET_MS } from "./bangkok";
 
 /**
  * Dedicated module worker running the wasm sim engine (ENGINE_CONTRACT.md §5).
@@ -28,8 +29,6 @@ import {
  */
 
 const POOL_SIZE = 3;
-/** Asia/Bangkok is fixed UTC+7, no DST — a constant offset is exact. */
-const BANGKOK_OFFSET_MS = 7 * 3_600_000;
 
 let engine: Engine | null = null;
 let timer: number | null = null;

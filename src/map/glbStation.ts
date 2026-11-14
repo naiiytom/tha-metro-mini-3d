@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { StationModelOverride } from "../types";
+import { assetUrl } from "../utils/assetUrl";
 
 /**
  * Landmark 3D station model loader seam.
@@ -35,7 +36,7 @@ export async function loadStationModel(
   loader: StationLoader = defaultStationLoader,
 ): Promise<THREE.Object3D | null> {
   try {
-    const scene = await loader(override.glbUrl);
+    const scene = await loader(assetUrl(override.glbUrl));
     const root = new THREE.Group();
     root.name = `landmark-station-${override.id}`;
     root.userData.isStationModel = true;

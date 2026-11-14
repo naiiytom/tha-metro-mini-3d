@@ -230,8 +230,8 @@ export function MapContainer() {
       if (!client) return;
       const dir = sunDirection(client.getSimNow());
       const mode = useAppStore.getState().themeMode;
-      // Direction stays REAL in every mode (verify:mvp6 check 5 reads the
-      // light position); only the palette and the basemap blend use the
+      // Direction stays REAL in every mode (the light position tracks the
+      // sim clock); only the palette and the basemap blend use the
       // mode-effective elevation.
       const eff = effectiveElevationDeg(mode, dir.elevationDeg);
       layer?.setSun(dir, skyPalette(eff), eff);
@@ -600,12 +600,22 @@ export function MapContainer() {
           // engine's more "correct" per-point track altitude — click/hover
           // picking must agree with what's on screen. See
           // `reconcileStationAltitude`'s own doc comment (src/map/coordinates.ts).
-          void sim
-            ?.getStations()
-            .then((stations) =>
-              useAppStore.getState().setStations(reconcileStationAltitude(stations, rawLines)),
-            )
-            .catch(() => undefined);
+          // Retried once: without this list, clicks, search and the route
+          // planner are all dead for the session, so a single timeout must
+          // not be swallowed.
+          const loadStations = (retry: boolean): void => {
+            sim
+              ?.getStations()
+              .then((stations) =>
+                useAppStore.getState().setStations(reconcileStationAltitude(stations, rawLines)),
+              )
+              .catch((err: unknown) => {
+                if (disposed) return;
+                if (retry) loadStations(false);
+                else console.error("[sim] station list failed to load", err);
+              });
+          };
+          loadStations(true);
         },
         onError: (message) => useAppStore.getState().setEngineStatus("error", message),
         onClock: (params) => useAppStore.getState().setClock(params),
@@ -966,20 +976,16 @@ export function MapContainer() {
     const debugRequested =
       typeof window !== "undefined" && new URLSearchParams(window.location.search).get("debug") === "1";
     if (import.meta.env.DEV || debugRequested) {
-      // dev/debug-only handles for tools/screenshot.mjs (and previously the
-      // browser acceptance harnesses, removed 2026-08-09)
+      // dev/debug-only handles for the tools/screenshot.mjs, capture-*.mjs
+      // and calibrate-night-lift.mjs scripts
       const dev = window as unknown as {
         __map?: MapLibreMap;
         __sim?: typeof activeSimClient;
         __store?: typeof useAppStore;
-        __localToLngLat?: typeof localToLngLat;
       };
       dev.__map = map;
       dev.__sim = activeSimClient;
-      // verify-mvp4.mjs needs these to drive selection and to convert engine
-      // ENU positions into screen pixels for a real click.
       dev.__store = useAppStore;
-      dev.__localToLngLat = localToLngLat;
     }
     return () => {
       disposed = true;

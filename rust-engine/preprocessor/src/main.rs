@@ -447,6 +447,7 @@ struct Args {
     track: PathBuf,
     out: PathBuf,
     report: Option<PathBuf>,
+    allow_older_feed: bool,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -454,6 +455,7 @@ fn parse_args() -> Result<Args, String> {
     let mut track = None;
     let mut out = None;
     let mut report = None;
+    let mut allow_older_feed = false;
     let mut it = std::env::args().skip(1);
     while let Some(flag) = it.next() {
         let mut val = |name: &str| it.next().ok_or(format!("{name} needs a value"));
@@ -462,6 +464,7 @@ fn parse_args() -> Result<Args, String> {
             "--track" => track = Some(PathBuf::from(val("--track")?)),
             "--out" => out = Some(PathBuf::from(val("--out")?)),
             "--report" => report = Some(PathBuf::from(val("--report")?)),
+            "--allow-older-feed" => allow_older_feed = true,
             other => return Err(format!("unknown flag '{other}'")),
         }
     }
@@ -470,7 +473,25 @@ fn parse_args() -> Result<Args, String> {
         track: track.ok_or("--track is required")?,
         out: out.ok_or("--out is required")?,
         report,
+        allow_older_feed,
     })
+}
+
+/// Refuse to build from a GTFS feed older than the one the existing report was
+/// built from: a stale `.gtfs-cache` would otherwise roll the committed
+/// timetable back silently (nearly happened once — see CLAUDE.md, Mo Chit
+/// regeneration notes). Only all-digit (`YYYYMMDD`) versions are compared.
+fn check_feed_not_older(new: &str, previous_report: Option<&str>) -> Result<(), String> {
+    let prev = previous_report
+        .and_then(|r| serde_json::from_str::<serde_json::Value>(r).ok())
+        .and_then(|v| v.get("feed_version")?.as_str().map(str::to_owned));
+    match (new.parse::<u64>(), prev.as_deref().map(str::parse::<u64>)) {
+        (Ok(n), Some(Ok(p))) if n < p => Err(format!(
+            "GTFS feed_version {new} is OLDER than the existing report's {p}; re-run \
+             `npm run data:fetch-gtfs`, or pass --allow-older-feed to roll back on purpose"
+        )),
+        _ => Ok(()),
+    }
 }
 
 /// Resolve one line's `estimatedRunTimes` basis, if it declares one.
@@ -566,6 +587,13 @@ fn run() -> Result<(), String> {
     }
 
     let feed_version = gtfs::read_feed_version(gtfs_dir)?;
+    if !args.allow_older_feed {
+        let previous = args
+            .report
+            .as_deref()
+            .and_then(|p| std::fs::read_to_string(p).ok());
+        check_feed_not_older(&feed_version, previous.as_deref())?;
+    }
     let route_ids_found = gtfs::read_routes(gtfs_dir, &simulated_route_ids)?;
     for id in &simulated_route_ids {
         if !route_ids_found.contains(*id) {
@@ -1874,6 +1902,17 @@ fn check_track_gradient(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_older_feed_than_the_existing_report_is_refused() {
+        let report = r#"{"feed_version":"20260821"}"#;
+        assert!(check_feed_not_older("20260808", Some(report)).is_err());
+        assert!(check_feed_not_older("20260821", Some(report)).is_ok());
+        assert!(check_feed_not_older("20260901", Some(report)).is_ok());
+        // No report yet, or a non-date version: nothing to compare against.
+        assert!(check_feed_not_older("20260808", None).is_ok());
+        assert!(check_feed_not_older("v2", Some(report)).is_ok());
+    }
 
     /// A two-line network file, minimal but structurally real.
     ///

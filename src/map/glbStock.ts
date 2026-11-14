@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { buildStockGeometry } from "./stockGeometry";
 import type { StockSpec } from "./rollingStock";
+import { assetUrl } from "../utils/assetUrl";
 
 /**
  * The `.glb` override seam for rolling stock.
@@ -97,7 +98,7 @@ export async function loadStockGeometry(
   if (spec.glbUrl === undefined) return buildStockGeometry(spec);
 
   try {
-    const root = await load(spec.glbUrl);
+    const root = await load(assetUrl(spec.glbUrl));
     root.updateMatrixWorld(true);
     const parts: THREE.BufferGeometry[] = [];
     try {

@@ -25,8 +25,8 @@ export const THEME_MODES: readonly ThemeMode[] = ["auto", "light", "dark"];
  * consistent appearances out.
  *
  * This governs the palette ONLY. The sun's DIRECTION stays clock-driven in
- * every mode — `verify:mvp6` check 5 asserts the light position tracks the
- * simulated clock, and freezing it would be both a test failure and wrong.
+ * every mode — the light position must track the
+ * simulated clock; freezing it would be wrong.
  */
 export function effectiveElevationDeg(mode: ThemeMode, actualElevationDeg: number): number {
   switch (mode) {

@@ -25,6 +25,7 @@ import { existsSync } from "node:fs";
 import { writeFile, mkdir, readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { mergeFetchedLines } from "./mergeNetwork.mjs";
 import {
   assertLineFieldOrder,
   assertRegistryValid,
@@ -554,19 +555,13 @@ async function main() {
 
   if (only.length > 0 && existsSync(OUT_PATH)) {
     const existing = JSON.parse(await readFile(OUT_PATH, "utf8"));
-    const fetchedMap = new Map(lines.map((l) => [l.key, l]));
-    const existingMap = new Map((existing.lines ?? []).map((l) => [l.key, l]));
-
-    finalLines = LINES.map((l) => {
-      if (fetchedMap.has(l.key)) return fetchedMap.get(l.key);
-      return existingMap.get(l.key);
-    }).filter(Boolean);
-
-    if (Array.isArray(existing.handPatches)) {
-      preservedHandPatches = existing.handPatches.filter(
-        (hp) => !only.includes(hp.line),
-      );
-    }
+    const merged = mergeFetchedLines(
+      LINES.map((l) => l.key),
+      lines,
+      existing,
+    );
+    finalLines = merged.lines;
+    preservedHandPatches = merged.handPatches;
   }
 
   const out = {
