@@ -1044,7 +1044,7 @@ mod tests {
         // this returned {departSec: t, arriveSec: t, durationS: 0, legs: []} —
         // byte-for-byte the "you are already there" answer.
         let w = real_world();
-        let from = real_stop(&w, "arl", "ARL Makkasan");
+        let from = real_stop(&w, "arl", "Makkasan");
         let to = real_stop(&w, "blue", "Phetchaburi");
         let p = w
             .plan_route(&crate::route::PlanRequest {
