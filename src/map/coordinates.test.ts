@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import network from "../data/network.json";
 import { lngLatAltToLocal, reconcileStationAltitude, STATION_MARKER_HEIGHT_M } from "./coordinates";
+import { snapStationsToTrack } from "./stationGeometry";
 import type { StationInfo } from "../sim/protocol";
 import type { LineGeometry } from "../types";
 
@@ -175,5 +176,29 @@ describe("reconcileStationAltitude — real MRT Blue data sanity check", () => {
     // ~34.5 m fix for this specific station, not a synthetic case.
     expect(reconciled.z).toBeCloseTo(16.5, 1);
     expect(reconciled.z).not.toBeCloseTo(-18, 1);
+  });
+
+  it("Hua Lamphong after snapStationsToTrack: reconciles to underground platform altitude (-18 + 1.5 = -16.5), not +16.5", () => {
+    const blue = structuredClone(
+      (network.lines as unknown as LineGeometry[]).find((l) => l.key === "blue"),
+    );
+    expect(blue).toBeDefined();
+    snapStationsToTrack([blue!]);
+
+    const engineHuaLamphong = engineStation({
+      route_idx: 9,
+      station_idx: 11,
+      name_en: "Hua Lamphong",
+      x: -1747.371338,
+      y: -909.697693,
+      z: -18,
+    });
+
+    const linesArray: LineGeometry[] = [];
+    linesArray[9] = blue!;
+    const reconciled = reconcileStationAltitude([engineHuaLamphong], linesArray)[0];
+
+    expect(reconciled.z).toBeCloseTo(-18 + STATION_MARKER_HEIGHT_M, 1);
+    expect(reconciled.z).toBeLessThan(0);
   });
 });
