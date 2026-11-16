@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import type { LineGeometry, Station, Structure, VehicleType } from "../types";
 import { lngLatAltToLocal, localToLngLat, STATION_MARKER_HEIGHT_M } from "./coordinates";
+import { buildArchetypeGeometries, resolveStationArchetype, type StationArchetype } from "./stationArchetypes";
 import { poleTransform } from "./trackGeometry";
 
 /**
@@ -345,45 +346,60 @@ function buildStationInstancedGroup(
   dims: StationDimensions,
   structure: Structure,
   lineColor: THREE.Color,
+  archetype: StationArchetype,
 ): StationMeshGroup {
   const count = items.length;
 
-  const platformGeo = createPlatformGeometry(dims);
-  const canopyGeo = createCanopyGeometry(dims, structure);
-  const trimGeo = createTrimGeometry(dims, structure);
-  const pillarGeo = createColumnGeometry(structure, dims);
+  const {
+    platform: platformGeo,
+    canopy: canopyGeo,
+    trim: trimGeo,
+    pillar: pillarGeo,
+  } = buildArchetypeGeometries(archetype, dims);
 
   const isUnderground = structure === "underground";
   const platformMat = new THREE.MeshLambertMaterial({
-    color: 0x94a3b8,
+    color: 0xffffff,
+    vertexColors: true,
     polygonOffset: isUnderground,
     polygonOffsetFactor: isUnderground ? -1 : 0,
     polygonOffsetUnits: isUnderground ? -1 : 0,
   });
+  platformMat.userData.liveryHex = isUnderground ? 0x64748b : 0x94a3b8;
   const canopyMat = new THREE.MeshLambertMaterial({
-    color: isUnderground ? 0x475569 : 0xe2e8f0,
+    color: 0xffffff,
+    vertexColors: true,
     side: THREE.DoubleSide,
   });
+  canopyMat.userData.liveryHex = isUnderground ? 0x475569 : 0xe2e8f0;
   const trimMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
   trimMat.userData.liveryHex = lineColor.getHex();
-  const pillarMat = new THREE.MeshLambertMaterial({ color: 0x64748b });
+  const pillarMat = new THREE.MeshLambertMaterial({
+    color: 0xffffff,
+    vertexColors: true,
+  });
+  pillarMat.userData.liveryHex = 0x64748b;
 
   const platforms = new THREE.InstancedMesh(platformGeo, platformMat, count);
   platforms.name = "station-platforms";
   platforms.userData.items = items;
+  platforms.userData.archetype = archetype;
   const canopies = new THREE.InstancedMesh(canopyGeo, canopyMat, count);
   canopies.name = "station-canopies";
   canopies.userData.isCanopy = true;
   canopies.userData.items = items;
+  canopies.userData.archetype = archetype;
   const trims = new THREE.InstancedMesh(trimGeo, trimMat, count);
   trims.name = "station-trims";
   trims.userData.isCanopy = true;
   trims.userData.isTrim = true;
   trims.userData.items = items;
+  trims.userData.archetype = archetype;
   const pillars = new THREE.InstancedMesh(pillarGeo, pillarMat, count);
   pillars.name = "station-pillars";
   pillars.userData.isPillar = true;
   pillars.userData.items = items;
+  pillars.userData.archetype = archetype;
 
   const m = new THREE.Matrix4();
   const rotM = new THREE.Matrix4();
@@ -483,7 +499,8 @@ export function buildStationGeometry(stations: Station[], line: LineGeometry): T
   const dims = STATION_DIMENSIONS[line.vehicleType] ?? STATION_DIMENSIONS.heavy;
   const lineColor = new THREE.Color(line.color);
 
-  const surfaceItems: StationInstanceData[] = [];
+  const elevatedItems: StationInstanceData[] = [];
+  const atGradeItems: StationInstanceData[] = [];
   const undergroundItems: StationInstanceData[] = [];
 
   for (const station of stations) {
@@ -498,29 +515,44 @@ export function buildStationGeometry(stations: Station[], line: LineGeometry): T
 
     if (snap.structure === "underground") {
       undergroundItems.push(data);
+    } else if (snap.structure === "atGrade") {
+      atGradeItems.push(data);
     } else {
-      surfaceItems.push(data);
+      elevatedItems.push(data);
     }
   }
 
-  if (surfaceItems.length > 0) {
-    const surfaceGroup = buildStationInstancedGroup(surfaceItems, dims, "elevated", lineColor);
-    group.add(
-      surfaceGroup.platforms,
-      surfaceGroup.canopies,
-      surfaceGroup.trims,
-      surfaceGroup.pillars,
-    );
-  }
+  const addGroup = (
+    items: StationInstanceData[],
+    structure: Structure,
+    isUndergroundBand: boolean,
+  ) => {
+    if (items.length === 0) return;
+    const archetype = resolveStationArchetype(line, structure);
+    const built = buildStationInstancedGroup(items, dims, structure, lineColor, archetype);
+    if (isUndergroundBand) {
+      built.platforms.userData.structure = "underground";
+      built.canopies.userData.structure = "underground";
+      built.trims.userData.structure = "underground";
+      built.pillars.userData.structure = "underground";
+    }
+    group.add(built.platforms, built.canopies, built.trims, built.pillars);
+  };
 
-  if (undergroundItems.length > 0) {
-    const ugGroup = buildStationInstancedGroup(undergroundItems, dims, "underground", lineColor);
-    ugGroup.platforms.userData.structure = "underground";
-    ugGroup.canopies.userData.structure = "underground";
-    ugGroup.trims.userData.structure = "underground";
-    ugGroup.pillars.userData.structure = "underground";
-    group.add(ugGroup.platforms, ugGroup.canopies, ugGroup.trims, ugGroup.pillars);
+  if (elevatedItems.length > 0 && atGradeItems.length > 0) {
+    const elArch = resolveStationArchetype(line, "elevated");
+    const agArch = resolveStationArchetype(line, "atGrade");
+    if (elArch === agArch) {
+      addGroup([...elevatedItems, ...atGradeItems], "elevated", false);
+    } else {
+      addGroup(elevatedItems, "elevated", false);
+      addGroup(atGradeItems, "atGrade", false);
+    }
+  } else {
+    addGroup(elevatedItems, "elevated", false);
+    addGroup(atGradeItems, "atGrade", false);
   }
+  addGroup(undergroundItems, "underground", true);
 
   return group;
 }
